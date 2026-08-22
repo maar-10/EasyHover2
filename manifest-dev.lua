@@ -66,9 +66,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 311,
+          ["size"] = 717,
           ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "a92d01f4",
+          ["sum"] = "770cd561",
         },
         {
           ["dst"] = "nav/comms/gpsproto.lua",
@@ -200,9 +200,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 311,
+          ["size"] = 717,
           ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "a92d01f4",
+          ["sum"] = "770cd561",
         },
         {
           ["dst"] = "fcs/comms/session.lua",
@@ -434,9 +434,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 13901,
+          ["size"] = 14122,
           ["src"] = "tools/flight.lua",
-          ["sum"] = "f027e34a",
+          ["sum"] = "694cf922",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -493,9 +493,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 311,
+          ["size"] = 717,
           ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "a92d01f4",
+          ["sum"] = "770cd561",
         },
         {
           ["dst"] = "nav/app.lua",
@@ -689,9 +689,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 311,
+          ["size"] = 717,
           ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "a92d01f4",
+          ["sum"] = "770cd561",
         },
         {
           ["dst"] = "fcs/comms/session.lua",
@@ -1251,9 +1251,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 311,
+          ["size"] = 717,
           ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "a92d01f4",
+          ["sum"] = "770cd561",
         },
         {
           ["dst"] = "tools/beaconupdate.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "1e790d3c",
+  ["version"] = "7ff2fa5f",
 }

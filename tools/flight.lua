@@ -222,7 +222,10 @@ end
 
 local function telemetryTask()
   while true do
-    telLink:send(tx:frame(shared.snap))     -- low fixed cadence, fire-and-forget
+    -- Guarded: an encode/transmit error must not unwind this task and take down the whole
+    -- flight task group (waitForAny -> safeShutdown). Telemetry is fire-and-forget; skipping
+    -- one frame is always better than dropping thrust.
+    pcall(function() telLink:send(tx:frame(shared.snap)) end)
     sleep(0.1)
   end
 end
