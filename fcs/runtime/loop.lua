@@ -35,8 +35,16 @@ function Loop:apply(duties, dt)
   self.pwm:apply(lift, dt)
   self.sd:apply(rest, dt)
 end
-function Loop:cycle(dt, m)
+function Loop:cycle(rawDt, m)
+  -- §6 dt discipline: clamp AND skip. A cycle that overran (mainThread stall, lag spike) must
+  -- not feed its huge dt into the integrators/derivative as a legitimate step -- that is a kick.
+  -- Overrun => this cycle runs with dt = 0: every controller's usable-guard (dt > 0) skips
+  -- integration and differentiation for exactly this cycle while the P term still reacts, and
+  -- the next sample starts fresh from the new timestamp.
+  local over = rawDt > self.dtMax
+  local dt = rawDt
   if dt < 0 then dt = 0 elseif dt > self.dtMax then dt = self.dtMax end
+  if over then dt = 0 end
   m = m or self.backend:sensors()
   if not self.armed then
     self.scheme:reset()

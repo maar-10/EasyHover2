@@ -102,3 +102,39 @@ t.test("without hoverDuty configured, DAMPED leaves heave to the scheme", functi
   t.eq(loop:getMode(), "DAMPED")
   t.near(d.demands.heave, 0.5, 1e-9)       -- scheme heave preserved
 end)
+
+-- ---- §6 dt discipline: an overrun cycle is SKIPPED, not integrated ----
+t.test("an overrun dt reaches controllers as 0 (integration+derivative skipped, P still acts)", function()
+  local loop = build(); loop:arm(true)
+  local seen
+  loop.scheme = { reset = function() end,
+    update = function(_, sp, m, dt) seen = dt; return { heave=0.5, pitch=0, roll=0, yaw=0, sway=0, surge=0 } end }
+  loop:cycle(3.0, M0)      -- stall: raw dt 3 s > dtMax 0.5
+  t.eq(seen, 0, "overrun cycle passes dt=0 to the scheme")
+  seen = nil
+  loop:cycle(0.1, M0)
+  t.near(seen, 0.1, 1e-9, "normal cycle passes its real dt")
+end)
+
+t.test("a dt spike produces no integrator kick (real PID through the loop)", function()
+  local Pid = require("fcs.control.pid")
+  local alt = Pid.new({ kp = 0.2, ki = 0.4 })
+  local loop = build(); loop:arm(true)
+  loop.scheme = { reset = function() end,
+    update = function(_, sp, m, dt)
+      return { heave = alt:update(sp.altitude, m.altitude, dt), pitch=0, roll=0, yaw=0, sway=0, surge=0 }
+    end }
+  loop:setpoints({ altitude = 2 })   -- constant +error drives the integrator up
+  -- settle some error into the integrator at normal rate
+  for _ = 1, 10 do loop:cycle(0.1, { altitude=1, vSpeed=0, pitch=0, roll=0, heading=0,
+    yawRate=0, swayVel=0, surgeVel=0, swayPos=0, surgePos=0, onGround=false }) end
+  local iBeforeStall = alt.i
+  t.truthy(iBeforeStall > 0, "integrator alive before the spike")
+  -- the stall: a huge single-cycle gap must not integrate (and must not kick on recovery)
+  loop:cycle(3.0, { altitude=1, vSpeed=0, pitch=0, roll=0, heading=0,
+    yawRate=0, swayVel=0, surgeVel=0, swayPos=0, surgePos=0, onGround=false })
+  t.eq(alt.i, iBeforeStall, "stall cycle integrated NOTHING")
+  loop:cycle(0.1, { altitude=1, vSpeed=0, pitch=0, roll=0, heading=0,
+    yawRate=0, swayVel=0, surgeVel=0, swayPos=0, surgePos=0, onGround=false })
+  t.truthy(alt.i > iBeforeStall, "integration resumes normally after the gap")
+end)
