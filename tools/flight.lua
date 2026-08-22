@@ -196,6 +196,8 @@ local function controlTask()
     if ev[1] == "timer" and ev[2] == timer then
       -- Guard the whole step: a single bad sensor read or step error must NOT kill the control
       -- task (a silently-dead loop = uncontrolled craft). Capture it for the console and carry on.
+      -- §11.9: "Terminated" is NEVER swallowed by this device-fault pcall -- a Ctrl+T arriving
+      -- mid-step is re-raised so parallel.waitForAny unwinds and safeShutdown() runs.
       local ok, err = pcall(function()
         local now = os.epoch("utc"); local dt = (now - lastT) / 1000; lastT = now
         local meas = backend:sensors()
@@ -205,7 +207,10 @@ local function controlTask()
         shared.snap = snap
         logCycle(dt, meas)
       end)
-      if not ok then shared.controlErr = tostring(err) end
+      if not ok then
+        if err == "Terminated" then error(err, 0) end
+        shared.controlErr = tostring(err)
+      end
       timer = os.startTimer(0)   -- ALWAYS re-arm, even if the step threw, so the loop never stalls
     end
   end
