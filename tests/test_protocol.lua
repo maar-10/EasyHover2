@@ -14,3 +14,14 @@ t.test("decode returns nil on garbage instead of throwing", function()
   t.eq(protocol.decode(123), nil, "number -> nil")
   t.eq(protocol.decode("42"), nil, "non-table -> nil")
 end)
+
+t.test("encode prefers compact single-line serialization when supported", function()
+  local f = { k = "tel", a = 1, nested = { b = 2 }, list = { 1, 2, 3 } }
+  local s = protocol.encode(f)
+  local dec = protocol.decode(s)
+  t.eq(dec.nested.b, 2); t.eq(dec.list[3], 3, "fidelity unchanged")
+  -- Only assert the layout when this CC:T actually supports the compact option.
+  if not textutils.serialize({ 1 }, { compact = true }):find("\n") then
+    t.eq(s:find("\n"), nil, "compact encoder emits a single line")
+  end
+end)

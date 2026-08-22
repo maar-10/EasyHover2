@@ -66,9 +66,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 232,
+          ["size"] = 308,
           ["src"] = "dist/fcs/comms/protocol.lua",
-          ["sum"] = "cc8c185d",
+          ["sum"] = "6f67af25",
         },
         {
           ["dst"] = "nav/comms/gpsproto.lua",
@@ -200,9 +200,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 232,
+          ["size"] = 308,
           ["src"] = "dist/fcs/comms/protocol.lua",
-          ["sum"] = "cc8c185d",
+          ["sum"] = "6f67af25",
         },
         {
           ["dst"] = "fcs/comms/session.lua",
@@ -434,9 +434,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 6095,
+          ["size"] = 6115,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "00f7a2c2",
+          ["sum"] = "fd7a5343",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -493,9 +493,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 232,
+          ["size"] = 308,
           ["src"] = "dist/fcs/comms/protocol.lua",
-          ["sum"] = "cc8c185d",
+          ["sum"] = "6f67af25",
         },
         {
           ["dst"] = "nav/app.lua",
@@ -689,9 +689,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 232,
+          ["size"] = 308,
           ["src"] = "dist/fcs/comms/protocol.lua",
-          ["sum"] = "cc8c185d",
+          ["sum"] = "6f67af25",
         },
         {
           ["dst"] = "fcs/comms/session.lua",
@@ -1251,9 +1251,9 @@
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 232,
+          ["size"] = 308,
           ["src"] = "dist/fcs/comms/protocol.lua",
-          ["sum"] = "cc8c185d",
+          ["sum"] = "6f67af25",
         },
         {
           ["dst"] = "tools/beaconupdate.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "9a3f2eea",
+  ["version"] = "d73a825b",
 }
