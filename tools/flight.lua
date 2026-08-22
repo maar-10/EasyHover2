@@ -192,8 +192,11 @@ local function controlTask()
   -- avoid CC:Tweaked's "Too long without yielding" watchdog).
   local timer = os.startTimer(0)
   while true do
-    local ev = { os.pullEvent() }
-    if ev[1] == "timer" and ev[2] == timer then
+    -- Filter in the dispatcher: an unfiltered pullEvent also resumes us for every modem
+    -- message, char, and other tasks' timers -- each a wasted coroutine wakeup + table alloc
+    -- at ~15 Hz against ~40 events/s of cross-traffic.
+    local _, timerId = os.pullEvent("timer")
+    if timerId == timer then
       -- Guard the whole step: a single bad sensor read or step error must NOT kill the control
       -- task (a silently-dead loop = uncontrolled craft). Capture it for the console and carry on.
       local ok, err = pcall(function()
@@ -212,9 +215,16 @@ local function controlTask()
 end
 
 local function inputTask()
+  -- keymap.forMode only changes with flightMode; re-resolving the map table every 50 ms poll
+  -- is pure waste. Cache it and refresh on mode change.
+  local lastMode, cachedMap = nil, nil
   while true do
     if typewriter and typewriter.getPressedKeyCodes then
-      heldRef.held = keymap.resolve(keymap.forMode(flight.flightMode), typewriter.getPressedKeyCodes() or {})
+      if flight.flightMode ~= lastMode then
+        lastMode = flight.flightMode
+        cachedMap = keymap.forMode(lastMode)
+      end
+      heldRef.held = keymap.resolve(cachedMap, typewriter.getPressedKeyCodes() or {})
     end
     sleep(0.05)
   end
