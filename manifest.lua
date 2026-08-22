@@ -1163,9 +1163,9 @@
         },
         {
           ["dst"] = "ui/engine.lua",
-          ["size"] = 2869,
+          ["size"] = 3096,
           ["src"] = "dist/ui/engine.lua",
-          ["sum"] = "f165c406",
+          ["sum"] = "4b4f2285",
         },
         {
           ["dst"] = "ui/fuel.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "9a3f2eea",
+  ["version"] = "1abb1c33",
 }

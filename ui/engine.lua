@@ -46,6 +46,11 @@ function Engine.new(cfg, writer)
   self.nextPulseAt = nil
   self.pulses = 0
   self.lastWritten = nil        -- what we last told the relay, for write-on-change
+  -- Periodic re-assert: write-on-change defeats itself across a relay/peripheral reboot (RAM
+  -- `lastWritten` still matches the desired signal while the PHYSICAL output was lost). Every
+  -- reassertMs the dedup state is invalidated so the safe state is physically re-driven.
+  self.reassertMs = cfg.reassertMs or 2000
+  self.lastWriteAt = nil        -- ms timestamp of the last successful write
 
   self.mode = (cfg.mode == "latch") and "latch" or "basic"
   self.lastFeeding = nil       -- latch: last logical state a pulse was fired for
@@ -68,7 +73,7 @@ function Engine:_write(feeding, now)
   if self.lastWritten == signal then return true end
 
   local ok = self.writer(signal)
-  if ok then self.lastWritten = signal end
+  if ok then self.lastWritten = signal; self.lastWriteAt = now end
   return ok
 end
 
@@ -84,6 +89,7 @@ function Engine:_writeLatch(feeding, now)
   local ok = self.writer(line, true)
   if ok then
     self.lastFeeding = feeding
+    self.lastWriteAt = now
     if feeding then self.feedLineDownAt = now + LATCH_LINE_MS
     else self.blockLineDownAt = now + LATCH_LINE_MS end
   end
@@ -148,6 +154,14 @@ end
 function Engine:tick(now)
   self.lastNow = now
   self:_lowerDueLines(now)
+
+  -- Periodic re-assert: invalidate the write-on-change dedup so the next _write physically
+  -- re-drives the output. This is what makes the master-off "held blocked" state survive a
+  -- relay reboot that silently dropped the physical signal (see Engine.new).
+  if self.reassertMs and self.lastWriteAt and now - self.lastWriteAt >= self.reassertMs then
+    self.lastWritten = nil
+    self.lastFeeding = nil
+  end
 
   if not self.master then
     -- Held blocked. Re-assert rather than assume: a rescan or a relay reboot could have

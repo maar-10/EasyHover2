@@ -137,3 +137,31 @@ t.test("basic mode: pulseMs timing is unchanged (blocks exactly at tick(250))", 
   e:tick(249); t.eq(w.last, false)
   e:tick(250); t.eq(w.last, true)
 end)
+
+t.test("basic mode: the blocked state is physically RE-DRIVEN every reassertMs", function()
+  -- A relay reboot silently drops its physical output while our RAM `lastWritten` still matches
+  -- the desired signal -> write-on-change would never restore it, and an unblocked funnel with
+  -- the master off drains the vault. After reassertMs the dedup must be invalidated so the safe
+  -- state is written again.
+  local w = fakeWriter(); local e = Engine.new(CFG, w.fn)   -- CFG.reassertMs defaults to 2000
+  e:tick(0)                          -- blocked write #1 (signal=true)
+  e:tick(1000); e:tick(1999)         -- deduped: still inside the reassert window
+  local n = #w.calls
+  t.eq(n, 1)
+  e:tick(2000)                       -- >= reassertMs since the last successful write
+  t.eq(#w.calls, n + 1, "blocked state physically re-written")
+  t.eq(w.calls[n+1], true, "re-driven value is the blocked (HIGH) signal")
+  e:tick(2500)                       -- freshly re-asserted -> deduped again until next window
+  t.eq(#w.calls, n + 1)
+end)
+
+t.test("latch: a lost BLOCK latch is re-fired by the periodic re-assert", function()
+  local w = fakeLatchWriter(); local e = Engine.new(LATCH_CFG, w.fn)
+  e:tick(0); e:tick(150)             -- BLOCK raise + line drop; lastWriteAt ~= 150
+  e:tick(2100)                       -- past reassertMs -> BLOCK trigger must fire again
+  local refired
+  for _, c in ipairs(w.calls) do
+    if c.line == "block" and c.value == true then refired = c end
+  end
+  t.truthy(refired, "BLOCK latch re-asserted")
+end)
