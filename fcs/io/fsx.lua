@@ -26,9 +26,13 @@ end
 -- M.writeAtomic(path, body) -> true on success. Writes to `path .. ".tmp"`, deletes an existing
 -- `path`, then fs.move(tmp, path) -- the crash-safe tmp-then-move pattern mirrored EXACTLY from
 -- the existing realWrite/saveConfig closures.
+-- Returns false (not a crash) when the tmp file cannot be opened (disk full, read-only media).
+-- The destination is only deleted AFTER the tmp write succeeds, so a failure here leaves the
+-- previous good file untouched.
 function M.writeAtomic(path, body)
   local tmp = path .. ".tmp"
   local f = fs.open(tmp, "w")
+  if not f then return false end
   f.write(body)
   f.close()
   if fs.exists(path) then fs.delete(path) end

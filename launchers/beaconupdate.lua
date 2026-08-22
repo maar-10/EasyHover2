@@ -50,14 +50,17 @@ local r = Tool.run({
   transmit = function(ch, reply, msg) modem.transmit(ch, reply, msg) end,
   pull = function(timeoutS)
     if deadline == nil then deadline = os.clock() + timeoutS end
-    while true do
-      local remaining = deadline - os.clock()
-      if remaining <= 0 then return nil end
-      local timer = os.startTimer(remaining)
+    local timer = os.startTimer(deadline - os.clock())   -- ONE deadline timer per pull: the old
+    while true do                                        -- code re-armed a fresh timer on every
+      local remaining = deadline - os.clock()            -- non-matching event, leaking strays
+      if remaining <= 0 then os.cancelTimer(timer) return nil end
       local ev = { os.pullEvent() }
       if ev[1] == "modem_message" then
         local f = Update.decode(ev[5])
-        if f and f.k == Update.ACK_KIND then return f.id end
+        if f and f.k == Update.ACK_KIND then
+          os.cancelTimer(timer)
+          return f.id
+        end
       elseif ev[1] == "timer" and ev[2] == timer then
         return nil
       end

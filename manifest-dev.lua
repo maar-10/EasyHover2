@@ -290,9 +290,9 @@
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
-          ["size"] = 1791,
+          ["size"] = 2047,
           ["src"] = "fcs/io/fsx.lua",
-          ["sum"] = "f79c5e17",
+          ["sum"] = "e5042a84",
         },
         {
           ["dst"] = "fcs/io/hwconfig.lua",
@@ -761,9 +761,9 @@
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
-          ["size"] = 1791,
+          ["size"] = 2047,
           ["src"] = "fcs/io/fsx.lua",
-          ["sum"] = "f79c5e17",
+          ["sum"] = "e5042a84",
         },
         {
           ["dst"] = "fcs/io/hwconfig.lua",
@@ -1245,9 +1245,9 @@
         },
         {
           ["dst"] = "beaconupdate",
-          ["size"] = 2662,
+          ["size"] = 2914,
           ["src"] = "launchers/beaconupdate.lua",
-          ["sum"] = "e255b1d4",
+          ["sum"] = "7778dd7d",
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
@@ -1279,9 +1279,9 @@
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
-          ["size"] = 1791,
+          ["size"] = 2047,
           ["src"] = "fcs/io/fsx.lua",
-          ["sum"] = "f79c5e17",
+          ["sum"] = "e5042a84",
         },
         {
           ["dst"] = "fcs/io/hwconfig.lua",
@@ -1325,9 +1325,9 @@
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
-          ["size"] = 1791,
+          ["size"] = 2047,
           ["src"] = "fcs/io/fsx.lua",
-          ["sum"] = "f79c5e17",
+          ["sum"] = "e5042a84",
         },
         {
           ["dst"] = "fcs/io/hwconfig.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "1e790d3c",
+  ["version"] = "9c3b0192",
 }

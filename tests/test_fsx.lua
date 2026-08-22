@@ -69,3 +69,16 @@ t.test("fsx.exists: true for a present file, false for absent", function()
   t.eq(fsx.exists(PATH), true)
   cleanup()
 end)
+
+t.test("writeAtomic: false on unopenable tmp; existing file left intact", function()
+  local path = "/eh2_fsx_guard.tbl"
+  if fs.exists(path) then fs.delete(path) end
+  fsx.writeAtomic(path, "PRECIOUS")
+  local realOpen = fs.open
+  fs.open = function(p, m) if m == "w" then return nil end return realOpen(p, m) end
+  local ret = fsx.writeAtomic(path, "OVERWRITE-ATTEMPT")
+  fs.open = realOpen
+  t.eq(ret, false, "reports failure instead of crashing")
+  t.eq(fsx.read(path), "PRECIOUS", "previous good content survives the failed write")
+  fs.delete(path)
+end)
