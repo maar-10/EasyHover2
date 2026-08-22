@@ -61,6 +61,25 @@ t.test("vSpeed derives from altitude change over dt (tau 0 = unfiltered)", funct
   altP.getHeight = function() return 11 end; clk2 = 500   -- +1m over 0.5s
   t.near(b3:sensors().vSpeed, 2, 1e-6)   -- 1m / 0.5s
 end)
+t.test("a stall (huge dt) is integrated CLAMPED: vSpeed and positions stay bounded", function()
+  -- After a mainThread stall the wall-clock gap must not feed a huge step into the filter or
+  -- teleport sway/surge position into the pilot leashes.
+  local altP = mocks.altitude(100)
+  local shim = mocks.shim({ alt=altP, gim=mocks.gimbal({0,0}), vf=mocks.velocity(4), vr=mocks.velocity(0),
+    vm=mocks.velocity(8), nav=mocks.navtable(0), opt=mocks.optical(9) })
+  local cfg = sensorCfg(); cfg.bindings.vSpeedTau = 0.0
+  local clk = 0; local b = Backend.new(shim, cfg, function() return clk end)
+  b:sensors()                                     -- seed at t=0
+  clk = 5000                                      -- 5 s gap (a stall)
+  local s = b:sensors()
+  t.near(s.swayPos, 1, 1e-6, "sway integrates 2 m/s x 0.5 s max, not x 5 s")
+  t.near(s.surgePos, 4, 1e-6, "surge integrates 8 m/s x 0.5 s max")
+  t.near(s.vFilt or s.vSpeed, 0, 1e-6)            -- altitude unchanged -> vSpeed stays 0
+  -- next sample starts fresh from the new lastT (no residual mega-dt)
+  clk = 5500
+  local s2 = b:sensors()
+  t.near(s2.swayVel, 2, 1e-9); t.near(s2.swayPos, 2, 1e-6)   -- +2 m/s x 0.5 s normal sample
+end)
 t.test("heading applies sign and scale (deg->rad)", function()
   local cfg = sensorCfg(); cfg.bindings.signHeading = -1; cfg.bindings.headingScale = math.pi/180
   local b = Backend.new(sensorRig(10, {0,0}, 0,0,0, 90, 5), cfg, function() return 0 end)

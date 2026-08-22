@@ -1,4 +1,8 @@
 local frame = require("fcs.frame")
+-- Max sample period the velocity filter / position integrators will act on (seconds). Matches
+-- Loop:cycle's dtMax. A gap larger than this (a stall) is integrated as if it were this long --
+-- bounded, never a teleport.
+local MAX_INTEGRATION_DT = 0.5
 local Backend = {}
 Backend.__index = Backend
 function Backend.new(shim, config, clock)
@@ -62,6 +66,11 @@ function Backend:sensors()
   local vSpeed = 0
   if self.lastT ~= nil then
     local dt = (now - self.lastT) / 1000
+    -- Clamp the sample period like Loop:cycle clamps the loop dt: after a stall (mainThread
+    -- hiccup, lag spike) raw dt would integrate a huge step -- rawV spikes into the alt-PID's
+    -- derivative and sway/surge "teleport" into the pilot leashes. Bound it; lastT still moves
+    -- to now, so the next sample starts fresh.
+    if dt > MAX_INTEGRATION_DT then dt = MAX_INTEGRATION_DT end
     if dt > 0 then
       local rawV = (altitude - self.lastAlt) / dt
       local tau = b.vSpeedTau or 0
