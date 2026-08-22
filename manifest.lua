@@ -338,9 +338,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 1788,
+          ["size"] = 1821,
           ["src"] = "dist/fcs/runtime/loop.lua",
-          ["sum"] = "237ddd41",
+          ["sum"] = "becbe640",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -797,9 +797,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 1788,
+          ["size"] = 1821,
           ["src"] = "dist/fcs/runtime/loop.lua",
-          ["sum"] = "237ddd41",
+          ["sum"] = "becbe640",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "9a3f2eea",
+  ["version"] = "cd52a0ae",
 }

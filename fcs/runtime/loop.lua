@@ -50,6 +50,13 @@ function Loop:cycle(dt, m)
   end
   local grounded = m.onGround == true
   local demands = self.scheme:update(self.sp, m, dt, grounded)
+  if grounded then
+    -- §11.7 ground gating: on the ground the integrators are ZEROED, not merely frozen. Freeze
+    -- alone resumes flight from whatever stale I the craft accumulated while sitting there --
+    -- exactly the "leaps on takeoff" windup the safety contract names. reset() also clears the
+    -- derivative filter state, so liftoff starts from a clean loop.
+    self.scheme:reset()
+  end
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).

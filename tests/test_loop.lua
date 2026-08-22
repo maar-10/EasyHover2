@@ -102,3 +102,28 @@ t.test("without hoverDuty configured, DAMPED leaves heave to the scheme", functi
   t.eq(loop:getMode(), "DAMPED")
   t.near(d.demands.heave, 0.5, 1e-9)       -- scheme heave preserved
 end)
+
+-- ---- §11.7 ground gating zeroes (not just freezes) the integrators ----
+t.test("grounded engaged cycles zero the integrators so liftoff starts clean", function()
+  local Pid = require("fcs.control.pid")
+  local Scheme = require("fcs.schemes.level_flight")
+  local scheme = Scheme.new({ hoverDuty = 0.5, alt = { kp = 0.2, ki = 1.0, kd = 0 },
+    pitch = { kp = 0.2, ki = 0.5, kd = 0 } })
+  local loop = Loop.new({ scheme = scheme, mixer = Mixer.new(), pwm = fakePwm(),
+    backend = fakeBackend(), dtMax = 0.5 })
+  loop:arm(true)
+  loop:setpoints({ altitude = 4, pitch = 0, roll = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  local air = { altitude=2, vSpeed=0, pitch=1, roll=0, heading=0, yawRate=0,
+    swayVel=0, surgeVel=0, swayPos=0, surgePos=0, onGround=false }
+  for _ = 1, 10 do loop:cycle(0.1, air) end          -- build up I terms in flight
+  t.truthy(scheme.altPid.i > 0, "alt integrator alive in flight")
+  t.truthy(scheme.pitchPid.i ~= 0, "pitch integrator alive in flight")
+  -- touch down ENGAGED and MOVING (the case parked-gating does not cover)
+  local gnd = { altitude=2, vSpeed=0, pitch=1, roll=0, heading=0, yawRate=0,
+    swayVel=0, surgeVel=0, swayPos=0, surgePos=0, onGround=true }
+  local d = loop:cycle(0.1, gnd)
+  t.eq(loop:getMode(), "GROUND")
+  t.eq(scheme.altPid.i, 0, "alt I zeroed on ground")
+  t.eq(scheme.pitchPid.i, 0, "pitch I zeroed on ground")
+  t.eq(d.mode, "GROUND")
+end)
