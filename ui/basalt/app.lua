@@ -558,6 +558,11 @@ function M.buildState(runtime, now)
         local step = routefollow.step(legs, nv.routeActive.i or 1, craft, M.ROUTE_ARRIVAL_RADIUS)
         nv.routeActive.i = step.i   -- auto-advance the active leg on arrival
         tgt, color = step.target, "blue"
+      else
+        -- The active route was deleted on the NAV PC: drop the cue AND the stale activation,
+        -- otherwise routeActive lingers forever (only re-ACT cleared it) and the cue silently
+        -- vanishes while state still claims a route is being followed.
+        nv.routeActive = nil
       end
     elseif nv.target then
       tgt, color = nv.target, (nv.target.color or "green")

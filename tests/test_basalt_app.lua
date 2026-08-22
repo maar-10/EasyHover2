@@ -382,3 +382,16 @@ t.test("makeEngineWriter: latch mode drives block/feed sides with a 2-arg writer
   t.eq(relay.calls[1].side, "back"); t.eq(relay.calls[1].val, true)
   t.eq(relay.calls[2].side, "left"); t.eq(relay.calls[2].val, true)
 end)
+
+t.test("buildState clears a stale routeActive when its route was deleted on the NAV PC", function()
+  -- Old behavior: findRoute -> nil made the cue silently vanish, but routeActive lingered
+  -- forever (only re-ACT cleared it) while state still claimed a route was being followed.
+  local runtime = newRuntime()
+  local now = os.epoch("utc")
+  runtime.nav.fixX = 0; runtime.nav.fixZ = 0; runtime.nav.heading = 0; runtime.nav.at = now
+  runtime.nav.routeActive = { name = "GONE", i = 1 }   -- no such route in the (empty) store
+  M.routeModem(runtime, CH.telemetry, protocol.encode(telemetry.Tx.new():frame({ altitude = 64 })))
+  local s = M.buildState(runtime, now)
+  t.eq(s.target, nil, "no steering cue from a missing route")
+  t.eq(runtime.nav.routeActive, nil, "stale activation cleared instead of lingering")
+end)

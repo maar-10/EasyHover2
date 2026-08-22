@@ -378,7 +378,11 @@ function M.build(basalt, frame, runtime, nav)
         { label = "ALT-", onClick = function() if selLeg then legAlt(selLeg, -5) end end },
         { label = "ALT+", onClick = function() if selLeg then legAlt(selLeg, 5) end end },
         { label = "UP",   onClick = function() if selLeg then mutateOp("moveLeg", { route = openRoute, i = selLeg, dir = -1 }); selLeg = math.max(1, selLeg - 1); refresh() end end },
-        { label = "DN",   onClick = function() if selLeg then mutateOp("moveLeg", { route = openRoute, i = selLeg, dir = 1 }); selLeg = selLeg + 1; refresh() end end },
+        { label = "DN",   onClick = function() if selLeg then mutateOp("moveLeg", { route = openRoute, i = selLeg, dir = 1 })
+            -- Clamp like UP does: an unclamped +1 walked the selection past the last leg, and
+            -- DEL/moveLeg then targeted a nonexistent index (server rejects, selection drifts).
+            local r = route(); local n = (r and r.legs) and #r.legs or selLeg
+            selLeg = math.min(n, selLeg + 1); refresh() end end },
       })
       local listFrame = ff:addFrame({ x = 1, y = 3, width = ffw, height = math.max(3, ffh - 3) })
       local list = WL.make(listFrame, { rows = math.max(1, ffh - 4), selColor = colors.blue,
