@@ -13,14 +13,19 @@ local FLAG = {
   rudder    = { [-1] = "rudderLeft", [1] = "rudderRight" },
 }
 
+-- The held-flag name a single bound code drives, or nil when unbound. Exposed for the
+-- event-driven input path, which applies one key press/release at a time.
+function M.flagFor(map, code)
+  local m = map[code]
+  if not m then return nil end
+  return FLAG[m.axis] and FLAG[m.axis][m.dir] or nil
+end
+
 function M.resolve(map, codes)
   local held = {}
   for _, code in ipairs(codes) do
-    local m = map[code]
-    if m then
-      local flag = FLAG[m.axis] and FLAG[m.axis][m.dir]
-      if flag then held[flag] = true end
-    end
+    local flag = M.flagFor(map, code)
+    if flag then held[flag] = true end
   end
   return held
 end

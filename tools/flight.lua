@@ -211,12 +211,29 @@ local function controlTask()
   end
 end
 
+-- Hybrid input (design §10, updated for Simulated >=1.3.0): typewriter "key"/"key_up"
+-- peripheral events pre-apply pilot intent within a tick of the physical press; the 50 ms
+-- poll re-syncs as the authority. See fcs/input/events.lua for the disambiguation rules.
+local inputHybrid = require("fcs.input.events").new({
+  codes = function()
+    if typewriter and typewriter.getPressedKeyCodes then return typewriter.getPressedKeyCodes() end
+    return {}
+  end,
+  map = function() return keymap.forMode(flight.flightMode) end,
+  held = heldRef.held,
+})
+
 local function inputTask()
+  inputHybrid:sync()
+  local pollTimer = os.startTimer(0.05)
   while true do
-    if typewriter and typewriter.getPressedKeyCodes then
-      heldRef.held = keymap.resolve(keymap.forMode(flight.flightMode), typewriter.getPressedKeyCodes() or {})
+    local ev = { os.pullEvent() }
+    if not inputHybrid:event(ev[1], ev[2], ev[3]) then
+      if ev[1] == "timer" and ev[2] == pollTimer then
+        inputHybrid:sync()
+        pollTimer = os.startTimer(0.05)
+      end
     end
-    sleep(0.05)
   end
 end
 

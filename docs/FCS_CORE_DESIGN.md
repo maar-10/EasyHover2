@@ -359,8 +359,15 @@ yawRate, climbRate` (and mode/config actions) — and a config-driven mapping la
 physical inputs into them. Swapping input hardware later is a config change, never a control-code
 change.
 
-- **For now:** typewriter (widest button range; **polled** via `getPressedKeyCodes()`, never
-  event-driven — a v1 lesson) + monitor touch buttons.
+- **For now:** typewriter (widest button range) in a **hybrid** input path. The original rule
+  was poll-only — older Simulated emitted no typewriter events, so `getPressedKeyCodes()` was
+  the only signal ("a v1 lesson"). As of Simulated 1.3.0 the typewriter *does* emit peripheral
+  `key`/`key_up` events synchronously with the physical interaction (verified in-game and in the
+  decompiled block entity), so input is now **event-driven pre-apply + polled authority**
+  (`fcs/input/events.lua`): events land intent within a tick; the 50 ms poll remains the
+  trusted re-sync. Caveat: the mod reuses CC's bare `"key"` event name — local-terminal keys
+  carry a string key-name arg while typewriter events carry a boolean/nil, which is the
+  discriminator the hybrid relies on.
 - **Wired directly to the FCS computer** for lowest latency — pilot intent never makes a network
   hop before reaching the loop.
 
