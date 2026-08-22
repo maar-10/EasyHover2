@@ -142,3 +142,61 @@ t.test("comAuto abort forces a descent", function()
   t.eq(snap.comAuto.phase, "DESCEND")
   t.eq(snap.comAuto.abortReason, "ABORT")
 end)
+
+-- ---- §11.8 no-fuel interlock ----
+local function fuelFlight(L, frac0)
+  local level = frac0
+  local f = Flight.new({ loop = L, pilot = Pilot.new(CFG),
+    fuel = function() return level end })
+  return f, function(v) level = v end
+end
+
+t.test("no-fuel: engage is refused while the tank reads below minFuel", function()
+  local L = fakeLoop(); local f = fuelFlight(L, 0.01)
+  f:handleCommand({ k = "gndSafety", on = false })
+  t.eq(f:handleCommand({ k = "engage" }), false, "engage blocked on empty tank")
+  t.eq(f.engaged, false)
+end)
+
+t.test("no-fuel: running dry mid-flight disarms, resets loops, and latches noFuel", function()
+  local L = fakeLoop(); local f, setFuel = fuelFlight(L, 1.0)
+  f:handleCommand({ k = "gndSafety", on = false }); f:handleCommand({ k = "engage" })
+  f:step(0.1, { up = true }, groundMeas{ onGround = false })   -- airborne + armed
+  t.eq(L.armed, true, "sane before the trip")
+  setFuel(0.02)                                                -- tank runs dry in flight
+  local snap = f:step(0.1, {}, groundMeas{ onGround = false })
+  t.eq(snap.noFuel, true, "snapshot annunciate noFuel")
+  t.eq(f.engaged, false, "disengaged")
+  t.eq(L.armed, false, "loop disarmed (zero thrust via the unarmed cycle path)")
+  t.eq(snap.engaged, false)
+end)
+
+t.test("no-fuel: latched until refuelled past the hysteresis band, then engage works", function()
+  local L = fakeLoop(); local f, setFuel = fuelFlight(L, 1.0)
+  f:handleCommand({ k = "gndSafety", on = false }); f:handleCommand({ k = "engage" })
+  f:step(0.1, { up = true }, groundMeas{ onGround = false })
+  setFuel(0.01); f:step(0.1, {}, groundMeas{ onGround = false })   -- trip
+  setFuel(0.06)                                                    -- above minFuel, below 2x
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.eq(f.noFuel, true, "still latched inside hysteresis band")
+  t.eq(f:handleCommand({ k = "engage" }), false, "engage still refused")
+  setFuel(0.5)                                                     -- well past 2x minFuel
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.eq(f.noFuel, false, "cleared past hysteresis")
+  t.truthy(f:handleCommand({ k = "engage" }), "re-engage honored after refuel")
+end)
+
+t.test("no-fuel: an unreadable gauge (nil reading) never trips the gate", function()
+  local L = fakeLoop()
+  local f = Flight.new({ loop = L, pilot = Pilot.new(CFG), fuel = function() return nil end })
+  f:handleCommand({ k = "gndSafety", on = false }); f:handleCommand({ k = "engage" })
+  local snap = f:step(0.1, { up = true }, groundMeas{ onGround = false })
+  t.eq(snap.noFuel, false, "nil gauge never trips")
+  t.eq(L.armed, true, "flight unaffected")
+end)
+
+t.test("no-fuel: without an injected getter the interlock is inert (backwards compatible)", function()
+  local L = fakeLoop(); local f = engagedFlight(L)
+  local snap = f:step(0.1, {}, groundMeas{ onGround = false })
+  t.eq(snap.noFuel, false); t.eq(L.armed, true)
+end)

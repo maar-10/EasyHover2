@@ -42,10 +42,15 @@ local config  = loadConfig()
 local backend = Backend.new(shim, config)
 local loop, registry = hover.buildLoop(backend)   -- SINGLE arg; buildLoop reads tuning itself
 
+-- Fuel state lives here so the §11.8 no-fuel interlock (Flight) can read the same decoupled
+-- snapshot pollFuel fills; the 1 Hz fuel task below keeps peripheral reads off the hot path.
+local fuelState = { thrusterFuel = {}, fuelMain = nil }
+
 local pilot  = Pilot.new(inputCfg.default)
 pilot:setMode(registry.byId[registry.default].policy, registry.byId[registry.default].feel)
 local flight = Flight.new({ loop = loop, pilot = pilot, registry = registry,
-  moveEps = tuning.groundIdle and tuning.groundIdle.moveEps })
+  moveEps = tuning.groundIdle and tuning.groundIdle.moveEps,
+  fuel = function() return fuelState.fuelMain end })
 
 -- ---- Comms ----
 -- FCS RECEIVES commands on 102 and SENDS: telemetry on 101, acks on 103, heartbeat on 104.
@@ -147,7 +152,6 @@ end
 -- stack holds ~16.7Hz in tools/hover_test.lua -- which never polls fuel. So fuel now polls in its
 -- own 1Hz task, capacity is constant and cached (read once), the reads run concurrently, and the
 -- control loop only copies the latest snapshot (fuelState) -- no peripheral calls on the hot path.
-local fuelState = { thrusterFuel = {}, fuelMain = nil }
 local fuelPeriph, fuelCap = {}, {}
 local function pollFuel()
   local tf, reads = {}, {}

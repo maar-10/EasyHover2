@@ -15,10 +15,14 @@ function Flight.new(deps)
   return setmetatable({
     loop = deps.loop, pilot = deps.pilot, registry = deps.registry,
     moveEps = deps.moveEps or 0.5,   -- ground-idle motion gate (blocks/s)
+    -- §11.8 no-fuel interlock: deps.fuel is an injected getter returning the mean lift-thruster
+    -- fuel fraction (0..1) or nil when the gauge has never read. minFuel trips the latch;
+    -- re-arm requires 2x minFuel (hysteresis, so a sloshing near-empty tank cannot chatter).
+    fuel = deps.fuel, minFuel = deps.minFuel or 0.05,
     engaged = false, gndSafety = true, positionHold = false,
     fuelPump = false, flightMode = (deps.registry and deps.registry.default) or "PRECISION", parked = false,
     trimDir = defaultTrimDir(deps.registry),
-    _needReset = false, _loopHz = 0,
+    _needReset = false, _loopHz = 0, noFuel = false,
   }, Flight)
 end
 
@@ -27,7 +31,10 @@ function Flight:handleCommand(cmd)
   if k == "gndSafety" then
     self.gndSafety = cmd.on and true or false; return true
   elseif k == "engage" then
-    if self.gndSafety then return false end
+    if self.gndSafety or self.noFuel then return false end
+    -- Also consult the live gauge: engage may arrive before any step has run the latch.
+    local frac = self.fuel and self.fuel() or nil
+    if frac ~= nil and frac < self.minFuel then return false end
     -- Engage only marks intent; arming is decided every step by the ground-idle gate, so
     -- engaging while parked on the pad stays silent until the pilot commands a climb.
     self.engaged = true; self._needReset = true; return true
@@ -89,10 +96,35 @@ function Flight:_parked(held, meas)
      and math.abs(meas.surgeVel or 0) < eps                 -- moving => in-flight, not parked
 end
 
+-- §11.8 no-fuel interlock. An unfuelled thruster HOLDS its commanded level while producing zero
+-- thrust, so an integrator flying into an empty tank winds up against a plant that stopped
+-- responding. When the gauge reads below minFuel: disarm exactly like disengage (cut demand,
+-- reset loops so they resume clean), latch noFuel, and refuse engage until the tank recovers to
+-- 2x minFuel. A nil reading (gauge never polled / peripheral gone) never trips the gate -- the
+-- hardware relay remains the physical arm path; this is the software mirror of it.
+function Flight:_checkFuel(meas)
+  if not self.fuel then return end
+  local frac = self.fuel()
+  if frac == nil then return end
+  if frac < self.minFuel then
+    if not self.noFuel then
+      self.noFuel = true
+      self.engaged = false
+      self.positionHold = false
+      if self.pilot.setPositionHold then self.pilot:setPositionHold(false) end
+      self.pilot:reset(meas)
+      self.loop:arm(false)
+    end
+  elseif self.noFuel and frac >= self.minFuel * 2 then
+    self.noFuel = false   -- refuelled past hysteresis; re-engage is manual
+  end
+end
+
 function Flight:step(dt, held, meas)
   self._lastMeas = meas
   local autoOn = self.comAuto and self.comAuto:active()
   if autoOn then held = {} end
+  self:_checkFuel(meas)
   if self.engaged then
     if self._needReset then self.pilot:reset(meas); self._needReset = false end
     self.parked = self:_parked(held, meas)
@@ -151,6 +183,7 @@ function Flight:snapshot(r, meas)
   return {
     engaged = self.engaged, gndSafety = self.gndSafety,
     positionHold = self.positionHold, fuelPump = self.fuelPump, parked = self.parked,
+    noFuel = self.noFuel,
     mode = self.parked and "PARKED" or ((r and r.mode) or self.loop:getMode()),
     flightMode = self.flightMode,
     trimDir = self.trimDir,
