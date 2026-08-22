@@ -70,3 +70,31 @@ t.test("sender stamps a session id; ack from another session is ignored", functi
   s:ack({ k = "ack", sid = "S1", id = f.id })       -- our ack
   t.eq(#s:tick(2.0), 0, "our-session ack clears it")
 end)
+
+t.test("pending commands are dropped after maxRetries instead of retrying forever", function()
+  -- With the FCS down every button press used to retransmit forever: `pending` grew unbounded
+  -- and the command channel filled with retries. After maxRetries the entry must be dropped.
+  local s = command.Sender.new({ timeout = 0.5, maxRetries = 3 })
+  local f = s:send({ k = "engage" })
+  local seen = 0
+  for i = 1, 10 do
+    local due, dropped = s:tick(0.6)
+    seen = seen + #due
+    if #dropped > 0 then
+      t.eq(dropped[1].id, f.id, "dropped frame is the stale one")
+      t.eq(seen, 3, "exactly maxRetries retransmissions happened before the drop")
+      break
+    end
+    t.truthy(i < 10, "never dropped after 10 ticks")
+  end
+  t.eq(#s:tick(5.0), 0, "no further retries after the drop")
+  t.eq(next(s.pending), nil, "pending no longer holds the dropped entry")
+end)
+
+t.test("an ack arriving before exhaustion still clears a pending command normally", function()
+  local s = command.Sender.new({ timeout = 0.5, maxRetries = 2 })
+  local f = s:send({ k = "engage" })
+  t.eq(#s:tick(0.6), 1, "retry 1")
+  s:ack(f.id)
+  t.eq(#s:tick(5.0), 0, "acked -> never retried again, never dropped")
+end)

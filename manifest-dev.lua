@@ -182,9 +182,9 @@
         },
         {
           ["dst"] = "fcs/comms/command.lua",
-          ["size"] = 2518,
+          ["size"] = 3142,
           ["src"] = "fcs/comms/command.lua",
-          ["sum"] = "4fb5f1aa",
+          ["sum"] = "fdf07098",
         },
         {
           ["dst"] = "fcs/comms/health.lua",
@@ -671,9 +671,9 @@
         },
         {
           ["dst"] = "fcs/comms/command.lua",
-          ["size"] = 2518,
+          ["size"] = 3142,
           ["src"] = "fcs/comms/command.lua",
-          ["sum"] = "4fb5f1aa",
+          ["sum"] = "fdf07098",
         },
         {
           ["dst"] = "fcs/comms/health.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "1e790d3c",
+  ["version"] = "2bae0acc",
 }

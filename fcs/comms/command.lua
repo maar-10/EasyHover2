@@ -12,13 +12,13 @@ M.newSid = session.new
 local Sender = {}; Sender.__index = Sender
 M.Sender = { new = function(cfg)
   cfg = cfg or {}
-  return setmetatable({ timeout = cfg.timeout or 1.0, sid = cfg.sid or M.newSid(),
-                        nextId = 0, pending = {} }, Sender)
+  return setmetatable({ timeout = cfg.timeout or 1.0, maxRetries = cfg.maxRetries or 4,
+                        sid = cfg.sid or M.newSid(), nextId = 0, pending = {} }, Sender)
 end }
 function Sender:send(cmd)
   self.nextId = self.nextId + 1
   local frame = { k = "cmd", sid = self.sid, id = self.nextId, cmd = cmd }
-  self.pending[self.nextId] = { frame = frame, age = 0 }
+  self.pending[self.nextId] = { frame = frame, age = 0, tries = 0 }
   return frame
 end
 -- Accepts an ack frame ({k=ack, sid, id}) or a bare id (legacy). An ack from a DIFFERENT session
@@ -31,13 +31,26 @@ function Sender:ack(ack)
     self.pending[ack] = nil
   end
 end
+-- Returns the frames due for retransmission. A pending entry that has exhausted maxRetries is
+-- DROPPED (not retried again): with the FCS down, unbounded retry would grow `pending` forever
+-- and spam the command channel; telemetry is the truth, so a dropped command simply never shows.
+-- Second return lists the dropped frames so callers can annunciate if they want to.
 function Sender:tick(dt)
-  local due = {}
-  for _, p in pairs(self.pending) do
+  local due, dropped = {}, {}
+  for id, p in pairs(self.pending) do
     p.age = p.age + dt
-    if p.age >= self.timeout then p.age = 0; due[#due + 1] = p.frame end
+    if p.age >= self.timeout then
+      if p.tries >= self.maxRetries then
+        self.pending[id] = nil
+        dropped[#dropped + 1] = p.frame
+      else
+        p.tries = p.tries + 1
+        p.age = 0
+        due[#due + 1] = p.frame
+      end
+    end
   end
-  return due
+  return due, dropped
 end
 
 local Receiver = {}; Receiver.__index = Receiver
