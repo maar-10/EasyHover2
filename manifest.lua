@@ -541,9 +541,9 @@
         },
         {
           ["dst"] = "nav/lib/trilaterate.lua",
-          ["size"] = 712,
+          ["size"] = 1111,
           ["src"] = "dist/nav/lib/trilaterate.lua",
-          ["sum"] = "95c641f0",
+          ["sum"] = "b2eee874",
         },
         {
           ["dst"] = "nav/runtime.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "9a3f2eea",
+  ["version"] = "905c9a3e",
 }
