@@ -6,6 +6,7 @@ local Pilot = require("fcs.input.pilot")
 -- Fake loop records arm/setpoints/cycle without needing real control.
 local function fakeLoop()
   local L = { armed = false, sp = nil, cycles = 0, mode = "NORMAL", cleared = false }
+  function L:setActive(d) self.scheme = d.scheme end
   function L:arm(b) self.armed = b and true or false end
   function L:setpoints(x) self.sp = x end
   function L:clearDamped() self.cleared = true; self.mode = "NORMAL" end
@@ -141,4 +142,70 @@ t.test("comAuto abort forces a descent", function()
   local snap = f:step(0.1, { up = true }, groundMeas{ onGround = false })
   t.eq(snap.comAuto.phase, "DESCEND")
   t.eq(snap.comAuto.abortReason, "ABORT")
+end)
+
+-- ---- comAuto ki capture is scoped to the scheme it captured from ----
+local function kiRegistry()
+  local sA = { pitchPid = { ki = 0.10 }, rollPid = { ki = 0.11 } }
+  local sB = { pitchPid = { ki = 0.20 }, rollPid = { ki = 0.22 } }
+  local reg = { default = "A", byId = {
+    A = { scheme = sA, mixer = {}, policy = { tilt = false, surge = "position" }, feel = nil },
+    B = { scheme = sB, mixer = {}, policy = { tilt = false, surge = "position" }, feel = nil },
+  } }
+  return reg, sA, sB
+end
+local function autoFlight(tickResult)
+  local L = fakeLoop()
+  local reg, sA, sB = kiRegistry()
+  local f = Flight.new({ loop = L, pilot = Pilot.new(CFG), registry = reg })
+  L.scheme = sA   -- the active scheme the comAuto machinery captures against
+  f:handleCommand({ k = "gndSafety", on = false }); f:handleCommand({ k = "engage" })
+  -- inject a controllable comAuto (active + one tick result per step)
+  local result = tickResult
+  f.comAuto = {
+    active = function() return true end,
+    tick = function() return result end,
+    spanFwd = 1, spanRight = 1,
+  }
+  return f, L, sA, sB, function(r) result = r end
+end
+
+t.test("comAuto HOLD: capture saves and restores THIS scheme's ki", function()
+  local f, L, sA, _, setR = autoFlight({ captureKi = 0.5 })
+  f:step(0.1, {}, groundMeas{ onGround = false })            -- capture begins
+  t.near(sA.pitchPid.ki, 0.5, 1e-9, "capture applied")
+  setR({ captureKi = 0 })                                    -- HOLD ends
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.near(sA.pitchPid.ki, 0.10, 1e-9, "original ki restored")
+  t.near(sA.rollPid.ki, 0.11, 1e-9)
+end)
+
+t.test("comAuto HOLD: a mode switch mid-capture never writes A's ki into B", function()
+  local f, L, sA, sB, setR = autoFlight({ captureKi = 0.5 })
+  f:step(0.1, {}, groundMeas{ onGround = false })            -- capturing into A
+  t.near(sA.pitchPid.ki, 0.5, 1e-9)
+  f:handleCommand({ k = "flightMode", id = "B" })            -- switch while holding
+  t.near(sA.pitchPid.ki, 0.10, 1e-9, "A's ki restored before the switch")
+  t.near(sA.rollPid.ki, 0.11, 1e-9)
+  t.near(sB.pitchPid.ki, 0.20, 1e-9, "B untouched")
+  t.near(sB.rollPid.ki, 0.22, 1e-9)
+  -- continuing HOLD applies capture to B only from a fresh save of B's values
+  setR({ captureKi = 0.6 })
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.near(sB.pitchPid.ki, 0.6, 1e-9, "fresh capture targets the new scheme")
+  setR({ captureKi = 0 })
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.near(sB.pitchPid.ki, 0.20, 1e-9, "restore returns to B's own saved value")
+end)
+
+t.test("comAuto done: ki restored even though the engaged branch never runs again", function()
+  local f, L, sA, _, setR = autoFlight({ captureKi = 0.5 })
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  setR({ captureKi = 0.5, done = true })
+  f:step(0.1, {}, groundMeas{ onGround = false })            -- done => disarm inside step
+  t.eq(f.engaged, false)
+  t.near(sA.pitchPid.ki, 0.10, 1e-9, "ki left exactly as found")
+  -- next step takes the disengaged path; nothing re-corrupts
+  f:step(0.1, {}, groundMeas{ onGround = false })
+  t.near(sA.pitchPid.ki, 0.10, 1e-9)
 end)

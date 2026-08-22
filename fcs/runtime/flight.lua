@@ -33,6 +33,7 @@ function Flight:handleCommand(cmd)
     self.engaged = true; self._needReset = true; return true
   elseif k == "disengage" then
     self.engaged = false; self.positionHold = false
+    if self._comKiSaved then self:_restoreComKi() end
     self.pilot:setPositionHold(false); self.loop:arm(false); return true
   elseif k == "positionHold" then
     self.positionHold = cmd.on and true or false
@@ -45,6 +46,9 @@ function Flight:handleCommand(cmd)
     local reg = self.registry
     local d = reg and reg.byId[cmd.id]
     if not d then return true end                 -- unknown id: stay on current mode
+    if self._comKiSaved and self._comKiSch == self.loop.scheme then
+      self:_restoreComKi()                        -- mode switch mid-HOLD: restore BEFORE switching
+    end
     self.loop:setActive(d)
     self.pilot:setMode(d.policy, d.feel)
     self.flightMode = cmd.id
@@ -89,6 +93,22 @@ function Flight:_parked(held, meas)
      and math.abs(meas.surgeVel or 0) < eps                 -- moving => in-flight, not parked
 end
 
+-- Restore the comAuto-captured ki values to the EXACT scheme object they were saved from.
+-- Scoping the save to its scheme is the whole point: a mode switch mid-HOLD must never write
+-- scheme A's tuning into scheme B (the old code cached bare numbers and restored them into
+-- whatever scheme happened to be active at the time).
+function Flight:_restoreComKi()
+  local sch = self._comKiSch
+  if sch and sch.pitchPid then
+    if self._comKiSaved then
+      sch.pitchPid.ki = self._comKiSaved.p
+      sch.rollPid.ki = self._comKiSaved.r
+    end
+  end
+  self._comKiSaved = nil
+  self._comKiSch = nil
+end
+
 function Flight:step(dt, held, meas)
   self._lastMeas = meas
   local autoOn = self.comAuto and self.comAuto:active()
@@ -107,14 +127,15 @@ function Flight:step(dt, held, meas)
         if sch and sch.pitchPid then
           if ar.captureKi and ar.captureKi > 0 then
             if not self._comKiSaved then
+              self._comKiSch = sch
               self._comKiSaved = { p = sch.pitchPid.ki, r = sch.rollPid.ki }
             end
-            sch.pitchPid.ki = ar.captureKi
-            sch.rollPid.ki = ar.captureKi
+            if self._comKiSch == sch then   -- never touch a scheme we didn't capture from
+              sch.pitchPid.ki = ar.captureKi
+              sch.rollPid.ki = ar.captureKi
+            end
           elseif self._comKiSaved then
-            sch.pitchPid.ki = self._comKiSaved.p
-            sch.rollPid.ki = self._comKiSaved.r
-            self._comKiSaved = nil
+            self:_restoreComKi()
           end
         end
         if ar.captured and self.loop.mixer and self.loop.mixer.setCom then
@@ -126,6 +147,7 @@ function Flight:step(dt, held, meas)
         if ar.setpoints then self.loop:setpoints(ar.setpoints) end
         self.loop:arm(true)
         if ar.done then
+          if self._comKiSaved then self:_restoreComKi() end   -- done: leave the scheme as found
           self.engaged = false
           self.loop:arm(false)
         end
