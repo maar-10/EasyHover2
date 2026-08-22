@@ -518,11 +518,14 @@ function M.routeModem(runtime, ch, msg)
   end
 
   -- NAV waypoint-store sync replies (ch 109) -> the client cache. Async: the client only SENDS;
-  -- the reply arrives here and refreshes runtime.wptClient's cached store.
+  -- the reply arrives here and refreshes runtime.wptClient's cached store. Bump uiRev: the
+  -- store is NOT part of the cadence signature, so without this an ADD/DEL/EDIT/DTC result
+  -- would not repaint until an incidental telemetry change (parked = possibly never).
   if runtime.wptClient and runtime.wptClient.link then
     local wf = runtime.wptClient.link:onMessage(ch, msg)
     if wf and (wf.k == "wpt_store" or wf.k == "wpt_err" or wf.k == "wpt_disk_res") then
       runtime.wptClient:onReply(wf, os.epoch("utc"))
+      runtime.uiRev = (runtime.uiRev or 0) + 1
       return nil
     end
   end

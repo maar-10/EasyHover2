@@ -382,3 +382,17 @@ t.test("makeEngineWriter: latch mode drives block/feed sides with a 2-arg writer
   t.eq(relay.calls[1].side, "back"); t.eq(relay.calls[1].val, true)
   t.eq(relay.calls[2].side, "left"); t.eq(relay.calls[2].val, true)
 end)
+
+t.test("routeModem bumps uiRev on a wpt store reply so the NAV menu repaints", function()
+  -- The waypoint store is not part of the cadence signature: without a uiRev bump an async
+  -- ADD/DEL/EDIT/DTC reply refreshed the cache but never repainted (parked + steady telemetry
+  -- = the menu stayed stale until some unrelated change).
+  local runtime = newRuntime()
+  t.eq(runtime.uiRev, 0)
+  M.routeModem(runtime, 109, protocol.encode({ k = "wpt_store", rev = 3,
+    store = { waypoints = { { name = "Home", x = 1, y = 2, z = 3 } }, routes = {} } }))
+  t.eq(runtime.uiRev, 1, "store reply bumped uiRev")
+  t.eq(runtime.wptClient.store.waypoints[1].name, "Home", "cache actually refreshed")
+  M.routeModem(runtime, 109, protocol.encode({ k = "wpt_err", err = "nope" }))
+  t.eq(runtime.uiRev, 2, "error replies repaint too (the error text is on-screen state)")
+end)
