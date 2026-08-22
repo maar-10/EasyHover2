@@ -53,3 +53,44 @@ t.test("unchanged levels are excluded from the batch", function()
   t.eq(sizes[1], 1, "first apply dispatches the one change")
   t.eq(sizes[2], 0, "second apply dispatches nothing")
 end)
+
+-- ---- device read-back reconciliation (design §7) ----
+t.test("reportDeviceLevel: agreement dispatches nothing", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  a:apply({ FL = 0.5 }, 0)                       -- intent level 8
+  t.eq(b.writes, 1)
+  t.eq(a:reportDeviceLevel("FL", 8), false)      -- device agrees (raw scale)
+  t.eq(b.writes, 1)
+  t.eq(a:reportDeviceLevel("FL", 8/15), false)   -- agrees in normalized scale too
+  t.eq(b.writes, 1)
+end)
+
+t.test("reportDeviceLevel: disagreement re-asserts the intended level", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  a:apply({ FL = 0.5 }, 0)                       -- intent 8; suppose a second writer dropped it to 3
+  t.truthy(a:reportDeviceLevel("FL", 3), "reports a heal")
+  t.eq(b.level.FL, 8, "intent re-asserted")
+  t.eq(a:state("FL"), 8, "internal state unchanged")
+end)
+
+t.test("reportDeviceLevel: unseen id treats intent as 0 (heals stuck-on while disarmed)", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  t.truthy(a:reportDeviceLevel("RR", 12))
+  t.eq(b.level.RR, 0)
+end)
+
+t.test("reportDeviceLevel: NaN/inf readings are ignored", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  a:apply({ FL = 0.5 }, 0)
+  t.eq(a:reportDeviceLevel("FL", 0/0), false)
+  t.eq(a:reportDeviceLevel("FL", math.huge), false)
+  t.eq(a:reportDeviceLevel("FL", "junk"), false)
+  t.eq(b.writes, 1)
+end)
+
+t.test("reportDeviceLevel: normalized-scale disagreement quantizes before comparing", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  a:apply({ FL = 0 }, 0)                          -- intent 0
+  t.eq(a:reportDeviceLevel("FL", 0.2), true)      -- 0.2*15 = 3 -> disagree
+  t.eq(b.level.FL, 0)
+end)

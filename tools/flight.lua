@@ -184,6 +184,32 @@ local function fuelTask()
   while true do pollFuel(); sleep(1.0) end
 end
 
+-- ---- Thruster read-back reconciliation (design §7) ----
+-- The actuator dedups writes against OUR record of the last command; a second writer, a lost
+-- write, or a relay/peripheral reload can desync the physical thruster from that record, and
+-- write-on-change would then never correct it. getPower costs a mainThread slot (~1 tick) on
+-- plain thrusters, so this NEVER runs per control cycle: round-robin ONE bound thruster every
+-- RESYNC_MS, off the hot path. A disagreement forces an immediate re-assert of our intent.
+local RESYNC_MS = 2000
+local resyncIds = {}
+for id in pairs(config.thrusters) do resyncIds[#resyncIds + 1] = id end
+table.sort(resyncIds)
+local resyncIdx = 0
+local function resyncTask()
+  while true do
+    sleep(RESYNC_MS / 1000)
+    if #resyncIds > 0 then
+      resyncIdx = (resyncIdx % #resyncIds) + 1
+      local id = resyncIds[resyncIdx]
+      local name = config.thrusters[id]
+      local p = name and shim.wrap(name) or nil
+      if p and p.getPower and loop.pwm and loop.pwm.reportDeviceLevel then
+        pcall(function() loop.pwm:reportDeviceLevel(id, p.getPower()) end)
+      end
+    end
+  end
+end
+
 -- ---- Tasks ----
 local lastT = os.epoch("utc")
 local function controlTask()
@@ -289,13 +315,13 @@ loadT0 = os.epoch("utc")
 if LOGGING then
   logStart()
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask, logKeyTask)
+                        healthTask, fuelTask, statusTask, logKeyTask, resyncTask)
   safeShutdown()
   logFinish()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 else
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask)
+                        healthTask, fuelTask, statusTask, resyncTask)
   safeShutdown()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 end
