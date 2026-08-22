@@ -1,1 +1,1 @@
-local a={}function a.clamp(b,c)local d={}for e,f in pairs(b)do local g=c[e]if f~=f or f==math.huge or f==-math.huge then d[e]=0 elseif g and f>g then d[e]=g elseif g and f<-g then d[e]=-g else d[e]=f end end;return d end;return a
+local a={}function a.clamp(b,c)local d,e={},nil;for f,g in pairs(b)do local h=c[f]if g~=g or g==math.huge or g==-math.huge then d[f]=0 elseif h and g>h then d[f]=h;e=e or{}e[f]=true elseif h and g<-h then d[f]=-h;e=e or{}e[f]=true else d[f]=g end end;return d,e end;return a

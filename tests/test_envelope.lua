@@ -18,3 +18,13 @@ t.test("a non-finite demand (NaN or inf) maps to 0 -- never forwarded to the mix
   t.eq(d.pitch, 0); t.eq(d.roll, 0); t.eq(d.yaw, 0)   -- guarded, not clamped-through
   t.near(d.heave, 0.5, 1e-9)                            -- finite values still pass
 end)
+
+t.test("clamp reports WHICH axes were clipped (second return)", function()
+  local d, sat = envelope.clamp({ pitch = 5, roll = -5, yaw = 0.01 }, { pitch = 0.2, roll = 0.2 })
+  t.eq(sat.pitch, true); t.eq(sat.roll, true)
+  t.eq(sat.yaw, nil, "unclipped axis is not flagged")
+end)
+t.test("no clipping -> sat is nil (zero garbage on the common path)", function()
+  local d, sat = envelope.clamp({ pitch = 0.1 }, { pitch = 0.2 })
+  t.eq(sat, nil)
+end)

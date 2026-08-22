@@ -236,9 +236,9 @@
         },
         {
           ["dst"] = "fcs/envelope.lua",
-          ["size"] = 229,
+          ["size"] = 274,
           ["src"] = "dist/fcs/envelope.lua",
-          ["sum"] = "b242a6c8",
+          ["sum"] = "8d67c7bd",
         },
         {
           ["dst"] = "fcs/frame.lua",
@@ -338,9 +338,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 1788,
+          ["size"] = 1822,
           ["src"] = "dist/fcs/runtime/loop.lua",
-          ["sum"] = "237ddd41",
+          ["sum"] = "a654abe6",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -368,9 +368,9 @@
         },
         {
           ["dst"] = "fcs/schemes/level_flight.lua",
-          ["size"] = 1257,
+          ["size"] = 1329,
           ["src"] = "dist/fcs/schemes/level_flight.lua",
-          ["sum"] = "2b686965",
+          ["sum"] = "67ddca4e",
         },
         {
           ["dst"] = "fcs/schemes/manual.lua",
@@ -725,9 +725,9 @@
         },
         {
           ["dst"] = "fcs/envelope.lua",
-          ["size"] = 229,
+          ["size"] = 274,
           ["src"] = "dist/fcs/envelope.lua",
-          ["sum"] = "b242a6c8",
+          ["sum"] = "8d67c7bd",
         },
         {
           ["dst"] = "fcs/frame.lua",
@@ -797,9 +797,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 1788,
+          ["size"] = 1822,
           ["src"] = "dist/fcs/runtime/loop.lua",
-          ["sum"] = "237ddd41",
+          ["sum"] = "a654abe6",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -827,9 +827,9 @@
         },
         {
           ["dst"] = "fcs/schemes/level_flight.lua",
-          ["size"] = 1257,
+          ["size"] = 1329,
           ["src"] = "dist/fcs/schemes/level_flight.lua",
-          ["sum"] = "2b686965",
+          ["sum"] = "67ddca4e",
         },
         {
           ["dst"] = "fcs/schemes/manual.lua",
@@ -1361,5 +1361,5 @@
     ["size"] = 71434,
     ["sum"] = "57671ad7",
   },
-  ["version"] = "9a3f2eea",
+  ["version"] = "3469b84c",
 }

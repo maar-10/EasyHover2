@@ -49,7 +49,9 @@ function Loop:cycle(dt, m)
     return { mode = self.mode, m = m, demands = nil, duties = nil }
   end
   local grounded = m.onGround == true
-  local demands = self.scheme:update(self.sp, m, dt, grounded)
+  -- Previous-cycle envelope saturation (same one-tick-delayed anti-windup pattern as the
+  -- heave band's _heaveSat): a demand railed by its cap must stop integrating into that rail.
+  local demands = self.scheme:update(self.sp, m, dt, grounded, self._sat)
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).
@@ -61,7 +63,9 @@ function Loop:cycle(dt, m)
     -- known; otherwise leave the scheme's heave (tests without a hoverDuty configured).
     if self.hoverDuty then demands.heave = self.hoverDuty end
   end
-  demands = envelope.clamp(demands, self.caps)
+  local clamped, sat = envelope.clamp(demands, self.caps)
+  demands = clamped
+  self._sat = sat   -- consumed by the scheme NEXT tick
   local duties = self.mixer:mix(demands)
   self:apply(duties, dt)
   return { mode = self.mode, m = m, demands = demands, duties = duties }

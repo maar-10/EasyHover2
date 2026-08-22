@@ -25,3 +25,29 @@ t.test("alt integrator stops winding up while heave is saturated at the band (an
   for _ = 1, 50 do sc:update({ altitude = 100 }, m(0), 0.1, false) end
   t.truthy(sc.altPid.i < 20, "integrator frozen once saturated, not wound up over 50 ticks")
 end)
+
+-- ---- envelope saturation feedback (per-axis anti-windup) ----
+t.test("envelope sat flag freezes the railed axis's integrator next tick", function()
+  -- Pitch demand railed by an envelope cap: without feedback the pitch integrator keeps
+  -- winding into the rail; with it, the NEXT tick's integration is skipped (same one-tick
+  -- delay as the heave band's _heaveSat).
+  local sc = Scheme.new({ hoverDuty = 0.5,
+    pitch = { kp = 1, ki = 0.5, kd = 0 } })   -- no iMax: isolate the feedback
+  local mm = m(0)
+  local sp = { altitude = 0, pitch = -1 }     -- sustained +error winds the integrator up
+  sc:update(sp, mm, 0.1, false)               -- normal tick
+  local i1 = sc.pitchPid.i
+  t.truthy(i1 ~= 0, "integrator alive")
+  sc:update(sp, mm, 0.1, false, { pitch = true })  -- railed last tick
+  t.eq(sc.pitchPid.i, i1, "integration skipped while envelope-flagged")
+  sc:update(sp, mm, 0.1, false)               -- rail released
+  t.truthy(math.abs(sc.pitchPid.i) > math.abs(i1), "integration resumes when the flag clears")
+end)
+
+t.test("envelope sat on heave freezes the alt integrator (same as band saturation)", function()
+  local sc = Scheme.new({ hoverDuty = 0.5, alt = { kp = 0.1, ki = 1.0, kd = 0 } })
+  sc:update({ altitude = 100 }, m(0), 0.1, false)
+  local i1 = sc.altPid.i
+  sc:update({ altitude = 100 }, m(0), 0.1, false, { heave = true })
+  t.eq(sc.altPid.i, i1, "alt integration skipped while heave envelope-flagged")
+end)
