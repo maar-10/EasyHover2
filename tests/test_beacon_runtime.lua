@@ -109,3 +109,58 @@ t.test("selfQuality with fewer than 4 hosts reports hosts only", function()
   t.eq(q.hosts, 2)
   t.eq(q.quality, nil, "no quality below 4 hosts")
 end)
+
+t.test("statusPayload reports enabled/pos/intervalMs/seq + selfCheck/constellation summaries", function()
+  local c, now = clockAt(1000)
+  local selfPos = { x = 824, y = 86, z = 2922 }
+  local r = BR.new({ config = { id = "A", channel = 65000, enabled = true, intervalMs = 2500, pos = selfPos },
+                     modem = modemFor(fakeModem()), now = now })
+  -- 3 wide, flat peers -> a usable/GOOD constellation, matching the earlier selfQuality GOOD fixture.
+  -- Measured dist = the true geoDistance to selfPos, so selfCheck agrees (no typo -> no mismatch).
+  local peers = {
+    { id = "68", x = 6462,  y = 200, z = 6107  },
+    { id = "69", x = 7144,  y = 65,  z = -7266 },
+    { id = "70", x = -7210, y = 64,  z = -7260 },
+  }
+  for _, p in ipairs(peers) do
+    local dist = BR.geoDistance(selfPos, p)
+    r:onModemMessage(65000, 65000, gpsproto.encode({ id = p.id, x = p.x, y = p.y, z = p.z }), dist)
+  end
+  r:broadcast(); r:broadcast()   -- seq = 2
+
+  local sp = r:statusPayload()
+  t.eq(sp.enabled, true)
+  t.eq(sp.pos.x, 824); t.eq(sp.pos.y, 86); t.eq(sp.pos.z, 2922)
+  t.eq(sp.intervalMs, 2500)
+  t.eq(sp.seq, 2)
+  t.truthy(sp.selfCheck, "has a selfCheck summary")
+  t.eq(sp.selfCheck.ok, true)
+  t.eq(sp.selfCheck.mismatches, 0, "count, not the mismatch list")
+  t.truthy(sp.constellation, "has a constellation summary")
+  t.eq(sp.constellation.hosts, 4)
+  t.eq(sp.constellation.grade, "GOOD")
+  t.truthy(sp.constellation.errorEst and sp.constellation.errorEst < 2)
+end)
+
+t.test("statusPayload: enabled defaults true when unset; grade WAITING under 4 hosts", function()
+  local c, now = clockAt(1000)
+  local r = BR.new({ config = { id = "A", channel = 65000, pos = { x = 0, y = 0, z = 0 } },
+                     modem = modemFor(fakeModem()), now = now })
+  local sp = r:statusPayload()
+  t.eq(sp.enabled, true, "unset enabled defaults to true")
+  t.eq(sp.constellation.hosts, 1, "just self, no peers heard")
+  t.eq(sp.constellation.grade, "WAITING")
+  t.eq(sp.seq, 0)
+end)
+
+t.test("statusPayload: disabled config + FAIR/POOR grades", function()
+  local c, now = clockAt(1000)
+  local r = BR.new({ config = { id = "A", channel = 65000, enabled = false, pos = { x = 0, y = 90, z = 0 } },
+                     modem = modemFor(fakeModem()), now = now })
+  r:onModemMessage(65000, 65000, gpsproto.encode({ id = "68", x = 5000, y = 92, z = 40  }), 1)
+  r:onModemMessage(65000, 65000, gpsproto.encode({ id = "69", x = 5100, y = 88, z = -40 }), 1)
+  r:onModemMessage(65000, 65000, gpsproto.encode({ id = "70", x = 5050, y = 91, z = 80  }), 1)
+  local sp = r:statusPayload()
+  t.eq(sp.enabled, false)
+  t.eq(sp.constellation.grade, "POOR", "clustered mesh -> POOR")
+end)

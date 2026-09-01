@@ -190,4 +190,29 @@ function R:selfQuality(now)
   return M.selfQuality(self.config.pos, self:peers(now))
 end
 
+-- Same GOOD/FAIR/POOR/WAITING thresholds the console uses (see beacon/console.lua): quality >= 0.75
+-- GOOD, >= 0.4 FAIR, else POOR; under 4 hosts (still gathering peers) is WAITING, not graded at all.
+local function qualityGrade(sq)
+  if (sq.hosts or 0) < 4 or not sq.quality then return "WAITING" end
+  local q = sq.quality
+  if q >= 0.75 then return "GOOD" end
+  if q >= 0.4 then return "FAIR" end
+  return "POOR"
+end
+
+--- statusPayload(now) -> the DIAG query reply payload (see beacon/update.lua's M.status).
+function R:statusPayload(now)
+  local c = self.config
+  local sc = self:selfCheck(now)
+  local sq = self:selfQuality(now)
+  return {
+    enabled = c.enabled ~= false,
+    pos = c.pos,
+    intervalMs = c.intervalMs,
+    selfCheck = { ok = sc.ok, mismatches = #(sc.mismatches or {}) },
+    constellation = { hosts = sq.hosts, grade = qualityGrade(sq), errorEst = sq.errorEst },
+    seq = self.seq,
+  }
+end
+
 return M
