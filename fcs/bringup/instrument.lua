@@ -37,7 +37,7 @@ local PHASE_CODES = {
   ENGAGED = "E", ["ENG-GND"] = "G", IDLE = "I",
 }
 local MODE_CODES = {
-  NORMAL = "N", DAMPED = "D", CRUISE = "C", HOVER = "V", MANUAL = "M", STANDBY = "S",
+  NORMAL = "N", DAMPED = "D", GROUND = "G", CRUISE = "C", HOVER = "V", MANUAL = "M", STANDBY = "S",
 }
 
 local function enum(map, v)

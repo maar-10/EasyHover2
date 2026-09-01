@@ -131,6 +131,12 @@ t.test("formatRow(fullSample) places setpoints/PID-split/sat/trim/context in con
   t.eq(cell("mode"), "N", "NORMAL encodes to its short code")
 end)
 
+t.test("formatRow encodes the loop's GROUND mode to its short code", function()
+  local row = splitCSV(I.formatRow({ t = 0, dt = 0.1, phase = "ENG-GND", mode = "GROUND", duties = {} }))
+  t.eq(row[idxOf("phase")], "G")
+  t.eq(row[idxOf("mode")], "G")
+end)
+
 t.test("formatRow(minimalSample) (hover_test path: no terms/sat/sp_*/ff/master/noFuel) does not error", function()
   local minimal = {
     t = 1, dt = 0.1, phase = "CLIMB", mode = "NORMAL",
@@ -194,6 +200,7 @@ t.test("formatSummary carries the schema version and the enum legend", function(
   t.truthy(out:find("schema: v2"), "summary names the schema version")
   t.truthy(out:find("C=CLIMB"), "legend maps phase codes")
   t.truthy(out:find("N=NORMAL"), "legend maps mode codes")
+  t.truthy(out:find("G=GROUND"), "legend maps the loop's GROUND mode")
   t.truthy(out:find("err = sp"), "legend documents that err_* is derived, not logged")
 end)
 

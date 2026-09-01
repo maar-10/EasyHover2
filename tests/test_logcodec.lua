@@ -90,22 +90,48 @@ t.test("a leading = line never crashes decode (corrupt/truncated file)", functio
 end)
 
 t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
-  -- Deterministic synthetic cruise at ~16 Hz: slow altitude bob, tiny attitude jitter,
-  -- static duties (trimmed), phase/mode constant -- the shape the ring buffer actually holds.
+  -- Production shape: full instrument schema (real header + column count, every duty column),
+  -- slow altitude bob, tiny attitude jitter, static trimmed duties -- what the ring buffer holds.
+  local I = require("fcs.bringup.instrument")
+  local frame = require("fcs.frame")
+  local ids = {}
+  for _, id in ipairs(frame.LIFT)    do ids[#ids+1] = id end
+  for _, id in ipairs(frame.LATERAL) do ids[#ids+1] = id end
+  for _, id in ipairs(frame.MAIN)    do ids[#ids+1] = id end
+  for _, id in ipairs(frame.FRONTAL) do ids[#ids+1] = id end
+  local duties = {}
+  for _, id in ipairs(ids) do duties[id] = 7 end
   local rows = {}
   for i = 1, 3000 do
-    local ts = i / 16
     local alt = 64 + math.sin(i / 40) * 0.15
     local pitch = math.sin(i / 7) * 0.02
-    local dPitch = math.cos(i / 7) * 0.02
-    rows[i] = string.format("%.2f,H,N,64,%.2f,%.2f,%.3f,0,270,%.3f,0,0,0,0,0,%.3f,7,7,7,7,0,0",
-      ts, alt, (alt - 64) * 5, pitch, dPitch, dPitch)
+    rows[i] = I.formatRow({
+      t = i / 16, dt = 1 / 16, phase = "HOLD", mode = "NORMAL", onGround = false,
+      sp_alt = 64, alt = alt, vSpeed = math.cos(i / 40) * 0.02,
+      pitch = pitch, roll = 0, heading = 270, yawRate = 0,
+      swayVel = 0, surgeVel = 0, swayPos = 0.1, surgePos = -0.1, heave = 0.5,
+      dPitch = math.cos(i / 7) * 0.02, dRoll = 0, dYaw = 0, dSway = 0, dSurge = 0,
+      sp_pitch = 0, sp_roll = 0, sp_hdg = 270, sp_sway = 0.1, sp_surge = -0.1,
+      terms = {
+        alt   = { P = 1.0, I = 0.1,  D = 0.01 },
+        pitch = { P = 0.6, I = 0.02, D = 0.003 },
+        roll  = { P = 0.2, I = 0.01, D = 0.001 },
+        yaw   = { P = 0.5, I = 0.05, D = 0.005 },
+        sway  = { P = 0.4, I = 0.04, D = 0.004 },
+        surge = { P = 0.3, I = 0.03, D = 0.002 },
+      },
+      sat = { heave = false, pitch = false, roll = false, yaw = false, sway = false, surge = false },
+      heaveBanded = false, ff_pitch = 0, master = "CPL", noFuel = false, duties = duties,
+    })
   end
-  local encoded = Codec.encode(HDR, rows)
+  local hdr = I.header()
+  local ncols = select(2, hdr:gsub(",", ",")) + 1
+  local encoded = Codec.encode(hdr, rows)
   local n = #encoded
-  print(("codec: %d rows -> %d bytes (%.1f B/row)"):format(#rows, n, n / #rows))
+  print(("codec: %d rows x %d cols -> %d bytes (%.1f B/row)"):format(#rows, ncols, n, n / #rows))
   t.truthy(n <= 150000, "3000-row window must stay under 150 KB, got " .. n)
-  local decoded = Codec.decode(encoded)
+  local decoded, outHdr = Codec.decode(encoded)
+  t.eq(outHdr, hdr)
   t.eq(#decoded, 3000)
   for i = 1, #rows do
     if decoded[i] ~= rows[i] then

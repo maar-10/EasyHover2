@@ -147,9 +147,9 @@
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
-          ["size"] = 13958,
+          ["size"] = 13972,
           ["src"] = "fcs/bringup/instrument.lua",
-          ["sum"] = "a4499962",
+          ["sum"] = "1320887d",
         },
         {
           ["dst"] = "fcs/bringup/logbuffer.lua",
@@ -690,9 +690,9 @@
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
-          ["size"] = 13958,
+          ["size"] = 13972,
           ["src"] = "fcs/bringup/instrument.lua",
-          ["sum"] = "a4499962",
+          ["sum"] = "1320887d",
         },
         {
           ["dst"] = "fcs/bringup/logbuffer.lua",
@@ -1470,5 +1470,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "0fd7b202",
+  ["version"] = "e4062c9e",
 }
