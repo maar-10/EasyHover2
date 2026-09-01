@@ -246,7 +246,9 @@ local carbWarned = false
 local function carbideStreamLib()
   if carbLib ~= nil then return carbLib end
   local ok, lib = pcall(function()
-    local f = loadfile("carbide")
+    -- resolve like shell.run would (covers /carbide.lua and PATH-installed layouts too)
+    local path = shell and shell.resolveProgram and shell.resolveProgram("carbide")
+    local f = loadfile(path or "carbide")
     if not f then return nil end
     return f()   -- no args: carbide returns its library table, never runs the CLI
   end)
@@ -261,7 +263,7 @@ end
 
 -- Append `rows` to the current stream paste (starting one when needed). Pure state machine;
 -- never advances state on failure, so the next P re-encodes the identical chunk.
-local function logStream(rowsAll)
+local function logStream()
   local carb = carbideStreamLib()
   if not carb then
     if not carbWarned then
@@ -282,7 +284,7 @@ local function logStream(rowsAll)
     end
     stream = { id = r.id, url = r.url, enc = Codec.encoder(Inst.header()), uploaded = 0 }
     behind = total
-    print(("LOG: streaming %d rows -> %s"):format(#rowsAll, r.url))
+    print(("LOG: streaming -> %s"):format(r.url))
   elseif behind == 0 then
     print("LOG: no new rows since last upload")
     return
@@ -299,11 +301,12 @@ local function logStream(rowsAll)
   local text, newState = Codec.encodeChunk(stream.enc, rows)
   local r, err = carb.streamAppend(stream.id, text)
   if not r then
-    -- 413 = stream cap reached; anything else (network, 403/404) retries next press
-    if tostring(err):find("^413") then
-      print("(stream cap reached -- uploading window as a fresh paste)")
+    -- 413 = stream full; 403/404 mean the paste is gone or was replaced -- restart next press.
+    -- Pure network errors retry the same stream, since state did not advance.
+    if tostring(err):find("^4%d%d") then
       stream = nil
-      return pcall(function() return shell.run("carbide", "put", LOG_PATH) end)
+      print("(stream rejected (" .. tostring(err) .. ") -- next P starts a fresh paste)")
+      return
     end
     print("(append failed: " .. tostring(err) .. " -- will retry next P)")
     return
@@ -318,10 +321,9 @@ local function logDump()
   local n = logWriteFile()
   pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
   print(("LOG: %d rows -> carbide..."):format(n))
-  local recs = logRows:rows()
-  local rows = {}
-  for i = 1, #recs do rows[i] = Inst.formatRow(recs[i]) end
-  if not pcall(function() logStream(rows) end) then
+  -- logWriteFile() already did the row formatting for the file copy; logStream() formats
+  -- only its own pending slice, so the P press does no second full-ring format.
+  if not pcall(logStream) then
     print("(carbide unavailable -- grab " .. LOG_PATH .. " manually)")
   end
 end

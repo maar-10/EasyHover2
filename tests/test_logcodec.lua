@@ -156,7 +156,8 @@ t.test("encodeChunk does not mutate its input state (retry re-encodes identicall
   local t1, s1a = Codec.encodeChunk(enc, rows)
   local t2, s1b = Codec.encodeChunk(enc, rows)  -- same input state again
   t.eq(t1, t2, "re-encoding from the same state is deterministic (retry contract)")
-  t.eq(s1a.prev[1], s1b.prev[1], "both successors agree")
+  t.eq(type(s1a.prev), "string", "newState.prev is a row string, not a cell table")
+  t.eq(s1a.prev, s1b.prev, "both successors agree")
   local c2a = Codec.encodeChunk(s1a, { "1.06,H,N,5,64.5,0,0" })
   local c2b = Codec.encodeChunk(s1b, { "1.06,H,N,5,64.5,0,0" })
   t.eq(c2a, c2b, "downstream chunks agree")
