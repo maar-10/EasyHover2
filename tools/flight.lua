@@ -301,8 +301,8 @@ local function logStream()
   local text, newState = Codec.encodeChunk(stream.enc, rows)
   local r, err = carb.streamAppend(stream.id, text)
   if not r then
-    -- 413 = stream full; 403/404 mean the paste is gone or was replaced -- restart next press.
-    -- Pure network errors retry the same stream, since state did not advance.
+    -- 4xx (stream full, paste gone, rate limit) -> drop the stream; the next P starts a fresh
+    -- paste. 5xx / pure network errors keep the stream and retry, since state did not advance.
     if tostring(err):find("^4%d%d") then
       stream = nil
       print("(stream rejected (" .. tostring(err) .. ") -- next P starts a fresh paste)")
