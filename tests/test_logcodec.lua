@@ -89,6 +89,89 @@ t.test("a leading = line never crashes decode (corrupt/truncated file)", functio
   t.eq(#decoded, 0, "= before any row is dropped, not a crash")
 end)
 
+-- ===== streaming: stateful chunked encoder (same wire format, splittable at row bounds) =====
+
+t.test("two chunks round-trip through decode exactly like one whole encode", function()
+  local rows = {
+    "0,H,N,5,64,0.1,0", "0.06,H,N,5,64.02,0.08,0", "0.13,H,N,5,64.05,0.09,0",
+    "0.19,H,N,5,64.07,0.09,0", "0.19,H,N,5,64.06,0.08,0",
+  }
+  local enc = Codec.encoder(HDR)
+  local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2], rows[3] })
+  local c2, s2 = Codec.encodeChunk(s1, { rows[4], rows[5] })
+  local decoded, hdr = Codec.decode(c1 .. "\n" .. c2)
+  t.eq(hdr, HDR)
+  t.eq(#decoded, 5)
+  for i, row in ipairs(rows) do t.eq(decoded[i], row, "row " .. i) end
+end)
+
+t.test("concatenated chunks are byte-identical to the whole-window encode", function()
+  local rows = {
+    "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0", "1.13,H,N,5,64.5,0,0",
+    "1.25,H,N,5,64.5,0.01,0", "1.25,H,N,5,64.5,0,0",
+  }
+  local enc = Codec.encoder(HDR)
+  local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2] })
+  local c2, _  = Codec.encodeChunk(s1, { rows[3], rows[4], rows[5] })
+  t.eq(c1 .. "\n" .. c2, Codec.encode(HDR, rows), "chunked == whole, byte for byte")
+end)
+
+t.test("= runs and delta chains continue across a chunk boundary", function()
+  -- rows 4 and 5 are identical to row 3: an = run crossing the split
+  local rows = {
+    "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0", "1.13,H,N,5,64.5,0,0",
+    "1.13,H,N,5,64.5,0,0", "1.19,H,N,5,64.7,0,0",
+  }
+  local enc = Codec.encoder(HDR)
+  local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2], rows[3] })
+  local c2 = Codec.encodeChunk(s1, { rows[4], rows[5] })
+  local lines = {}
+  for line in (c1 .. "\n" .. c2):gmatch("[^\n]+") do lines[#lines+1] = line end
+  t.eq(lines[1], HDR)
+  t.eq(lines[2], rows[1])
+  t.eq(lines[3], "1:1.06,5:64.5", "delta vs previous row")
+  t.eq(lines[4], "1:1.13", "row 3 differs from row 2 only in t (alt inherited)")
+  t.eq(lines[5], "=", "row 4 == row 3 collapses, right at the boundary")
+  local decoded = Codec.decode(c1 .. "\n" .. c2)
+  t.eq(#decoded, 5)
+  for i, row in ipairs(rows) do t.eq(decoded[i], row, "row " .. i) end
+end)
+
+t.test("empty chunk yields empty text and leaves the state usable", function()
+  local rows = { "1,H,N,5,64,0,0", "1.06,H,N,5,64.2,0,0" }
+  local enc = Codec.encoder(HDR)
+  local c1, s1 = Codec.encodeChunk(enc, rows)
+  local c2, s2 = Codec.encodeChunk(s1, {})
+  t.eq(c2, "", "empty chunk encodes to nothing")
+  local c3 = Codec.encodeChunk(s2, { "1.25,H,N,5,64.9,0,0" })
+  local decoded = Codec.decode(c1 .. "\n" .. c2 .. "\n" .. c3)
+  t.eq(#decoded, 3)
+  t.eq(decoded[3], "1.25,H,N,5,64.9,0,0")
+end)
+
+t.test("encodeChunk does not mutate its input state (retry re-encodes identically)", function()
+  local rows = { "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0" }
+  local enc = Codec.encoder(HDR)
+  local t1, s1a = Codec.encodeChunk(enc, rows)
+  local t2, s1b = Codec.encodeChunk(enc, rows)  -- same input state again
+  t.eq(t1, t2, "re-encoding from the same state is deterministic (retry contract)")
+  t.eq(s1a.prev[1], s1b.prev[1], "both successors agree")
+  local c2a = Codec.encodeChunk(s1a, { "1.06,H,N,5,64.5,0,0" })
+  local c2b = Codec.encodeChunk(s1b, { "1.06,H,N,5,64.5,0,0" })
+  t.eq(c2a, c2b, "downstream chunks agree")
+end)
+
+t.test("a fresh encoder is independent of any previous stream", function()
+  local rows = { "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0" }
+  -- advance one encoder deep into a stream, then start fresh: first chunks must agree
+  local _, advanced = Codec.encodeChunk(Codec.encoder(HDR), rows)
+  Codec.encodeChunk(advanced, { "9.99,Z,Q,1,2,3,4" })
+  local c1_a = Codec.encodeChunk(Codec.encoder(HDR), rows)
+  local c1_b = Codec.encodeChunk(Codec.encoder(HDR), rows)
+  t.eq(c1_a, c1_b, "a fresh encoder's first chunk is always the same bytes")
+  t.truthy(c1_b:find("^" .. HDR .. "\n"), "fresh chunk starts with the header")
+end)
+
 t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
   -- Production shape: full instrument schema (real header + column count, every duty column),
   -- slow altitude bob, tiny attitude jitter, static trimmed duties -- what the ring buffer holds.
@@ -138,4 +221,20 @@ t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
       error("row " .. i .. " diverged: " .. decoded[i])
     end
   end
+
+  -- the same window streamed as three chunks must decode identically
+  local enc = Codec.encoder(hdr)
+  local k1, s1 = Codec.encodeChunk(enc, { table.unpack(rows, 1, 1000) })
+  local k2, s2 = Codec.encodeChunk(s1, { table.unpack(rows, 1001, 2000) })
+  local k3 = Codec.encodeChunk(s2, { table.unpack(rows, 2001, 3000) })
+  local joined = k1 .. "\n" .. k2 .. "\n" .. k3
+  t.truthy(#joined <= 150000, "chunked stream must also stay under 150 KB")
+  local cdecoded = Codec.decode(joined)
+  t.eq(#cdecoded, 3000)
+  for i = 1, #rows do
+    if cdecoded[i] ~= rows[i] then
+      error("chunked row " .. i .. " diverged: " .. cdecoded[i])
+    end
+  end
+  t.eq(joined, encoded, "chunked stream is byte-identical to the whole-window encode")
 end)

@@ -31,4 +31,35 @@ t.test("keeps rolling after a dump -- rows() is a snapshot, push continues", fun
   t.eq(b:rows()[1], "b"); t.eq(b:rows()[2], "c")
 end)
 
+t.test("total() counts every push monotonically, even past cap", function()
+  local b = LogBuffer.new(3)
+  t.eq(b:total(), 0)
+  for i = 1, 7 do b:push("r" .. i) end
+  t.eq(b:total(), 7, "monotonic row counter past cap")
+  t.eq(b:count(), 3, "count stays capped")
+end)
+
+t.test("tail(n) returns the last n rows, oldest-to-newest", function()
+  local b = LogBuffer.new(5)
+  for i = 1, 4 do b:push("r" .. i) end
+  local last2 = b:tail(2)
+  t.eq(#last2, 2)
+  t.eq(last2[1], "r3"); t.eq(last2[2], "r4", "tail(2) == the last two pushes")
+end)
+
+t.test("tail(n) returns everything when n exceeds the count", function()
+  local b = LogBuffer.new(3)
+  b:push("a"); b:push("b")
+  local all = b:tail(10)
+  t.eq(#all, 2); t.eq(all[1], "a")
+end)
+
+t.test("tail(0) is empty; tail honors recency after rolling", function()
+  local b = LogBuffer.new(3)
+  for i = 1, 5 do b:push("r" .. i) end
+  t.eq(#b:tail(0), 0)
+  local tail = b:tail(2)
+  t.eq(tail[1], "r4"); t.eq(tail[2], "r5")
+end)
+
 return true

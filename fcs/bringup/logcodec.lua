@@ -1,13 +1,14 @@
 -- Cheap flight-log encoding: changed-fields delta over slim CSV rows. Pure Lua, no CC deps.
 --
 -- Wire format (line-oriented, decodeable by tools/decode_flightlog.lua):
---   header     -> verbatim on the first line (may be nil/empty)
+--   header     -> verbatim on the first line (required; decode() treats the first non-# line
+--                 as the header, so a headerless stream could not round-trip)
 --   first row  -> verbatim CSV
 --   later rows -> ","-joined `i:value` pairs for the cells that CHANGED vs the previous row
 --                 (i = 1-based column index; unchanged cells inherit)
 --   "="        -> row identical to the previous row
 -- `#` lines (summary/legend) and blank lines pass through untouched.
--- Values must never contain "," ":" or "=" (true for every emitter in this codebase).
+-- Values must never contain "," ":" or "=" (instrument.formatRow sanitizes its strings).
 local M = {}
 
 local function split(row)
@@ -25,31 +26,67 @@ local function split(row)
   return cells
 end
 
+-- delta line for one row transition; both rows are equal-column CSV strings
+local function deltaLine(prevRow, curRow)
+  local a, b = split(prevRow), split(curRow)
+  local delta = {}
+  for c = 1, #b do
+    if a[c] ~= b[c] then delta[#delta+1] = c .. ":" .. b[c] end
+  end
+  return table.concat(delta, ",")
+end
+
 -- encode(header, rows): rows is an array of equal-column CSV strings (instrument.formatRow
 -- output); header is the column-name line, REQUIRED -- decode() always treats the first
 -- non-# line as the header, so a headerless stream could not round-trip.
 function M.encode(header, rows)
   if not header or header == "" then error("logcodec.encode requires a header line") end
   if #rows == 0 then return header end
-  local out = {}
-  if header and header ~= "" then out[#out+1] = header end
+  local out = { header, rows[1] }
   local prev = rows[1]
-  out[#out+1] = prev
   for i = 2, #rows do
     local cur = rows[i]
     if cur == prev then
       out[#out+1] = "="
     else
-      local a, b = split(prev), split(cur)
-      local delta = {}
-      for c = 1, #b do
-        if a[c] ~= b[c] then delta[#delta+1] = c .. ":" .. b[c] end
-      end
-      out[#out+1] = table.concat(delta, ",")
+      out[#out+1] = deltaLine(prev, cur)
     end
     prev = cur
   end
   return table.concat(out, "\n")
+end
+
+-- Streaming encoder: same wire format, splittable at row boundaries. encoder(header) makes
+-- the state; encodeChunk(state, rows) -> text, newState emits the next chunk. Concatenating
+-- the chunks is byte-identical to encode(header, allRows), so decode() needs no chunk
+-- awareness. encodeChunk never mutates the input state (newState = { header, prev = <row>
+-- string }): the caller swaps it in only after an upload succeeds, so a failed append
+-- re-encodes the identical chunk on retry.
+function M.encoder(header)
+  if not header or header == "" then error("logcodec.encoder requires a header line") end
+  return { header = header, prev = nil }
+end
+
+function M.encodeChunk(state, rows)
+  if #rows == 0 then return "", state end
+  local out = {}
+  local from = 1
+  if state.prev == nil then
+    out[#out+1] = state.header
+    out[#out+1] = rows[1]
+    from = 2
+  end
+  local prev = state.prev or rows[1]
+  for i = from, #rows do
+    local cur = rows[i]
+    if cur == prev then
+      out[#out+1] = "="
+    else
+      out[#out+1] = deltaLine(prev, cur)
+    end
+    prev = cur
+  end
+  return table.concat(out, "\n"), { header = state.header, prev = rows[#rows] }
 end
 
 -- decode(text): replays the wire format back to slim CSV rows. Skips `#` and blank lines and

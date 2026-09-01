@@ -232,14 +232,96 @@ local function logWriteFile()
   end)
   return #rows
 end
--- P-triggered: write the rolling window + upload to carbide, then KEEP FLYING. Repeatable -- each
--- press uploads a fresh (overlapping) window. Feedback lands on row 4, below the status rows.
+-- P-triggered: write the rolling window locally, then STREAM it to carbide as an appendable
+-- paste (one per flight): the first P creates the stream, later presses append only the rows
+-- since the last press. Falls back to a plain `carbide put` when the installed carbide client
+-- predates the stream verbs. All carbide IO stays off the flight path (P press only) and every
+-- carbide call is pcall-guarded -- a dead server must never take the FCS down.
+local stream     -- nil | { id, url, enc = logcodec state, uploaded = rows-ever-uploaded }
+local carbLib    -- nil = not probed yet, false = installed client lacks stream verbs, table = usable
+local carbWarned = false
+
+-- Load the installed carbide client as a library and require stream support. Cached: false
+-- means "old client / missing" -- fall back to `put` (one snapshot paste per P press).
+local function carbideStreamLib()
+  if carbLib ~= nil then return carbLib end
+  local ok, lib = pcall(function()
+    local f = loadfile("carbide")
+    if not f then return nil end
+    return f()   -- no args: carbide returns its library table, never runs the CLI
+  end)
+  if ok and type(lib) == "table" and type(lib.streamBegin) == "function"
+       and type(lib.streamAppend) == "function" then
+    carbLib = lib
+  else
+    carbLib = false
+  end
+  return carbLib
+end
+
+-- Append `rows` to the current stream paste (starting one when needed). Pure state machine;
+-- never advances state on failure, so the next P re-encodes the identical chunk.
+local function logStream(rowsAll)
+  local carb = carbideStreamLib()
+  if not carb then
+    if not carbWarned then
+      print("(old carbide client -- no stream support; uploading a snapshot per P)")
+      carbWarned = true
+    end
+    return shell.run("carbide", "put", LOG_PATH)
+  end
+
+  local total = logRows:total()
+  local behind = stream and (total - stream.uploaded) or math.huge
+  -- ring overran the un-uploaded rows -> the delta chain can't continue; start a fresh paste
+  if not stream or behind > logRows:count() then
+    local r, err = carb.streamBegin("eh2 flight log")
+    if not r then
+      print("(stream-begin failed: " .. tostring(err) .. " -- uploading window as a plain paste)")
+      return pcall(function() return shell.run("carbide", "put", LOG_PATH) end)
+    end
+    stream = { id = r.id, url = r.url, enc = Codec.encoder(Inst.header()), uploaded = 0 }
+    behind = total
+    print(("LOG: streaming %d rows -> %s"):format(#rowsAll, r.url))
+  elseif behind == 0 then
+    print("LOG: no new rows since last upload")
+    return
+  end
+
+  local pending = logRows:tail(behind)
+  local rows = {}
+  for i = 1, #pending do rows[i] = Inst.formatRow(pending[i]) end
+  if #rows == 0 then
+    stream.uploaded = total   -- nothing buffered; stream stays consistent for the next press
+    print("LOG: no buffered rows to upload")
+    return
+  end
+  local text, newState = Codec.encodeChunk(stream.enc, rows)
+  local r, err = carb.streamAppend(stream.id, text)
+  if not r then
+    -- 413 = stream cap reached; anything else (network, 403/404) retries next press
+    if tostring(err):find("^413") then
+      print("(stream cap reached -- uploading window as a fresh paste)")
+      stream = nil
+      return pcall(function() return shell.run("carbide", "put", LOG_PATH) end)
+    end
+    print("(append failed: " .. tostring(err) .. " -- will retry next P)")
+    return
+  end
+  stream.enc, stream.uploaded = newState, total
+end
+
+-- P-triggered: write the rolling window to LOG_PATH (always self-contained) + stream/append to
+-- carbide, then KEEP FLYING. Repeatable. Feedback lands on row 4, below the status rows.
 local function logDump()
   if not LOGGING then return end
   local n = logWriteFile()
   pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
   print(("LOG: %d rows -> carbide..."):format(n))
-  if not pcall(function() return shell.run("carbide", "put", LOG_PATH) end) then
+  local recs = logRows:rows()
+  local rows = {}
+  for i = 1, #recs do rows[i] = Inst.formatRow(recs[i]) end
+  if not pcall(function() logStream(rows) end) then
     print("(carbide unavailable -- grab " .. LOG_PATH .. " manually)")
   end
 end
@@ -250,7 +332,11 @@ local function logFinish()
   local n = logWriteFile()
   pcall(function() term.setCursorPos(1, 4) end)
   print(""); print(Inst.formatSummary(logSummary:finalize()))
-  print(("Log saved: %s  (%d rows). Press P in-flight to upload."):format(LOG_PATH, n))
+  if stream then
+    print(("Log saved: %s (%d rows). Stream paste: %s"):format(LOG_PATH, n, stream.url or stream.id))
+  else
+    print(("Log saved: %s  (%d rows). Press P in-flight to upload."):format(LOG_PATH, n))
+  end
 end
 
 -- ---- Fuel readback: DECOUPLED from the control loop ----
