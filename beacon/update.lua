@@ -8,6 +8,12 @@ local protocol = require("fcs.comms.protocol")
 local M = {}
 M.CMD_KIND = "eh2_beacon_update"
 M.ACK_KIND = "eh2_beacon_update_ack"
+M.CMD2_KIND = "eh2_beacon_cmd"       -- generalized op-tagged remote command
+M.STATUS_KIND = "eh2_beacon_status"  -- query reply (Task 3)
+M.OPS = { enable = true, disable = true, verify = true, query = true,
+          setPos = true, setInterval = true, reboot = true }
+
+function M.cmd(op, token, args) return { k = M.CMD2_KIND, op = op, token = token, args = args } end
 
 --- A token is valid iff it is a non-empty string once whitespace is stripped.
 function M.validToken(t)
