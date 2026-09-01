@@ -101,11 +101,13 @@ function M.run()
         else
           print("update failed; staying on the current version"); os.sleep(2); repaint()
         end
-      elseif frame and modem and Update.acceptsCmd(frame, cfg.updateToken) then
+      elseif frame and modem and Update.acceptsCmd(frame, cfg.updateToken) and Update.targeted(frame, cfg.id) then
         -- Op-tagged remote command (Phase P2): same fail-closed gate (acceptsCmd rejects an unknown
         -- op or a blank/mismatched token), so an unprovisioned beacon never acts on these either. A
         -- query gets a DIAG status reply built from the live runtime; every other op is a pure
         -- cfg mutation (beacon.command, unit-tested) whose result flags drive save/rearm/verify/reboot.
+        -- Phase P3a: Update.targeted() is pure ADDRESSING, not auth -- a nil target still broadcasts
+        -- to every beacon; a non-nil target must equal this beacon's id or the command is ignored.
         if frame.op == "query" then
           modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.status(cfg.id, rt:statusPayload())))
         else

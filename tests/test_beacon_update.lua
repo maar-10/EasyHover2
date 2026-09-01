@@ -76,3 +76,18 @@ t.test("acceptsCmd is fail-closed: known op + matching valid token only", functi
   t.eq(U.acceptsCmd({ k = U.CMD_KIND, token = "tok" }, "tok"), false)  -- wrong kind (that's the update cmd)
   t.eq(U.acceptsCmd(nil, "tok"), false)
 end)
+
+t.test("cmd carries an optional target beacon id (nil = broadcast)", function()
+  local U = require("beacon.update")
+  local f = U.cmd("enable", "tok", nil, "beacon-70")
+  t.eq(f.target, "beacon-70")
+  local g = U.cmd("enable", "tok")
+  t.eq(g.target, nil)
+end)
+
+t.test("targeted is pure ADDRESSING, separate from the token auth gate", function()
+  local U = require("beacon.update")
+  t.eq(U.targeted({ target = nil }, "b1"), true, "broadcast (nil target) matches any beacon")
+  t.eq(U.targeted({ target = "b1" }, "b1"), true, "addressed to this beacon")
+  t.eq(U.targeted({ target = "b1" }, "b2"), false, "addressed to a different beacon")
+end)

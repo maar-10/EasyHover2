@@ -13,7 +13,10 @@ M.STATUS_KIND = "eh2_beacon_status"  -- query reply (Task 3)
 M.OPS = { enable = true, disable = true, verify = true, query = true,
           setPos = true, setInterval = true, reboot = true }
 
-function M.cmd(op, token, args) return { k = M.CMD2_KIND, op = op, token = token, args = args } end
+--- target is a beacon id string to address ONE beacon, or nil to broadcast to all.
+function M.cmd(op, token, args, target)
+  return { k = M.CMD2_KIND, op = op, token = token, args = args, target = target }
+end
 
 function M.status(id, payload)
   local f = {}
@@ -57,6 +60,12 @@ function M.acceptsCmd(frame, cfgToken)
   if not M.validToken(cfgToken) then return false end
   if not M.validToken(frame.token) then return false end
   return frame.token == cfgToken
+end
+
+--- Pure ADDRESSING predicate, separate from the token auth gate above: a frame is targeted at
+--- this beacon iff it carries no target (broadcast to all) or its target matches cfgId exactly.
+function M.targeted(frame, cfgId)
+  return frame.target == nil or frame.target == cfgId
 end
 
 return M
