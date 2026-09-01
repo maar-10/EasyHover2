@@ -48,3 +48,12 @@ t.test("cmd builds an op-tagged, token-carrying command frame", function()
   local g = U.cmd("setInterval", "tok", { intervalMs = 3000 })
   t.eq(g.args.intervalMs, 3000)
 end)
+
+t.test("decode round-trips cmd + status; rejects GPS + unknown kinds", function()
+  local U = require("beacon.update")
+  local cmd = U.decode(U.encode(U.cmd("query", "tok")))
+  t.truthy(cmd and cmd.op == "query")
+  local st = U.decode(U.encode(U.status("beacon-70", { enabled = false, seq = 5 })))
+  t.truthy(st and st.id == "beacon-70" and st.enabled == false and st.seq == 5)
+  t.eq(U.decode('{"x":1,"y":2,"z":3}'), nil)   -- a GPS frame is not a command
+end)

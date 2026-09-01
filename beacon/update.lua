@@ -15,6 +15,12 @@ M.OPS = { enable = true, disable = true, verify = true, query = true,
 
 function M.cmd(op, token, args) return { k = M.CMD2_KIND, op = op, token = token, args = args } end
 
+function M.status(id, payload)
+  local f = { k = M.STATUS_KIND, id = id }
+  for k, v in pairs(payload or {}) do f[k] = v end
+  return f
+end
+
 --- A token is valid iff it is a non-empty string once whitespace is stripped.
 function M.validToken(t)
   return type(t) == "string" and t:gsub("%s", "") ~= ""
@@ -29,7 +35,7 @@ function M.encode(frame) return protocol.encode(frame) end
 function M.decode(str)
   local f = protocol.decode(str)
   if type(f) ~= "table" then return nil end
-  if f.k == M.CMD_KIND or f.k == M.ACK_KIND then return f end
+  if f.k == M.CMD_KIND or f.k == M.ACK_KIND or f.k == M.CMD2_KIND or f.k == M.STATUS_KIND then return f end
   return nil
 end
 
