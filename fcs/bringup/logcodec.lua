@@ -57,11 +57,12 @@ function M.encode(header, rows)
 end
 
 -- Streaming encoder: same wire format, splittable at row boundaries. encoder(header) makes
--- the state; encodeChunk(state, rows) -> text, newState emits the next chunk. Concatenating
--- the chunks is byte-identical to encode(header, allRows), so decode() needs no chunk
--- awareness. encodeChunk never mutates the input state (newState = { header, prev = <row>
--- string }): the caller swaps it in only after an upload succeeds, so a failed append
--- re-encodes the identical chunk on retry.
+-- the state; encodeChunk(state, rows) -> text, newState emits the next chunk. Continuation
+-- chunks carry their own LEADING newline, so raw server-side concatenation of chunk bodies
+-- (body || chunk, no separator) is byte-identical to encode(header, allRows) and decode()
+-- needs no chunk awareness. encodeChunk never mutates the input state (newState =
+-- { header, prev = <row> string }): the caller swaps it in only after an upload succeeds, so
+-- a failed append re-encodes the identical chunk on retry.
 function M.encoder(header)
   if not header or header == "" then error("logcodec.encoder requires a header line") end
   return { header = header, prev = nil }
@@ -69,12 +70,13 @@ end
 
 function M.encodeChunk(state, rows)
   if #rows == 0 then return "", state end
-  local out = {}
-  local from = 1
+  local out, from, prefix = {}, 1, ""
   if state.prev == nil then
     out[#out+1] = state.header
     out[#out+1] = rows[1]
     from = 2
+  else
+    prefix = "\n"               -- continuation chunks carry their own leading separator
   end
   local prev = state.prev or rows[1]
   for i = from, #rows do
@@ -86,7 +88,7 @@ function M.encodeChunk(state, rows)
     end
     prev = cur
   end
-  return table.concat(out, "\n"), { header = state.header, prev = rows[#rows] }
+  return prefix .. table.concat(out, "\n"), { header = state.header, prev = rows[#rows] }
 end
 
 -- decode(text): replays the wire format back to slim CSV rows. Skips `#` and blank lines and

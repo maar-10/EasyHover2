@@ -159,9 +159,9 @@
         },
         {
           ["dst"] = "fcs/bringup/logcodec.lua",
-          ["size"] = 4392,
+          ["size"] = 4612,
           ["src"] = "fcs/bringup/logcodec.lua",
-          ["sum"] = "8cfe1eaa",
+          ["sum"] = "b196619e",
         },
         {
           ["dst"] = "fcs/bringup/profile.lua",
@@ -702,9 +702,9 @@
         },
         {
           ["dst"] = "fcs/bringup/logcodec.lua",
-          ["size"] = 4392,
+          ["size"] = 4612,
           ["src"] = "fcs/bringup/logcodec.lua",
-          ["sum"] = "8cfe1eaa",
+          ["sum"] = "b196619e",
         },
         {
           ["dst"] = "fcs/bringup/profile.lua",
@@ -1470,5 +1470,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "e68dba3e",
+  ["version"] = "85af6b66",
 }

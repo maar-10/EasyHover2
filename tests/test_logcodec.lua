@@ -99,7 +99,8 @@ t.test("two chunks round-trip through decode exactly like one whole encode", fun
   local enc = Codec.encoder(HDR)
   local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2], rows[3] })
   local c2, s2 = Codec.encodeChunk(s1, { rows[4], rows[5] })
-  local decoded, hdr = Codec.decode(c1 .. "\n" .. c2)
+  -- the server concatenates chunk bodies with NO separator; chunks must carry their own
+  local decoded, hdr = Codec.decode(c1 .. c2)
   t.eq(hdr, HDR)
   t.eq(#decoded, 5)
   for i, row in ipairs(rows) do t.eq(decoded[i], row, "row " .. i) end
@@ -113,7 +114,7 @@ t.test("concatenated chunks are byte-identical to the whole-window encode", func
   local enc = Codec.encoder(HDR)
   local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2] })
   local c2, _  = Codec.encodeChunk(s1, { rows[3], rows[4], rows[5] })
-  t.eq(c1 .. "\n" .. c2, Codec.encode(HDR, rows), "chunked == whole, byte for byte")
+  t.eq(c1 .. c2, Codec.encode(HDR, rows), "chunked == whole, byte for byte (no separators)")
 end)
 
 t.test("= runs and delta chains continue across a chunk boundary", function()
@@ -126,13 +127,13 @@ t.test("= runs and delta chains continue across a chunk boundary", function()
   local c1, s1 = Codec.encodeChunk(enc, { rows[1], rows[2], rows[3] })
   local c2 = Codec.encodeChunk(s1, { rows[4], rows[5] })
   local lines = {}
-  for line in (c1 .. "\n" .. c2):gmatch("[^\n]+") do lines[#lines+1] = line end
+  for line in (c1 .. c2):gmatch("[^\n]+") do lines[#lines+1] = line end
   t.eq(lines[1], HDR)
   t.eq(lines[2], rows[1])
   t.eq(lines[3], "1:1.06,5:64.5", "delta vs previous row")
   t.eq(lines[4], "1:1.13", "row 3 differs from row 2 only in t (alt inherited)")
   t.eq(lines[5], "=", "row 4 == row 3 collapses, right at the boundary")
-  local decoded = Codec.decode(c1 .. "\n" .. c2)
+  local decoded = Codec.decode(c1 .. c2)
   t.eq(#decoded, 5)
   for i, row in ipairs(rows) do t.eq(decoded[i], row, "row " .. i) end
 end)
@@ -144,7 +145,7 @@ t.test("empty chunk yields empty text and leaves the state usable", function()
   local c2, s2 = Codec.encodeChunk(s1, {})
   t.eq(c2, "", "empty chunk encodes to nothing")
   local c3 = Codec.encodeChunk(s2, { "1.25,H,N,5,64.9,0,0" })
-  local decoded = Codec.decode(c1 .. "\n" .. c2 .. "\n" .. c3)
+  local decoded = Codec.decode(c1 .. c2 .. c3)
   t.eq(#decoded, 3)
   t.eq(decoded[3], "1.25,H,N,5,64.9,0,0")
 end)
@@ -227,7 +228,7 @@ t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
   local k1, s1 = Codec.encodeChunk(enc, { table.unpack(rows, 1, 1000) })
   local k2, s2 = Codec.encodeChunk(s1, { table.unpack(rows, 1001, 2000) })
   local k3 = Codec.encodeChunk(s2, { table.unpack(rows, 2001, 3000) })
-  local joined = k1 .. "\n" .. k2 .. "\n" .. k3
+  local joined = k1 .. k2 .. k3
   t.truthy(#joined <= 150000, "chunked stream must also stay under 150 KB")
   local cdecoded = Codec.decode(joined)
   t.eq(#cdecoded, 3000)
