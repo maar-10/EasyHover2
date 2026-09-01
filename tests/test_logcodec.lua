@@ -202,6 +202,25 @@ t.test("compose plain with an empty window is just the header + summary", functi
   t.eq(lines[2], "# s")
 end)
 
+t.test("decode tolerates a plain (unencoded) file: verbatim rows pass through", function()
+  -- An operator may run decode_flightlog on a file written in plain mode. Those lines are full
+  -- CSV rows with no i:value pairs -- they must pass through, not crash on tonumber(nil).
+  local text = HDR .. "\n1,H,N,5,64,0,0\n1.06,H,N,5,64.5,0,0"
+  local decoded, hdr = Codec.decode(text)
+  t.eq(hdr, HDR)
+  t.eq(#decoded, 2)
+  t.eq(decoded[1], "1,H,N,5,64,0,0")
+  t.eq(decoded[2], "1.06,H,N,5,64.5,0,0")
+end)
+
+t.test("decode still handles a delta line mixed after plain rows", function()
+  -- plain row, then a delta line: the delta replays from the last verbatim row's cells
+  local text = HDR .. "\n1,H,N,5,64,0,0\n1:2.5"
+  local decoded = Codec.decode(text)
+  t.eq(#decoded, 2)
+  t.eq(decoded[2], "2.5,H,N,5,64,0,0", "delta continues from the plain row's cells")
+end)
+
 t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
   -- Production shape: full instrument schema (real header + column count, every duty column),
   -- slow altitude bob, tiny attitude jitter, static trimmed duties -- what the ring buffer holds.

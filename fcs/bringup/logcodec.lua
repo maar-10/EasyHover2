@@ -121,14 +121,28 @@ function M.decode(text)
           rows[#rows+1] = line
         end
       else
-        local cur = {}
-        for c = 1, #cols do cur[c] = cols[c] end
+        -- a line whose cells are not all `i:value` pairs is a PLAIN row (e.g. a file written in
+        -- plain mode fed to the decoder) -- treat it verbatim and let it become the new state
+        local delta, cur = true, {}
         for pair in line:gmatch("[^,]+") do
           local idx, val = pair:match("^(%d+):(.*)$")
-          cur[tonumber(idx)] = val
+          if idx then
+            cur[tonumber(idx)] = val
+          else
+            delta = false
+            break
+          end
         end
-        cols = cur
-        rows[#rows+1] = table.concat(cur, ",")
+        if delta then
+          local full = {}
+          for c = 1, #cols do full[c] = cols[c] end
+          for i, v in pairs(cur) do full[i] = v end
+          cols = full
+          rows[#rows+1] = table.concat(full, ",")
+        else
+          cols = split(line)
+          rows[#rows+1] = line
+        end
       end
     end
   end

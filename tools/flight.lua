@@ -176,12 +176,8 @@ local function logStart()
   if not LOGGING then return end
   logSummary = Inst.Summary.new(); logT0 = os.epoch("utc"); logRows = LogBuffer.new(MAX_ROWS)
 end
-local function logCycle(dt, m)
-  if not LOGGING then return end
-  -- Logging must NEVER take the flight down: this runs inside controlTask, and an uncaught
-  -- error here would unwind the whole parallel task group (safeShutdown = thrust off mid-air).
-  -- So the body is pcall-wrapped; a broken logger prints once and disables itself.
-  local ok, err = pcall(function()
+-- logCycle body, hoisted so the per-cycle pcall does not allocate a closure each cycle.
+local function logCycleBody(dt, m)
   local r = flight.lastDiag or {}
   local dem = r.demands or {}
   -- Log-site-only pure read (never called when LOGGING is false): reconstructs the PID
@@ -216,7 +212,14 @@ local function logCycle(dt, m)
   -- OFF the control loop -- so logging no longer steals hot-path time from the FCS. See analysis:
   -- logging-on flights ran ~15Hz jittery; this removes the per-cycle format work.
   logRows:push(Inst.capture(sample))                       -- RAM ring; oldest rolls off past MAX_ROWS
-  end)
+end
+
+local function logCycle(dt, m)
+  if not LOGGING then return end
+  -- Logging must NEVER take the flight down: this runs inside controlTask, and an uncaught
+  -- error here would unwind the whole parallel task group (safeShutdown = thrust off mid-air).
+  -- So the body is pcall-wrapped; a broken logger prints once and disables itself.
+  local ok, err = pcall(logCycleBody, dt, m)
   if not ok then
     LOGGING = false                                        -- one strike: logging off, flight on
     print("(flight logging disabled after error: " .. tostring(err) .. ")")
@@ -226,7 +229,9 @@ end
 -- .settings) makes every log file readable slim CSV with no codec lines, and uploads fall back
 -- to one plain paste per P press. No restart needed; flip it back with `set eh2_log_plain false`.
 local function logPlain()
-  return settings ~= nil and settings.get("eh2_log_plain") == true
+  if settings == nil then return false end
+  local v = settings.get("eh2_log_plain")
+  return v == true or v == "true" or v == "1" or v == "yes"
 end
 
 -- Compose the log body (header + rows + running summary) to LOG_PATH. Returns rowCount.
@@ -236,8 +241,14 @@ local function logWriteFile()
   -- per cycle; then either delta-encode them (fcs.bringup.logcodec) or write them plainly.
   local recs = logRows:rows()
   local rows = {}
-  for i = 1, #recs do rows[i] = Inst.formatRow(recs[i]) end
-  local summaryText = Inst.formatSummary(logSummary:finalize())
+  for i = 1, #recs do
+    rows[i] = Inst.formatRow(recs[i])
+    if i % 256 == 0 then
+      -- cooperative yield: a full-window dump must not starve the control task for its
+      -- whole duration. queue+pull one private event so we never steal real events.
+      os.queueEvent("eh2_log_tick"); os.pullEvent("eh2_log_tick")
+    end
+  end
   pcall(function()
     if fs.exists(LOG_PATH) then fs.delete(LOG_PATH) end     -- reclaim space from a prior write
     local f = fs.open(LOG_PATH, "w")
@@ -257,10 +268,11 @@ local stream     -- nil | { id, url, enc = logcodec state, uploaded = rows-ever-
 local carbLib    -- nil = not probed yet, false = installed client lacks stream verbs, table = usable
 local carbWarned = false
 
--- Load the installed carbide client as a library and require stream support. Cached: false
--- means "old client / missing" -- fall back to `put` (one snapshot paste per P press).
+-- Load the installed carbide client as a library and require stream support. A positive probe
+-- result is cached; a negative one is re-probed on every press (cheap), so installing a new
+-- carbide.lua mid-flight picks up the stream verbs without a restart.
 local function carbideStreamLib()
-  if carbLib ~= nil then return carbLib end
+  if carbLib then return carbLib end
   local ok, lib = pcall(function()
     -- resolve like shell.run would (covers /carbide.lua and PATH-installed layouts too)
     local path = shell and shell.resolveProgram and shell.resolveProgram("carbide")
@@ -312,7 +324,12 @@ local function logStream()
 
   local pending = logRows:tail(behind)
   local rows = {}
-  for i = 1, #pending do rows[i] = Inst.formatRow(pending[i]) end
+  for i = 1, #pending do
+    rows[i] = Inst.formatRow(pending[i])
+    if i % 256 == 0 then
+      os.queueEvent("eh2_log_tick"); os.pullEvent("eh2_log_tick")   -- cooperative yield, same as logWriteFile
+    end
+  end
   if #rows == 0 then
     stream.uploaded = total   -- nothing buffered; stream stays consistent for the next press
     print("LOG: no buffered rows to upload")
@@ -353,9 +370,11 @@ local function logDump()
     print("(log dump failed: " .. tostring(err) .. " -- grab " .. LOG_PATH .. " manually)")
   end
 end
--- Exit-only: stop thrust, write the final window LOCALLY (no auto-upload -- P is the upload action).
+-- Exit-only: stop thrust, write the final window LOCALLY (no auto-upload -- P is the upload
+-- action). Runs even when per-cycle logging disabled itself (LOGGING false): the buffered rows
+-- still get written, only the live cycle capture stopped.
 local function logFinish()
-  if not LOGGING then return end
+  if logRows == nil then return end
   loop:arm(false); pcall(function() loop:cycle(0, backend:sensors()) end)   -- stop thrust on exit
   local ok, n = pcall(function() return logWriteFile() end)
   n = ok and n or 0
