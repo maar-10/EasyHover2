@@ -42,9 +42,9 @@
         },
         {
           ["dst"] = "beacon/config.lua",
-          ["size"] = 1154,
+          ["size"] = 1315,
           ["src"] = "dist/beacon/config.lua",
-          ["sum"] = "e86c9105",
+          ["sum"] = "e7f43087",
         },
         {
           ["dst"] = "beacon/console.lua",
@@ -1458,5 +1458,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "9662c0f0",
+  ["version"] = "0cee9900",
 }

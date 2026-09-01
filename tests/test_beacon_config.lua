@@ -2,26 +2,28 @@ package.path = "/?.lua;/?/init.lua;" .. package.path
 local t = require("tests.framework")
 local C = require("beacon.config")
 
-t.test("defaults carry a shared GPS channel, a 1 Hz interval, and broadcasting enabled", function()
+t.test("defaults carry a shared GPS channel, a 3 s interval, and broadcasting enabled", function()
   local d = C.defaults()
   t.eq(d.channel, 65000)
-  t.eq(d.intervalMs, 1000)
+  t.eq(d.intervalMs, 3000)    -- 3 s default (1 Hz was a little chatty)
   t.eq(d.enabled, true)
   t.truthy(type(d.pos) == "table", "has a position sub-table (coords unset until configured)")
 end)
 
-t.test("clampInterval enforces the 1 Hz floor (never faster than the FCS-safety rate)", function()
-  t.eq(C.clampInterval(500), 1000)    -- too fast -> clamped up to the floor
-  t.eq(C.clampInterval(1000), 1000)
-  t.eq(C.clampInterval(5000), 5000)   -- slower is fine
-  t.eq(C.clampInterval(nil), 1000)    -- default is the floor
+t.test("clampInterval clamps to [20 Hz .. 1/min]; a non-number falls to the 3 s default", function()
+  t.eq(C.clampInterval(10), 50)         -- faster than 20 Hz -> clamped up to the 50 ms floor
+  t.eq(C.clampInterval(50), 50)         -- 20 Hz, the fastest allowed
+  t.eq(C.clampInterval(3000), 3000)
+  t.eq(C.clampInterval(60000), 60000)   -- 1/min, the slowest allowed
+  t.eq(C.clampInterval(120000), 60000)  -- slower than 1/min -> clamped down to the 60 s ceiling
+  t.eq(C.clampInterval(nil), 3000)      -- non-number -> the default, not the floor
 end)
 
 t.test("withDefaults deep-merges saved values over fresh defaults", function()
   local m = C.withDefaults({ id = "B1", channel = 65001, pos = { x = 1, y = 2, z = 3 } })
   t.eq(m.id, "B1")
   t.eq(m.channel, 65001)     -- saved wins
-  t.eq(m.intervalMs, 1000)   -- untouched default survives
+  t.eq(m.intervalMs, 3000)   -- untouched default survives
   t.eq(m.pos.x, 1); t.eq(m.pos.y, 2); t.eq(m.pos.z, 3)
 end)
 

@@ -6,24 +6,32 @@
 local M = {}
 
 M.PATH = "/eh2_beacon.tbl"
-M.MIN_INTERVAL_MS = 1000   -- 1 Hz floor: beacons never broadcast faster than this, so the shared CC
-                           -- server budget can't be starved (the hard FCS-safety rule).
+-- Operator-tunable broadcast rate. FLOOR 50 ms = 20 Hz (the fastest a beacon may broadcast) protects the
+-- shared CC server budget; CEILING 60000 ms = 1 broadcast/minute (the slowest, for a quiet standby
+-- constellation). DEFAULT 3 s -- 1 Hz was a little chatty for normal use. 20 Hz is available for special
+-- needs but is 60x the default traffic, so use it deliberately (the default keeps the channel light).
+M.MIN_INTERVAL_MS = 50
+M.MAX_INTERVAL_MS = 60000
+M.DEFAULT_INTERVAL_MS = 3000
 
 function M.defaults()
   return {
     id = nil,               -- unique beacon id (string) carried in every broadcast; required to send
     pos = { x = nil, y = nil, z = nil },  -- this beacon's own world coordinates
     channel = 65000,        -- GPS broadcast channel, shared with NAV + the other beacons
-    intervalMs = 1000,      -- broadcast period; 1 Hz default, also the floor (see clampInterval)
+    intervalMs = M.DEFAULT_INTERVAL_MS,  -- broadcast period; 3 s default (see clampInterval for bounds)
     modemSide = nil,        -- ender modem side/name
     enabled = true,         -- broadcasting on/off ([E] on the console)
     updateToken = nil,      -- shared secret for remote update; unset = beacon ignores update commands
   }
 end
 
---- Enforce the 1 Hz floor: an interval faster than MIN_INTERVAL_MS is clamped up; nil -> the floor.
+--- Clamp the broadcast period to [MIN_INTERVAL_MS .. MAX_INTERVAL_MS] (20 Hz .. 1/min). A faster value
+--- is clamped up to the floor, a slower one down to the ceiling; a non-number falls to the default.
 function M.clampInterval(ms)
-  if type(ms) ~= "number" or ms < M.MIN_INTERVAL_MS then return M.MIN_INTERVAL_MS end
+  if type(ms) ~= "number" then return M.DEFAULT_INTERVAL_MS end
+  if ms < M.MIN_INTERVAL_MS then return M.MIN_INTERVAL_MS end
+  if ms > M.MAX_INTERVAL_MS then return M.MAX_INTERVAL_MS end
   return ms
 end
 
