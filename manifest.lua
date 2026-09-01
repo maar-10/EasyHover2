@@ -56,7 +56,7 @@
           ["dst"] = "beacon/runtime.lua",
           ["size"] = 3200,
           ["src"] = "dist/beacon/runtime.lua",
-          ["sum"] = "6d27752d",
+          ["sum"] = "95d94141",
         },
         {
           ["dst"] = "beacon/update.lua",
@@ -1458,5 +1458,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "092f4f16",
+  ["version"] = "9662c0f0",
 }

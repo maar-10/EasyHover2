@@ -51,3 +51,19 @@ t.test("a small measurement error within tolerance is not a mismatch", function(
     { B = { pos = { x = 30, y = 0, z = 0 }, dist = 30.4 } }, 1.0)
   t.truthy(r.ok, "0.4 blocks < 1.0 tolerance")
 end)
+
+t.test("a placement/reference offset (config coord vs actual modem block) does NOT false-flag", function()
+  -- Real world (operator screenshot): the modem-measured range and the config-coordinate range differ
+  -- by ~1.4 blocks because the entered coordinate is not the exact modem block. The check exists to
+  -- catch gross TYPOS (tens+ of blocks), so the DEFAULT tolerance must clear this placement noise.
+  local r = BR.selfCheck({ x = 6462, y = 200, z = 6107 },
+    { ["beacon-70"] = { pos = { x = -7210, y = 64, z = -7260 }, dist = 19122.6 } })   -- DEFAULT tolerance
+  t.truthy(r.ok, "~1.4-block placement offset is within the default tolerance, not a mismatch")
+end)
+
+t.test("a real coordinate typo (tens+ of blocks off) is still caught at the default tolerance", function()
+  local r = BR.selfCheck({ x = 0, y = 0, z = 0 },
+    { X = { pos = { x = 0, y = 0, z = 100 }, dist = 88 } })   -- 12 blocks off, DEFAULT tolerance
+  t.truthy(not r.ok, "a 12-block disagreement still flags a typo")
+  t.eq(#r.mismatches, 1)
+end)

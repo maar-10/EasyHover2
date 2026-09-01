@@ -15,7 +15,13 @@ local M = {}
 local R = {}
 R.__index = R
 
-M.DEFAULT_TOLERANCE = 1.0   -- blocks: configured-vs-measured range disagreement above this = MISMATCH
+-- blocks: configured-vs-measured range disagreement above this = MISMATCH. The check exists to catch
+-- gross coordinate TYPOS (a wrong digit / sign is tens-to-thousands of blocks off), NOT sub-block
+-- precision. A benign gap of ~1-2 blocks is normal: CC's modem_message distance is measured
+-- modem-block to modem-block, while the configured coordinate is whatever the operator entered (F3
+-- player pos, not the exact modem block), so 1.0 false-flagged correctly-placed beacons. 5 clears
+-- that placement noise while still catching any real typo loudly. Per-beacon config.tolerance overrides.
+M.DEFAULT_TOLERANCE = 5.0
 
 --- Plain Euclidean distance between two {x,y,z}.
 function M.geoDistance(a, b)
