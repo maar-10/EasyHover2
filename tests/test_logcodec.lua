@@ -174,6 +174,34 @@ t.test("a fresh encoder is independent of any previous stream", function()
   t.truthy(c1_b:find("^" .. HDR .. "\n"), "fresh chunk starts with the header")
 end)
 
+-- ===== escape hatch: compose() builds the file body in either mode =====
+
+t.test("compose plain mode emits readable slim CSV (no codec lines)", function()
+  local rows = { "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0" }
+  local text = Codec.compose(true, HDR, rows, "# summary")
+  local lines = {}
+  for line in text:gmatch("[^\n]+") do lines[#lines+1] = line end
+  t.eq(lines[1], HDR)
+  t.eq(lines[2], rows[1])
+  t.eq(lines[3], rows[2], "row 2 is a full CSV row, not a delta")
+  t.eq(lines[4], "# summary")
+  t.truthy(text:find("=", 1, true) == nil, "no = repeat markers in plain mode")
+end)
+
+t.test("compose encoded mode is byte-identical to encode + summary", function()
+  local rows = { "1,H,N,5,64,0,0", "1.06,H,N,5,64.5,0,0" }
+  local text = Codec.compose(false, HDR, rows, "# summary")
+  t.eq(text, Codec.encode(HDR, rows) .. "\n\n# summary\n")
+end)
+
+t.test("compose plain with an empty window is just the header + summary", function()
+  local text = Codec.compose(true, HDR, {}, "# s")
+  local lines = {}
+  for line in text:gmatch("[^\n]+") do lines[#lines+1] = line end
+  t.eq(lines[1], HDR)
+  t.eq(lines[2], "# s")
+end)
+
 t.test("a realistic 3000-row cruise window encodes under 150 KB", function()
   -- Production shape: full instrument schema (real header + column count, every duty column),
   -- slow altitude bob, tiny attitude jitter, static trimmed duties -- what the ring buffer holds.

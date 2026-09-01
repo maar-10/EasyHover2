@@ -91,6 +91,17 @@ function M.encodeChunk(state, rows)
   return prefix .. table.concat(out, "\n"), { header = state.header, prev = rows[#rows] }
 end
 
+-- compose(header, rows, summary, plain): build a complete log file body. Encoded mode is the
+-- wire format + the summary block; plain mode (the escape hatch when compression misbehaves,
+-- settings eh2_log_plain) is readable slim CSV with no codec lines at all.
+function M.compose(plain, header, rows, summary)
+  if not header or header == "" then error("logcodec.compose requires a header line") end
+  if plain then
+    return header .. "\n" .. table.concat(rows, "\n") .. (#rows > 0 and "\n" or "") .. "\n" .. summary .. "\n"
+  end
+  return M.encode(header, rows) .. "\n\n" .. summary .. "\n"
+end
+
 -- decode(text): replays the wire format back to slim CSV rows. Skips `#` and blank lines and
 -- the column header. Returns rows (full CSV strings), header (or nil).
 function M.decode(text)

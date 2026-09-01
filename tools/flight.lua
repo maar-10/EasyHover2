@@ -178,6 +178,10 @@ local function logStart()
 end
 local function logCycle(dt, m)
   if not LOGGING then return end
+  -- Logging must NEVER take the flight down: this runs inside controlTask, and an uncaught
+  -- error here would unwind the whole parallel task group (safeShutdown = thrust off mid-air).
+  -- So the body is pcall-wrapped; a broken logger prints once and disables itself.
+  local ok, err = pcall(function()
   local r = flight.lastDiag or {}
   local dem = r.demands or {}
   -- Log-site-only pure read (never called when LOGGING is false): reconstructs the PID
@@ -212,12 +216,24 @@ local function logCycle(dt, m)
   -- OFF the control loop -- so logging no longer steals hot-path time from the FCS. See analysis:
   -- logging-on flights ran ~15Hz jittery; this removes the per-cycle format work.
   logRows:push(Inst.capture(sample))                       -- RAM ring; oldest rolls off past MAX_ROWS
+  end)
+  if not ok then
+    LOGGING = false                                        -- one strike: logging off, flight on
+    print("(flight logging disabled after error: " .. tostring(err) .. ")")
+  end
 end
--- Compose the encoded log body (header + delta-encoded rows + running summary) to LOG_PATH.
--- Returns rowCount. Off the flight path (called only from logDump/logFinish).
+-- Worst-case escape hatch, checked LIVE on every dump: `set eh2_log_plain true` (persisted in
+-- .settings) makes every log file readable slim CSV with no codec lines, and uploads fall back
+-- to one plain paste per P press. No restart needed; flip it back with `set eh2_log_plain false`.
+local function logPlain()
+  return settings ~= nil and settings.get("eh2_log_plain") == true
+end
+
+-- Compose the log body (header + rows + running summary) to LOG_PATH. Returns rowCount.
+-- Off the flight path (called only from logDump/logFinish).
 local function logWriteFile()
   -- Format the buffered raw samples to slim CSV rows HERE, at dump time (P press / exit), not
-  -- per cycle, then delta-encode them (fcs.bringup.logcodec).
+  -- per cycle; then either delta-encode them (fcs.bringup.logcodec) or write them plainly.
   local recs = logRows:rows()
   local rows = {}
   for i = 1, #recs do rows[i] = Inst.formatRow(recs[i]) end
@@ -226,7 +242,7 @@ local function logWriteFile()
     if fs.exists(LOG_PATH) then fs.delete(LOG_PATH) end     -- reclaim space from a prior write
     local f = fs.open(LOG_PATH, "w")
     if f then
-      f.write(Codec.encode(Inst.header(), rows) .. "\n\n" .. summaryText .. "\n")
+      f.write(Codec.compose(logPlain(), Inst.header(), rows, summaryText))
       f.close()
     end
   end)
@@ -264,6 +280,10 @@ end
 -- Append `rows` to the current stream paste (starting one when needed). Pure state machine;
 -- never advances state on failure, so the next P re-encodes the identical chunk.
 local function logStream()
+  -- plain mode: no codec anywhere, so streaming is out too -- one plain paste per press
+  if logPlain() then
+    return shell.run("carbide", "put", LOG_PATH)
+  end
   local carb = carbideStreamLib()
   if not carb then
     if not carbWarned then
@@ -316,24 +336,31 @@ end
 
 -- P-triggered: write the rolling window to LOG_PATH (always self-contained) + stream/append to
 -- carbide, then KEEP FLYING. Repeatable. Feedback lands on row 4, below the status rows.
+-- The WHOLE body is pcall-wrapped: logDump runs in its own parallel task, and an uncaught
+-- error here would unwind the entire task group (safeShutdown = thrust off mid-air). A failed
+-- dump must cost nothing but a printed warning.
 local function logDump()
   if not LOGGING then return end
-  local n = logWriteFile()
-  pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
-  print(("LOG: %d rows -> carbide..."):format(n))
-  -- logWriteFile() already did the row formatting for the file copy; logStream() formats
-  -- only its own pending slice, so the P press does no second full-ring format.
-  if not pcall(logStream) then
-    print("(carbide unavailable -- grab " .. LOG_PATH .. " manually)")
+  local ok, err = pcall(function()
+    local n = logWriteFile()
+    pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
+    print(("LOG: %d rows -> carbide..."):format(n))
+    -- logWriteFile() already did the row formatting for the file copy; logStream() formats
+    -- only its own pending slice, so the P press does no second full-ring format.
+    logStream()
+  end)
+  if not ok then
+    print("(log dump failed: " .. tostring(err) .. " -- grab " .. LOG_PATH .. " manually)")
   end
 end
 -- Exit-only: stop thrust, write the final window LOCALLY (no auto-upload -- P is the upload action).
 local function logFinish()
   if not LOGGING then return end
   loop:arm(false); pcall(function() loop:cycle(0, backend:sensors()) end)   -- stop thrust on exit
-  local n = logWriteFile()
+  local ok, n = pcall(function() return logWriteFile() end)
+  n = ok and n or 0
   pcall(function() term.setCursorPos(1, 4) end)
-  print(""); print(Inst.formatSummary(logSummary:finalize()))
+  pcall(function() print(""); print(Inst.formatSummary(logSummary:finalize())) end)
   if stream then
     print(("Log saved: %s (%d rows). Stream paste: %s"):format(LOG_PATH, n, stream.url or stream.id))
   else
