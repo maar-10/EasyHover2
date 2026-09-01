@@ -751,6 +751,18 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
     }))
   end
 
+  -- Push a hand-set CoM to the FCS LIVE (applied to the mixer immediately, no reboot) so the operator
+  -- can fly a manual trim now; the config file still persists it for the courier. Called from SAVE/RST.
+  local function pushCom()
+    if not (runtime and runtime.links and runtime.links.tel and runtime.sender) then return end
+    local c = workingCfg.com or {}
+    runtime.links.tel:send(runtime.sender:send({
+      k = "setCom",
+      fwd = c.fwd or 0, right = c.right or 0,
+      spanFwd = c.spanFwd or c.span or 1, spanRight = c.spanRight or c.span or 1,
+    }))
+  end
+
   local function buildComScreen(b, f, region)
     local fw = ({ f:getSize() })[1]
     local fx = 2
@@ -784,12 +796,13 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
     })
     y = y + 1
     local saveRstRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
-      { label = "SAVE", onClick = function() M._save(workingCfg, write) end },
+      { label = "SAVE", onClick = function() M._save(workingCfg, write); pushCom() end },
       { label = "RST", onClick = function()
           workingCfg.com = workingCfg.com or {}
           workingCfg.com.fwd = 0
           workingCfg.com.right = 0
           refresh()
+          pushCom()
         end },
     })
     y = y + 1

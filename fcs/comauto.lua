@@ -73,14 +73,21 @@ function M.new(opts)
     climbHeight = opts.climbHeight or 8,
     tiltLim = opts.tiltLim or 0.15,
     posLim = opts.posLim or 4,
-    dwell = opts.dwell or 2.5,
+    -- Capture is now a WINDOWED AVERAGE, not a single-instant snapshot: the craft hunts around its
+    -- natural CoM tilt (ki=0), so one read is noise (repeat runs measured -0.7/-0.1/-0.3). settleDelay
+    -- lets the climb transient die; then offsetFromDuties is averaged over captureWindow.
+    settleDelay = opts.settleDelay or 1.5,
+    captureWindow = opts.captureWindow or 3.0,
     climbRate = opts.climbRate or 0.6,
     descendRate = opts.descendRate or 0.7,
     landEps = opts.landEps or 0.4,
     watchdog = opts.watchdog or 45,
-    captureKi = opts.captureKi or 0.02,
+    -- 0 = measure at the craft's natural ki=0 CoM tilt (the P differential already encodes the CoM).
+    -- The old 0.02 integral barely built (log: max 0.005) and just added noise; averaging replaces it.
+    captureKi = opts.captureKi or 0,
     originSway = 0, originSurge = 0, originHdg = 0, baseAlt = 0,
-    target = 0, elapsed = 0, held = 0, captured = nil, abortReason = nil,
+    target = 0, elapsed = 0, settleT = 0, capT = 0, capN = 0, capSumFwd = 0, capSumRight = 0,
+    captured = nil, abortReason = nil,
   }, P)
 end
 
@@ -92,7 +99,7 @@ function P:start(meas)
   meas = meas or {}
   self.phase = "CLIMB"
   self.elapsed = 0
-  self.held = 0
+  self.settleT = 0; self.capT = 0; self.capN = 0; self.capSumFwd = 0; self.capSumRight = 0
   self.captured = nil
   self.abortReason = nil
   self.baseAlt = meas.altitude or 0
@@ -145,12 +152,22 @@ function P:tick(dt, meas, duties, loopMode)
     if self.target >= top - 0.05 then self.phase = "HOLD"; self.held = 0 end
   elseif self.phase == "HOLD" then
     self.target = top
-    local level = math.abs(meas.pitch or 0) < 0.05 and math.abs(meas.roll or 0) < 0.05
-        and math.abs(meas.vSpeed or 0) < 0.3
-    if level then self.held = self.held + dt else self.held = 0 end
-    if self.held >= self.dwell then
-      self.captured = Mixer.offsetFromDuties(duties, { spanFwd = self.spanFwd, spanRight = self.spanRight })
-      self.phase = "DESCEND"
+    -- Robust capture. pitch/roll run ki=0, so the craft holds its natural CoM tilt and the lift-
+    -- thruster differential already encodes the CoM -- but it HUNTS, so a single read is noise. Let the
+    -- climb transient settle, then AVERAGE offsetFromDuties over captureWindow: the mean lift
+    -- differential is the steady CoM signature. tiltLim/POS/watchdog aborts still guard every tick, so
+    -- a runaway can't feed the average.
+    self.settleT = self.settleT + dt
+    if self.settleT >= self.settleDelay and duties then
+      local o = Mixer.offsetFromDuties(duties, { spanFwd = self.spanFwd, spanRight = self.spanRight })
+      self.capSumFwd = self.capSumFwd + o.fwd
+      self.capSumRight = self.capSumRight + o.right
+      self.capN = self.capN + 1
+      self.capT = self.capT + dt
+      if self.capT >= self.captureWindow and self.capN > 0 then
+        self.captured = { fwd = self.capSumFwd / self.capN, right = self.capSumRight / self.capN }
+        self.phase = "DESCEND"
+      end
     end
   elseif self.phase == "DESCEND" then
     self.target = math.max(self.baseAlt, self.target - self.descendRate * dt)

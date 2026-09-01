@@ -171,9 +171,9 @@
         },
         {
           ["dst"] = "fcs/comauto.lua",
-          ["size"] = 6121,
+          ["size"] = 7444,
           ["src"] = "fcs/comauto.lua",
-          ["sum"] = "631e2f7c",
+          ["sum"] = "e0f71681",
         },
         {
           ["dst"] = "fcs/comms/cfgsync.lua",
@@ -363,9 +363,9 @@
         },
         {
           ["dst"] = "fcs/runtime/flight.lua",
-          ["size"] = 16147,
+          ["size"] = 16710,
           ["src"] = "fcs/runtime/flight.lua",
-          ["sum"] = "eeff42e4",
+          ["sum"] = "2c5bac0b",
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
@@ -702,9 +702,9 @@
         },
         {
           ["dst"] = "fcs/comauto.lua",
-          ["size"] = 6121,
+          ["size"] = 7444,
           ["src"] = "fcs/comauto.lua",
-          ["sum"] = "631e2f7c",
+          ["sum"] = "e0f71681",
         },
         {
           ["dst"] = "fcs/comms/cfgsync.lua",
@@ -1020,9 +1020,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/tuning.lua",
-          ["size"] = 42852,
+          ["size"] = 43461,
           ["src"] = "ui/basalt/bitconfig/tuning.lua",
-          ["sum"] = "31e59dbc",
+          ["sum"] = "6ef0f966",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/uical.lua",
@@ -1458,5 +1458,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "11ee6a9c",
+  ["version"] = "df5166fe",
 }

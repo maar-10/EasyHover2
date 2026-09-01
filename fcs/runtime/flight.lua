@@ -129,6 +129,17 @@ function Flight:handleCommand(cmd)
       return true
     end
     return false
+  elseif k == "setCom" then
+    -- Manual CoM trim from the UI COM screen: apply the offset to the mixer LIVE (same path Auto-CoM
+    -- uses on capture) so the operator can fly a hand-set trim immediately, no reboot. Persistence to
+    -- the FCS's own config still goes through the config courier.
+    if self.loop and self.loop.mixer and self.loop.mixer.setCom then
+      self.loop.mixer:setCom({
+        fwd = tonumber(cmd.fwd) or 0, right = tonumber(cmd.right) or 0,
+        spanFwd = cmd.spanFwd, spanRight = cmd.spanRight,
+      })
+    end
+    return true
   elseif k == "paramsWatch" then
     local on = cmd.on and true or false
     if on and not self.paramsWatch and self.diskPresent then

@@ -59,8 +59,9 @@ t.test("label is a short ASCII reason", function()
   t.truthy(#C.label("bind") > 0)
 end)
 
-t.test("procedure climbs, captures after dwell, then descends", function()
-  local p = C.new({ span = 4, climbHeight = 8, dwell = 0.4, climbRate = 8, descendRate = 8, landEps = 0.5 })
+t.test("procedure climbs, then captures the windowed-average CoM, then descends", function()
+  local p = C.new({ span = 4, climbHeight = 8, settleDelay = 0.2, captureWindow = 0.4,
+                    climbRate = 8, descendRate = 8, landEps = 0.5 })
   local meas = { altitude = 0, pitch = 0, roll = 0, onGround = true, swayPos = 0, surgePos = 0, heading = 0 }
   t.eq(p:start(meas), true)
   t.eq(p.phase, "CLIMB")
@@ -76,6 +77,24 @@ t.test("procedure climbs, captures after dwell, then descends", function()
   end
   t.truthy(p.captured and p.captured.fwd > 0, "captured forward CoM from extra front duty")
   t.truthy(p.phase == "DESCEND" or p.phase == "DONE")
+end)
+
+t.test("capture AVERAGES offsetFromDuties over the window (not a single-instant snapshot)", function()
+  -- The bug the log exposed: a wobbling craft read at one instant gave -0.7/-0.1/-0.3 across runs.
+  -- Averaging the duty-derived offset over the window makes it repeatable. Feed a front-heavy read and
+  -- an equal-and-opposite rear-heavy read; the capture must land on their MEAN (~0), not either snapshot.
+  local p = C.new({ span = 4, climbHeight = 2, settleDelay = 0, captureWindow = 0.4,
+                    climbRate = 100, descendRate = 8, landEps = 0.5 })
+  local meas = { altitude = 2, pitch = 0, roll = 0, onGround = false, swayPos = 0, surgePos = 0, heading = 0 }
+  p:start({ altitude = 0, pitch = 0, roll = 0, onGround = true, swayPos = 0, surgePos = 0, heading = 0 })
+  p:tick(0.1, meas, { FL = 0.5, FR = 0.5, RL = 0.5, RR = 0.5 }, "NORMAL")   -- one big step -> HOLD
+  t.eq(p.phase, "HOLD")
+  p:tick(0.1, meas, { FL = 0.6, FR = 0.6, RL = 0.4, RR = 0.4 }, "NORMAL")   -- fwd = +0.8
+  p:tick(0.1, meas, { FL = 0.6, FR = 0.6, RL = 0.4, RR = 0.4 }, "NORMAL")   -- fwd = +0.8
+  p:tick(0.1, meas, { FL = 0.4, FR = 0.4, RL = 0.6, RR = 0.6 }, "NORMAL")   -- fwd = -0.8
+  p:tick(0.1, meas, { FL = 0.4, FR = 0.4, RL = 0.6, RR = 0.6 }, "NORMAL")   -- fwd = -0.8 ; capT hits window
+  t.truthy(p.captured, "captured after the window elapsed")
+  t.near(p.captured.fwd, 0, 1e-6, "captured the MEAN (0), not any single snapshot (+/-0.8)")
 end)
 
 t.test("procedure aborts on DAMPED", function()

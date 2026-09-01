@@ -223,6 +223,15 @@ t.test("comAuto start un-parks and ignores stick", function()
   t.eq(L.sp.pitch, 0)
 end)
 
+t.test("setCom command applies a manual CoM offset to the mixer LIVE (fly a hand-set trim, no reboot)", function()
+  local L = fakeLoop()
+  L.mixer = { com = {}, setCom = function(self, c) self.com = c end }
+  local f = Flight.new({ loop = L, pilot = Pilot.new(CFG) })
+  t.truthy(f:handleCommand({ k = "setCom", fwd = -0.6, right = -0.1, spanFwd = 7, spanRight = 3.5 }))
+  t.eq(L.mixer.com.fwd, -0.6); t.eq(L.mixer.com.right, -0.1)
+  t.eq(L.mixer.com.spanFwd, 7); t.eq(L.mixer.com.spanRight, 3.5)
+end)
+
 t.test("comAuto abort forces a descent", function()
   local L = fakeLoop()
   L.mixer = { com = {}, setCom = function(self, c) self.com = c end }
