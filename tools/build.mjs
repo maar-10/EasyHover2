@@ -20,7 +20,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..");
 
 // --- config (top-of-file so this vendors cleanly into other repos) ---
-export const MINIFY_DIRS = ["fcs", "ui", "launchers", "tools", "nav", "beacon"];
+export const MINIFY_DIRS = ["fcs", "ui", "launchers", "tools", "nav", "beacon", "controller"];
 export const DIST = "dist";
 
 function walkLua(absDir) {

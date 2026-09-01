@@ -21,7 +21,7 @@ local SCHEMA = 1 -- bump ONLY when persisted config layout changes incompatibly
 local REPO = "https://raw.githubusercontent.com/maar-10/EasyHover2/main"
 
 -- Which source files are minified into dist/ (mirror of tools/build.mjs MINIFY_DIRS).
-local MINIFY_PREFIXES = { "fcs/", "ui/", "launchers/", "tools/", "nav/", "beacon/" }
+local MINIFY_PREFIXES = { "fcs/", "ui/", "launchers/", "tools/", "nav/", "beacon/", "controller/" }
 local function isMinifiable(src)
   if not src:match("%.lua$") then return false end
   for _, p in ipairs(MINIFY_PREFIXES) do
