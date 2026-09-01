@@ -1,12 +1,13 @@
 -- fcs/bringup/logbuffer.lua
--- PURE rolling ring buffer of formatted log rows. Keeps only the last `cap` rows so a P-to-dump
--- always writes/uploads a bounded, RECENT window (RAM-safe on a CC computer) while the FCS keeps
--- flying. No IO -- the caller formats rows (fcs.bringup.instrument) and does the file/carbide write.
+-- PURE rolling ring buffer of log records (raw captured samples in the flight runtime). Keeps
+-- only the last `cap` rows so a P-to-dump always writes/uploads a bounded, RECENT window (RAM-safe
+-- on a CC computer) while the FCS keeps flying. No IO -- the caller formats + delta-encodes rows
+-- (fcs.bringup.instrument / fcs.bringup.logcodec) and does the file/carbide write.
 local M = {}
 local B = {}
 B.__index = B
 
---- new(cap) -> buffer. cap defaults to 3000 (~3 min at 16Hz, ~0.5MB of CSV).
+--- new(cap) -> buffer. cap defaults to 3000 (~3 min at 16Hz, ~80KB delta-encoded).
 function M.new(cap)
   return setmetatable({ cap = (cap and cap > 0) and cap or 3000, buf = {}, head = 0, n = 0 }, B)
 end
