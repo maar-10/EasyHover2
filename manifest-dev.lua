@@ -60,9 +60,9 @@
         },
         {
           ["dst"] = "beacon/update.lua",
-          ["size"] = 2052,
+          ["size"] = 2530,
           ["src"] = "beacon/update.lua",
-          ["sum"] = "ac9a1cd2",
+          ["sum"] = "17a88d20",
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
@@ -1324,9 +1324,9 @@
       ["files"] = {
         {
           ["dst"] = "beacon/update.lua",
-          ["size"] = 2052,
+          ["size"] = 2530,
           ["src"] = "beacon/update.lua",
-          ["sum"] = "ac9a1cd2",
+          ["sum"] = "17a88d20",
         },
         {
           ["dst"] = "beaconupdate",
@@ -1458,5 +1458,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "6e4df526",
+  ["version"] = "e9f0a886",
 }

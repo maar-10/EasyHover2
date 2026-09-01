@@ -47,4 +47,14 @@ function M.accepts(frame, cfgToken)
   return frame.token == cfgToken
 end
 
+--- The fail-closed gate for op-tagged remote commands (CMD2_KIND): accept only a known op
+--- whose sender token is valid and equal to a valid, provisioned cfgToken.
+function M.acceptsCmd(frame, cfgToken)
+  if type(frame) ~= "table" or frame.k ~= M.CMD2_KIND then return false end
+  if not M.OPS[frame.op] then return false end
+  if not M.validToken(cfgToken) then return false end
+  if not M.validToken(frame.token) then return false end
+  return frame.token == cfgToken
+end
+
 return M

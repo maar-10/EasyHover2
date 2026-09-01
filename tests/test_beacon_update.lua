@@ -57,3 +57,14 @@ t.test("decode round-trips cmd + status; rejects GPS + unknown kinds", function(
   t.truthy(st and st.id == "beacon-70" and st.enabled == false and st.seq == 5)
   t.eq(U.decode('{"x":1,"y":2,"z":3}'), nil)   -- a GPS frame is not a command
 end)
+
+t.test("acceptsCmd is fail-closed: known op + matching valid token only", function()
+  local U = require("beacon.update")
+  t.eq(U.acceptsCmd(U.cmd("enable", "tok"), "tok"), true)
+  t.eq(U.acceptsCmd(U.cmd("enable", "tok"), "other"), false)   -- token mismatch
+  t.eq(U.acceptsCmd(U.cmd("enable", ""), "tok"), false)        -- blank sender token
+  t.eq(U.acceptsCmd(U.cmd("enable", "tok"), ""), false)        -- unprovisioned beacon
+  t.eq(U.acceptsCmd(U.cmd("nuke", "tok"), "tok"), false)       -- unknown op
+  t.eq(U.acceptsCmd({ k = U.CMD_KIND, token = "tok" }, "tok"), false)  -- wrong kind (that's the update cmd)
+  t.eq(U.acceptsCmd(nil, "tok"), false)
+end)
