@@ -10,6 +10,7 @@ local Loop     = require("fcs.runtime.loop")
 local Registry = require("fcs.modes.registry")
 local Profile  = require("fcs.bringup.profile")
 local Inst     = require("fcs.bringup.instrument")
+local Codec    = require("fcs.bringup.logcodec")
 local cut      = require("fcs.io.cut")
 
 local CONFIG_PATH = "/eh2_hw_config.tbl"
@@ -120,11 +121,19 @@ local function run()
   part.close()
   if not ok then print("FLIGHT ERROR: " .. tostring(err)) end
 
-  -- compose final log: summary header + CSV rows from the crash-safe part file
-  local rows = ""
-  local pf = fs.open(PART_PATH, "r"); if pf then rows = pf.readAll() or ""; pf.close() end
+  -- compose final log: summary + delta-encoded slim CSV rows from the crash-safe part file
+  -- (the part file stays plain slim CSV so a mid-flight crash still leaves a readable log)
+  local dataRows, first = {}, true
+  local pf = fs.open(PART_PATH, "r")
+  if pf then
+    for line in (pf.readAll() or ""):gmatch("[^\n]+") do
+      if first then first = false else dataRows[#dataRows+1] = line end  -- skip the part header
+    end
+    pf.close()
+  end
   local out = fs.open(LOG_PATH, "w")
-  out.write(Inst.formatSummary(summary:finalize()) .. "\n\n" .. rows)
+  out.write(Inst.formatSummary(summary:finalize()) .. "\n\n"
+    .. Codec.encode(Inst.header(), dataRows) .. "\n")
   out.close()
 
   print("")

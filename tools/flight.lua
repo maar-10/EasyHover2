@@ -25,6 +25,7 @@ local telemetry = require("fcs.comms.telemetry")
 local command   = require("fcs.comms.command")
 local health    = require("fcs.comms.health")
 local Inst      = require("fcs.bringup.instrument")
+local Codec     = require("fcs.bringup.logcodec")
 local Status    = require("fcs.bringup.status")
 local LogBuffer = require("fcs.bringup.logbuffer")
 local cfgsync   = require("fcs.comms.cfgsync")
@@ -161,12 +162,13 @@ local heldRef = { held = {} }
 -- ---- Optional flight instrumentation (NO-OP unless launched via `fcslog`) ----
 -- `fcslog` sets _G.EH2_FLIGHTLOG before requiring this module; production `fcs`/`flight` do not,
 -- so LOGGING stays false and every logging branch below is a single boolean check per cycle.
--- Same 34-column CSV + summary as tools/hover_test.lua, so flight logs compare 1:1 with hover_test.
+-- SCHEMA v2: slim CSV + logcodec delta encoding, same schema as tools/hover_test.lua so flight
+-- logs compare 1:1. tools/decode_flightlog.lua restores plain slim CSV.
 local LOGGING   = _G.EH2_FLIGHTLOG == true
 local LOG_PATH  = "/eh2_flight_log.csv"
-local MAX_ROWS  = 3000   -- bound RAM/disk (~0.5MB); the in-memory summary still covers the whole run
+local MAX_ROWS  = 3000   -- bound RAM/disk; the in-memory summary still covers the whole run
 local logSummary, logT0, logRows
--- ROLLING ring buffer of the last MAX_ROWS formatted rows (fcs.bringup.logbuffer): P dumps a
+-- ROLLING ring buffer of the last MAX_ROWS raw samples (fcs.bringup.logbuffer): P dumps a
 -- bounded, recent window on demand while the FCS keeps flying. CC file writes are synchronous +
 -- non-yielding, so the write happens ONLY on a P press / on exit, never on the control loop --
 -- same "nothing that can block belongs on the hot path" lesson as the fuel decouple.
@@ -211,10 +213,11 @@ local function logCycle(dt, m)
   -- logging-on flights ran ~15Hz jittery; this removes the per-cycle format work.
   logRows:push(Inst.capture(sample))                       -- RAM ring; oldest rolls off past MAX_ROWS
 end
--- Compose the CSV body (header + buffered rows + running summary) and write it to LOG_PATH.
+-- Compose the encoded log body (header + delta-encoded rows + running summary) to LOG_PATH.
 -- Returns rowCount. Off the flight path (called only from logDump/logFinish).
 local function logWriteFile()
-  -- Format the buffered raw samples to CSV rows HERE, at dump time (P press / exit), not per cycle.
+  -- Format the buffered raw samples to slim CSV rows HERE, at dump time (P press / exit), not
+  -- per cycle, then delta-encode them (fcs.bringup.logcodec).
   local recs = logRows:rows()
   local rows = {}
   for i = 1, #recs do rows[i] = Inst.formatRow(recs[i]) end
@@ -223,7 +226,7 @@ local function logWriteFile()
     if fs.exists(LOG_PATH) then fs.delete(LOG_PATH) end     -- reclaim space from a prior write
     local f = fs.open(LOG_PATH, "w")
     if f then
-      f.write(Inst.header() .. "\n" .. table.concat(rows, "\n") .. "\n\n" .. summaryText .. "\n")
+      f.write(Codec.encode(Inst.header(), rows) .. "\n\n" .. summaryText .. "\n")
       f.close()
     end
   end)

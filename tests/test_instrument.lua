@@ -42,7 +42,8 @@ t.test("capture snapshots the live duties table so deferred formatRow is immune 
   local atCapture = I.formatRow(rec)
   live.FL = 0.99; live.FR = 0.88   -- next cycle overwrites the live duties in place
   t.eq(I.formatRow(rec), atCapture, "captured record's formatRow is unaffected by later duties mutation")
-  t.truthy(atCapture:find("0.1000", 1, true), "the FL=0.1 snapshot is preserved for the deferred format")
+  local cells = splitCSV(atCapture)
+  t.eq(cells[idxOf("FL")], "0.1", "the FL=0.1 snapshot is preserved for the deferred format")
 end)
 
 t.test("Summary computes bob amplitude from HOLD samples", function()
@@ -79,23 +80,23 @@ t.test("formatSummary produces readable key: value lines", function()
   t.truthy(out:find("loop_hz:"))
 end)
 
--- ===== Task 4: COLUMN CONTRACT expansion =====
+-- ===== SCHEMA v2: slimmed (err_* dropped, short numbers, enum codes) =====
 
-t.test("header() emits the new 39 columns in contract order, between the 23 existing and the duties", function()
+t.test("header() emits the slimmed v2 columns in contract order, between the 23 existing and the duties", function()
   local nDuties = #frame.LIFT + #frame.LATERAL + #frame.MAIN + #frame.FRONTAL
-  t.eq(#HEADER_COLS, 23 + 39 + nDuties, "total column count == 23 + 39 + duties")
+  t.eq(#HEADER_COLS, 23 + 33 + nDuties, "total column count == 23 + 33 + duties (v2 drops the 6 derived err_*)")
   t.eq(HEADER_COLS[1], "t"); t.eq(HEADER_COLS[23], "dSurge")   -- existing 23 unchanged/first
   t.eq(idxOf("sp_pitch"), 24); t.eq(idxOf("sp_surge"), 28)
-  t.eq(idxOf("err_alt"), 29); t.eq(idxOf("err_hdg"), 32); t.eq(idxOf("err_surge"), 34)
-  t.eq(idxOf("P_alt"), 35); t.eq(idxOf("I_alt"), 36); t.eq(idxOf("D_alt"), 37)
-  t.eq(idxOf("P_surge"), 50); t.eq(idxOf("D_surge"), 52)
-  t.eq(idxOf("sat_heave"), 53); t.eq(idxOf("sat_surge"), 58); t.eq(idxOf("heaveBanded"), 59)
-  t.eq(idxOf("ff_pitch"), 60)
-  t.eq(idxOf("master"), 61); t.eq(idxOf("noFuel"), 62)
-  t.eq(HEADER_COLS[63], frame.LIFT[1], "duty columns immediately follow, unchanged/last")
+  t.eq(idxOf("P_alt"), 29); t.eq(idxOf("I_alt"), 30); t.eq(idxOf("D_alt"), 31)
+  t.eq(idxOf("P_surge"), 44); t.eq(idxOf("D_surge"), 46)
+  t.eq(idxOf("sat_heave"), 47); t.eq(idxOf("sat_surge"), 52); t.eq(idxOf("heaveBanded"), 53)
+  t.eq(idxOf("ff_pitch"), 54)
+  t.eq(idxOf("master"), 55); t.eq(idxOf("noFuel"), 56)
+  t.eq(HEADER_COLS[57], frame.LIFT[1], "duty columns immediately follow, unchanged/last")
+  t.eq(select(2, I.header():gsub("err_", "")), 0, "no err_* columns in the v2 header")
 end)
 
-t.test("formatRow(fullSample) places setpoints/derived-err/PID-split/sat/trim/context in contract cells", function()
+t.test("formatRow(fullSample) places setpoints/PID-split/sat/trim/context in contract cells, slim format", function()
   local full = {
     t = 1, dt = 0.05, phase = "HOLD", mode = "NORMAL", onGround = false,
     sp_alt = 5, alt = 4.5, vSpeed = 0.1, pitch = 0.02, roll = -0.01, heading = 10, yawRate = 0.5,
@@ -116,22 +117,18 @@ t.test("formatRow(fullSample) places setpoints/derived-err/PID-split/sat/trim/co
   local cells = splitCSV(I.formatRow(full))
   t.eq(#cells, #HEADER_COLS, "row cell count matches header cell count")
   local function cell(name) return cells[idxOf(name)] end
-  t.eq(cell("sp_pitch"), "0.0500"); t.eq(cell("sp_hdg"), "15.0000")
-  t.eq(cell("err_alt"), string.format("%.4f", 5 - 4.5))
-  t.eq(cell("err_pitch"), string.format("%.4f", 0.05 - 0.02))
-  t.eq(cell("err_roll"), string.format("%.4f", 0.0 - (-0.01)))
-  t.eq(cell("err_hdg"), string.format("%.4f", 15 - 10))
-  t.eq(cell("err_sway"), string.format("%.4f", 1.5 - 1.0))
-  t.eq(cell("err_surge"), string.format("%.4f", 2.5 - 2.0))
-  t.eq(cell("P_alt"), "1.0000"); t.eq(cell("I_alt"), "0.1000"); t.eq(cell("D_alt"), "0.0100")
-  t.eq(cell("P_yaw"), "0.5000"); t.eq(cell("I_yaw"), "0.0500"); t.eq(cell("D_yaw"), "0.0050")
-  t.eq(cell("P_surge"), "0.3000"); t.eq(cell("I_surge"), "0.0300"); t.eq(cell("D_surge"), "0.0020")
+  t.eq(cell("sp_pitch"), "0.05"); t.eq(cell("sp_hdg"), "15")
+  t.eq(cell("P_alt"), "1"); t.eq(cell("I_alt"), "0.1"); t.eq(cell("D_alt"), "0.01")
+  t.eq(cell("P_yaw"), "0.5"); t.eq(cell("I_yaw"), "0.05"); t.eq(cell("D_yaw"), "0.005")
+  t.eq(cell("P_surge"), "0.3"); t.eq(cell("I_surge"), "0.03"); t.eq(cell("D_surge"), "0.002")
   t.eq(cell("sat_heave"), "1"); t.eq(cell("sat_pitch"), "0"); t.eq(cell("sat_roll"), "1")
   t.eq(cell("sat_yaw"), "0"); t.eq(cell("sat_sway"), "0"); t.eq(cell("sat_surge"), "1")
   t.eq(cell("heaveBanded"), "1")
-  t.eq(cell("ff_pitch"), "0.1200")
+  t.eq(cell("ff_pitch"), "0.12")
   t.eq(cell("master"), "CPL")
   t.eq(cell("noFuel"), "0")
+  t.eq(cell("phase"), "H", "HOLD encodes to its short code")
+  t.eq(cell("mode"), "N", "NORMAL encodes to its short code")
 end)
 
 t.test("formatRow(minimalSample) (hover_test path: no terms/sat/sp_*/ff/master/noFuel) does not error", function()
@@ -146,15 +143,50 @@ t.test("formatRow(minimalSample) (hover_test path: no terms/sat/sp_*/ff/master/n
   local cells = splitCSV(row)
   t.eq(#cells, #HEADER_COLS)
   local function cell(name) return cells[idxOf(name)] end
-  t.eq(cell("sp_pitch"), "0.0000")
-  t.eq(cell("err_alt"), string.format("%.4f", 5 - 4))   -- sp_alt/alt ARE present (existing cols)
-  t.eq(cell("err_pitch"), string.format("%.4f", 0 - 0.01))
-  t.eq(cell("P_alt"), "0.0000"); t.eq(cell("D_surge"), "0.0000")
+  t.eq(cell("sp_pitch"), "0")
+  t.eq(cell("P_alt"), "0"); t.eq(cell("D_surge"), "0")
   t.eq(cell("sat_heave"), "0"); t.eq(cell("sat_surge"), "0")
   t.eq(cell("heaveBanded"), "0")
-  t.eq(cell("ff_pitch"), "0.0000")
+  t.eq(cell("ff_pitch"), "0")
   t.eq(cell("master"), "")
   t.eq(cell("noFuel"), "0")
+  t.eq(cell("phase"), "C", "CLIMB encodes to its short code")
+  t.eq(cell("mode"), "N")
+end)
+
+t.test("formatRow passes unknown enum values through verbatim (no silent mapping)", function()
+  local row = splitCSV(I.formatRow({ t = 0, dt = 0.1, phase = "WEIRD", mode = "M2", duties = {} }))
+  t.eq(row[idxOf("phase")], "WEIRD")
+  t.eq(row[idxOf("mode")], "M2")
+end)
+
+t.test("formatRow trims trailing zeros but never loses the decimal point or sign", function()
+  local row = splitCSV(I.formatRow({ t = 12.5, dt = 1/16, alt = 64, vSpeed = -0.5,
+    pitch = 0, heading = 270, phase = "HOLD", duties = { [frame.LIFT[1]] = 7 } }))
+  t.eq(row[idxOf("t")], "12.5")
+  t.eq(row[idxOf("alt")], "64")
+  t.eq(row[idxOf("vSpeed")], "-0.5")
+  t.eq(row[idxOf("pitch")], "0")
+  t.eq(row[idxOf("heading")], "270")
+  t.eq(row[idxOf(frame.LIFT[1])], "7", "duty 0..15 prints as a compact integer")
+  t.eq(row[idxOf("hz")], "16")
+end)
+
+t.test("formatSummary carries the schema version and the enum legend", function()
+  local s = I.Summary.new(); s:add({ t = 0, dt = 0.1, phase = "HOLD", alt = 5, sp_alt = 5, heading = 0 })
+  local out = I.formatSummary(s:finalize())
+  t.truthy(out:find("# legend:"), "summary includes the enum legend line")
+  t.truthy(out:find("schema: v2"), "summary names the schema version")
+  t.truthy(out:find("C=CLIMB"), "legend maps phase codes")
+  t.truthy(out:find("N=NORMAL"), "legend maps mode codes")
+  t.truthy(out:find("err = sp"), "legend documents that err_* is derived, not logged")
+end)
+
+t.test("every formatSummary line starts with # (machine-distinguishable from CSV rows)", function()
+  local s = I.Summary.new(); s:add({ t = 0, dt = 0.1, phase = "HOLD", alt = 5, sp_alt = 5, heading = 0 })
+  for line in I.formatSummary(s:finalize()):gmatch("[^\n]+") do
+    t.eq(line:sub(1, 1), "#", "line must start with #: " .. line)
+  end
 end)
 
 t.test("Summary tracks per-axis peak |err| and peak |D|", function()
