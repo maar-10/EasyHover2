@@ -160,6 +160,21 @@ t.test("formatRow passes unknown enum values through verbatim (no silent mapping
   t.eq(row[idxOf("mode")], "M2")
 end)
 
+t.test("formatRow sanitizes CSV-hostile characters out of pass-through strings", function()
+  -- A comma would corrupt cell boundaries; ':' and '=' would corrupt the logcodec delta format.
+  local row = splitCSV(I.formatRow({ t = 0, dt = 0.1, phase = "A,B", mode = "C:D=E", master = "x,y", duties = {} }))
+  t.eq(row[idxOf("phase")], "AB")
+  t.eq(row[idxOf("mode")], "CDE")
+  t.eq(row[idxOf("master")], "xy")
+end)
+
+t.test("num never emits -0 (values rounding to zero from either sign print as 0)", function()
+  local row = splitCSV(I.formatRow({ t = 0, dt = 1/16, alt = -0.0001, vSpeed = -0.00001,
+    phase = "HOLD", duties = {} }))
+  t.eq(row[idxOf("alt")], "0")
+  t.eq(row[idxOf("vSpeed")], "0")
+end)
+
 t.test("formatRow trims trailing zeros but never loses the decimal point or sign", function()
   local row = splitCSV(I.formatRow({ t = 12.5, dt = 1/16, alt = 64, vSpeed = -0.5,
     pitch = 0, heading = 270, phase = "HOLD", duties = { [frame.LIFT[1]] = 7 } }))

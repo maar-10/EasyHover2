@@ -39,7 +39,6 @@ end)
 
 t.test("empty window encodes to just the header", function()
   t.eq(Codec.encode(HDR, {}), HDR)
-  t.eq(Codec.encode(nil, {}), "")
   local decoded = Codec.decode(HDR)
   t.eq(#decoded, 0)
   t.eq(select(2, Codec.decode(HDR)), HDR)
@@ -68,13 +67,26 @@ t.test("decode handles the hover_test layout: full summary block BEFORE the head
   local text = table.concat({
     "# EasyHover 2 hover bring-up log", "# legend: phase H=HOLD",
     "# samples: 2", "# duration_s: 0.06", "",
-    HDR, Codec.encode(nil, rows), "",
+    Codec.encode(HDR, rows), "",
   }, "\n")
   local decoded, hdr = Codec.decode(text)
   t.eq(hdr, HDR, "header found after the summary block")
   t.eq(#decoded, 2, "summary lines before the rows must not be mistaken for data")
   t.eq(decoded[1], rows[1])
   t.eq(decoded[2], rows[2])
+end)
+
+t.test("encode requires a header line (a headerless stream cannot round-trip)", function()
+  local ok, err = pcall(Codec.encode, nil, { "1,H,N,5" })
+  t.truthy(not ok, "encode(nil, rows) must error")
+  t.truthy(tostring(err):find("header"), "error names the missing header: " .. tostring(err))
+  local ok2, err2 = pcall(Codec.encode, "", { "1,H,N,5" })
+  t.truthy(not ok2 and tostring(err2):find("header"), "encode('', rows) must error: " .. tostring(err2))
+end)
+
+t.test("a leading = line never crashes decode (corrupt/truncated file)", function()
+  local decoded = Codec.decode(HDR .. "\n=")
+  t.eq(#decoded, 0, "= before any row is dropped, not a crash")
 end)
 
 t.test("a realistic 3000-row cruise window encodes under 150 KB", function()

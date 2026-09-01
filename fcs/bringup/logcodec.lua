@@ -26,9 +26,11 @@ local function split(row)
 end
 
 -- encode(header, rows): rows is an array of equal-column CSV strings (instrument.formatRow
--- output); header is the column-name line (nil/empty = omitted). Returns the encoded text.
+-- output); header is the column-name line, REQUIRED -- decode() always treats the first
+-- non-# line as the header, so a headerless stream could not round-trip.
 function M.encode(header, rows)
-  if #rows == 0 then return header and header ~= "" and header or "" end
+  if not header or header == "" then error("logcodec.encode requires a header line") end
+  if #rows == 0 then return header end
   local out = {}
   if header and header ~= "" then out[#out+1] = header end
   local prev = rows[1]
@@ -58,7 +60,8 @@ function M.decode(text)
     line = line:match("^%s*(.-)%s*$")
     if line ~= "" and line:sub(1, 1) ~= "#" then
       if line == "=" then
-        rows[#rows+1] = table.concat(cols, ",")
+        -- Only meaningful after at least one row; a corrupt/truncated file may open with one.
+        if cols then rows[#rows+1] = table.concat(cols, ",") end
       elseif cols == nil then
         -- header, then the first verbatim row -- in that order, whatever they contain
         if header == nil then

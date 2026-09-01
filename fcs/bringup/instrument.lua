@@ -42,7 +42,8 @@ local MODE_CODES = {
 
 local function enum(map, v)
   if v == nil then return "" end
-  return map[v] or tostring(v)
+  -- Pass-through values must not carry CSV/delta-hostile characters (, : =).
+  return map[v] or (tostring(v):gsub("[,:=]", ""))
 end
 
 -- SCHEMA v2 per-column printf precision + trailing-zero trim. Dump-time only (formatRow is never
@@ -69,9 +70,11 @@ end
 
 -- Format one number at its column precision, then trim trailing zeros and a dangling dot.
 -- Only touches strings that contain a decimal point, so "100" and "-0.5" pass through intact.
+-- "-0" (a tiny negative rounded to zero) normalizes to "0".
 local function num(v, fmt)
   local s = string.format(fmt or "%.4f", v or 0)
   if s:find(".", 1, true) then s = s:gsub("0+$", ""):gsub("%.$", "") end
+  if s == "-0" then s = "0" end
   return s
 end
 
@@ -129,8 +132,8 @@ function M.formatRow(s)
   vals[#vals+1] = s.heaveBanded and "1" or "0"
   -- trim feedforward (stored)
   vals[#vals+1] = num(s.ff_pitch, COL_FMT.ff_pitch)
-  -- context (stored)
-  vals[#vals+1] = tostring(s.master or "")
+  -- context (stored; sanitized like the enum pass-throughs)
+  vals[#vals+1] = (tostring(s.master or ""):gsub("[,:=]", ""))
   vals[#vals+1] = s.noFuel and "1" or "0"
 
   local d = s.duties or {}
