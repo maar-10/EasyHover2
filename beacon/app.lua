@@ -7,6 +7,7 @@ local config = require("beacon.config")
 local Runtime = require("beacon.runtime")
 local Console = require("beacon.console")
 local Update = require("beacon.update")
+local Command = require("beacon.command")
 
 -- The classic (dependency-free) Suite, fetched over HTTPS-pinned raw GitHub. Duplicated here rather
 -- than cross-requiring the Suite so this thin glue stays standalone (mirrors ui/basalt/app.lua's REPO).
@@ -100,6 +101,22 @@ function M.run()
         else
           print("update failed; staying on the current version"); os.sleep(2); repaint()
         end
+      elseif frame and modem and Update.acceptsCmd(frame, cfg.updateToken) then
+        -- Op-tagged remote command (Phase P2): same fail-closed gate (acceptsCmd rejects an unknown
+        -- op or a blank/mismatched token), so an unprovisioned beacon never acts on these either. A
+        -- query gets a DIAG status reply built from the live runtime; every other op is a pure
+        -- cfg mutation (beacon.command, unit-tested) whose result flags drive save/rearm/verify/reboot.
+        if frame.op == "query" then
+          modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.status(cfg.id, rt:statusPayload())))
+        else
+          local r = Command.apply(cfg, frame.op, frame.args)
+          if r.save then save() end
+          if r.rearm then broadcastTimer = armBroadcast() end
+          if r.verify then rt:broadcast() end
+          modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.ack(cfg.id)))
+          if r.reboot then os.reboot() end
+        end
+        repaint()
       end
     elseif name == "char" then
       local action = Console.actionFor(ev[2])
