@@ -171,9 +171,9 @@
         },
         {
           ["dst"] = "fcs/comauto.lua",
-          ["size"] = 4638,
+          ["size"] = 4770,
           ["src"] = "dist/fcs/comauto.lua",
-          ["sum"] = "e73b07c8",
+          ["sum"] = "a92c01d6",
         },
         {
           ["dst"] = "fcs/comms/cfgsync.lua",
@@ -702,9 +702,9 @@
         },
         {
           ["dst"] = "fcs/comauto.lua",
-          ["size"] = 4638,
+          ["size"] = 4770,
           ["src"] = "dist/fcs/comauto.lua",
-          ["sum"] = "e73b07c8",
+          ["sum"] = "a92c01d6",
         },
         {
           ["dst"] = "fcs/comms/cfgsync.lua",
@@ -1458,5 +1458,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "23103916",
+  ["version"] = "092f4f16",
 }

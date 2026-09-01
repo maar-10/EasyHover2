@@ -135,7 +135,9 @@ function P:tick(dt, meas, duties, loopMode)
   if loopMode == "DAMPED" then self:abort("DAMPED")
   elseif math.abs(meas.pitch or 0) > self.tiltLim or math.abs(meas.roll or 0) > self.tiltLim then
     self:abort("TILT")
-  elseif hypot((meas.swayPos or 0) - self.originSway, (meas.surgePos or 0) - self.originSurge) > self.posLim then
+  elseif self.phase ~= "DESCEND" and hypot((meas.swayPos or 0) - self.originSway, (meas.surgePos or 0) - self.originSurge) > self.posLim then
+    -- POS guards the climb + measurement hover. On DESCEND the craft velocity-damps its position
+    -- (below) and is allowed to drift, so a POS abort there would falsely flag a captured run.
     self:abort("POS")
   elseif self.elapsed >= self.watchdog then
     self:abort("TIME")
@@ -182,11 +184,16 @@ function P:tick(dt, meas, duties, loopMode)
   r.abortReason = self.abortReason
   r.done = self.phase == "DONE"
   r.holdStick = self:active()
+  -- CLIMB/HOLD hold the takeoff point (bounded, and useful for a stable measurement). DESCEND tracks
+  -- the CURRENT position, so the translate loop only damps velocity -- it never chases a fixed point
+  -- and so never winds the sway command to its saturation cap, which is what ignited the lateral
+  -- descent runaway. The craft settles down roughly in place instead of sliding away.
+  local descending = self.phase == "DESCEND"
   r.setpoints = {
     altitude = self.target,
     heading = self.originHdg,
-    swayPos = self.originSway,
-    surgePos = self.originSurge,
+    swayPos = descending and (meas.swayPos or self.originSway) or self.originSway,
+    surgePos = descending and (meas.surgePos or self.originSurge) or self.originSurge,
     pitch = 0, roll = 0,
   }
   r.captureKi = (self.phase == "HOLD") and self.captureKi or 0

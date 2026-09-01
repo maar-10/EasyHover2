@@ -97,6 +97,41 @@ t.test("capture AVERAGES offsetFromDuties over the window (not a single-instant 
   t.near(p.captured.fwd, 0, 1e-6, "captured the MEAN (0), not any single snapshot (+/-0.8)")
 end)
 
+t.test("descent velocity-damps: setpoints track CURRENT sway/surge; CLIMB/HOLD hold the origin", function()
+  -- Rigidly returning to the takeoff point on the way down wound the sway command to its saturation
+  -- cap and lost lateral control (the runaway). During DESCEND we instead track the craft's current
+  -- position, so the translate loop only DAMPS velocity (no origin chase, no saturation).
+  local p = C.new({ span = 4, climbHeight = 2, settleDelay = 0, captureWindow = 0.2,
+                    climbRate = 100, descendRate = 0.1 })
+  p:start({ altitude = 0, pitch = 0, roll = 0, onGround = false, swayPos = 0, surgePos = 0, heading = 0 })
+  local m = { altitude = 2, pitch = 0, roll = 0, onGround = false, swayPos = 1.5, surgePos = 0.7, heading = 0 }
+  local d = { FL = 0.5, FR = 0.5, RL = 0.5, RR = 0.5 }
+  local r = p:tick(0.1, m, d, "NORMAL")   -- CLIMB -> HOLD
+  t.eq(p.phase, "HOLD")
+  t.eq(r.setpoints.swayPos, 0, "HOLD holds the takeoff origin")
+  t.eq(r.setpoints.surgePos, 0)
+  p:tick(0.1, m, d, "NORMAL")             -- HOLD accumulate
+  r = p:tick(0.1, m, d, "NORMAL")         -- window elapses -> capture -> DESCEND
+  t.eq(p.phase, "DESCEND")
+  t.eq(r.setpoints.swayPos, 1.5, "DESCEND tracks the current sway position (velocity-damp)")
+  t.eq(r.setpoints.surgePos, 0.7, "DESCEND tracks the current surge position")
+end)
+
+t.test("POS abort guards CLIMB/HOLD but NOT DESCEND (post-capture drift is intentional)", function()
+  local p = C.new({ span = 4, posLim = 4 })
+  p:start({ altitude = 0, pitch = 0, roll = 0, onGround = false, swayPos = 0, surgePos = 0, heading = 0 })
+  p.phase = "HOLD"
+  local r = p:tick(0.1, { altitude = 5, pitch = 0, roll = 0, swayPos = 9, surgePos = 0 }, { FL=0.5,FR=0.5,RL=0.5,RR=0.5 }, "NORMAL")
+  t.eq(r.abortReason, "POS", "big drift during HOLD aborts the measurement")
+
+  local q = C.new({ span = 4, posLim = 4 })
+  q:start({ altitude = 0, pitch = 0, roll = 0, onGround = false, swayPos = 0, surgePos = 0, heading = 0 })
+  q.phase = "DESCEND"   -- still well above ground so it stays descending, not DONE
+  local r2 = q:tick(0.1, { altitude = 5, pitch = 0, roll = 0, swayPos = 9, surgePos = 0 }, { FL=0.5,FR=0.5,RL=0.5,RR=0.5 }, "NORMAL")
+  t.eq(r2.abortReason, nil, "the SAME drift during DESCEND does not POS-abort")
+  t.eq(q.phase, "DESCEND")
+end)
+
 t.test("procedure aborts on DAMPED", function()
   local p = C.new({ span = 4, climbHeight = 8 })
   local meas = { altitude = 3, pitch = 0, roll = 0, onGround = false, swayPos = 0, surgePos = 0, heading = 0 }
