@@ -58,6 +58,14 @@ t.test("decode round-trips cmd + status; rejects GPS + unknown kinds", function(
   t.eq(U.decode('{"x":1,"y":2,"z":3}'), nil)   -- a GPS frame is not a command
 end)
 
+t.test("status sets id/k AFTER merging payload, so a payload id/k can never clobber the frame's", function()
+  local U = require("beacon.update")
+  local f = U.status("b1", { k = "evil", id = "evil", enabled = true })
+  t.eq(f.k, U.STATUS_KIND)
+  t.eq(f.id, "b1")
+  t.eq(f.enabled, true)
+end)
+
 t.test("acceptsCmd is fail-closed: known op + matching valid token only", function()
   local U = require("beacon.update")
   t.eq(U.acceptsCmd(U.cmd("enable", "tok"), "tok"), true)

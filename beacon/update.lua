@@ -16,8 +16,10 @@ M.OPS = { enable = true, disable = true, verify = true, query = true,
 function M.cmd(op, token, args) return { k = M.CMD2_KIND, op = op, token = token, args = args } end
 
 function M.status(id, payload)
-  local f = { k = M.STATUS_KIND, id = id }
+  local f = {}
   for k, v in pairs(payload or {}) do f[k] = v end
+  f.k = M.STATUS_KIND
+  f.id = id
   return f
 end
 
