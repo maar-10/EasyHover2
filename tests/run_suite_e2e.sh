@@ -93,7 +93,7 @@ lay_out_computer
 # which is a different operation from the fresh install a pilot actually performs. `switch`
 # lays out its own bare computer and installs fcs itself before switching, so it too needs a
 # clean start rather than the one earlier phases have been aging.
-FRESH_PHASES=" ui switch nav beacon "
+FRESH_PHASES=" ui switch nav beacon beaconcontrol "
 
 FAILED=0
 run_phase() {
@@ -121,7 +121,7 @@ run_phase() {
 #   EASYHOVER2_E2E_PHASES="install badconfig" bash tests/run_suite_e2e.sh
 # `install` is a prerequisite for every later phase, so keep it first in any subset.
 # `ui` and `switch` are last because they wipe the computer to a bare one.
-ALL_PHASES="install current configkeep update repair badconfig detect protect check ui switch nav beacon"
+ALL_PHASES="install current configkeep update repair badconfig detect protect check ui switch nav beacon beaconcontrol"
 PHASES="${EASYHOVER2_E2E_PHASES:-$ALL_PHASES}"
 [[ "$PHASES" != "$ALL_PHASES" ]] && echo "(limited to: $PHASES)" && echo ""
 

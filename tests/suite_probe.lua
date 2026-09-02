@@ -473,6 +473,44 @@ elseif phase == "beacon" then
   check(not fs.exists("/nav/app.lua"), "no NAV Basalt app on a beacon")
   check(not fs.exists("/tools/flight.lua"), "no fcs flight entry point on a beacon")
 
+elseif phase == "beaconcontrol" then
+  -- A FRESH install of the BEACON CONTROLLER role on a bare computer: advanced-computer Basalt UI
+  -- (opposite of the beacon's "no Basalt" assertion), roster + remote control of the GPS mesh --
+  -- but must NOT drag in the fcs flight stack, same hard isolation rule as nav/beacon.
+  runSuite("beaconcontrol")
+  check(stateField("role") == "beaconcontrol", "install record names the role",
+    tostring(stateField("role")))
+  check(stateField("version") == manifestVersion(), "install record matches the release")
+  check(fs.exists("/startup.lua"), "launcher installed as /startup.lua")
+  check(fs.exists("/controller/app.lua"), "controller app installed")
+  check(fs.exists("/controller/runtime.lua"), "controller runtime installed")
+  check(fs.exists("/controller/config.lua"), "controller config installed")
+  check(fs.exists("/controller/diag.lua"), "controller diag installed")
+  check(fs.exists("/beacon/update.lua"), "controller reuses the beacon update wire format")
+  check(fs.exists("/nav/comms/gpsproto.lua"), "controller reuses the nav broadcast frame")
+  local launcher = read("/startup.lua") or ""
+  check(launcher:find('require%("controller%.app"%)') ~= nil,
+    "the launcher starts the beaconcontrol role", launcher)
+  check(#noStagingLeftBehind() == 0, "no .eh2new staging files left behind")
+
+  -- An advanced-computer UI role: Basalt IS present (the opposite assertion from the beacon
+  -- role's basic-computer check above).
+  check(fs.exists("/basalt-full.lua"), "the beaconcontrol role ships Basalt")
+
+  -- The key isolation guarantee: no fcs/ flight code or flight entry point on this computer.
+  check(not fs.exists("/tools/flight.lua"), "no fcs flight entry point on a beaconcontrol computer")
+  check(not fs.exists("/fcs/runtime/flight.lua"), "no fcs runtime on a beaconcontrol computer")
+  check(not fs.exists("/fcs/loop.lua"), "no fcs flight loop on a beaconcontrol computer")
+  check(not fs.exists("/fcs/control/pid.lua"), "no fcs control-loop code on a beaconcontrol computer")
+  check(not fs.exists("/fcs/actuate/level.lua"), "no fcs actuator code on a beaconcontrol computer")
+  check(not fs.exists("/ui/basalt/pages/emc.lua"), "no cockpit pages dragged onto a beaconcontrol computer")
+  check(not fs.exists("/calibrate"), "no fcs diagnostic launchers on a beaconcontrol computer")
+  check(not fs.exists("/nav/app.lua"), "no NAV Basalt app on a beaconcontrol computer")
+
+  local versionBefore = stateField("version")
+  runSuite()
+  check(stateField("version") == versionBefore, "an up-to-date re-run changes nothing")
+
 else
   fail("unknown phase: " .. tostring(phase))
 end
