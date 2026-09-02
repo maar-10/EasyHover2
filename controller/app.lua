@@ -20,6 +20,7 @@ local Diag      = require("controller.diag")
 local Theme     = require("ui.theme")
 local configkit = require("ui.basalt.configkit")
 local Keypad    = require("ui.basalt.keypad")
+local Update    = require("beacon.update")   -- only for validToken(): reflect the token's fail-closed state
 
 local M = {}
 M.id = "roster"
@@ -309,6 +310,14 @@ function M._onUpdateAll(runtime, now)
   return runtime:sendReinstallAll(now)
 end
 
+--- M._onSetToken: the TESTABLE intent seam for the roster SET TOKEN button. The shared secret gates
+--- EVERY remote command (a controller with no token is silently fail-closed -- every send returns
+--- false and transmits nothing), so this is the fix for "UPDATE ALL did nothing". runtime:setToken
+--- sets the live token immediately (no reboot) and persists it into config.updateToken.
+function M._onSetToken(runtime, token)
+  return runtime:setToken(token)
+end
+
 -- ===== M.build: construct the element tree =====
 --
 -- M.build(basalt, frame, runtime, opts) -> { apply(view), elements }
@@ -450,12 +459,39 @@ function M.build(basalt, frame, runtime, opts)
     if updateAllArmed then updateAllArmed = false; updateAllBtn.setLabel("UPDATE ALL") end
   end
 
+  -- SET TOKEN: arm the shared secret that gates EVERY remote command. A controller with no valid
+  -- token is fail-closed -- runtime:send* returns false and transmits nothing -- which is exactly why
+  -- an UPDATE ALL with no token appears to "do nothing". The button doubles as a status lamp
+  -- (kind "state": red/off when unset, green/on when set) and its label flips SET TOKEN <-> TOKEN OK.
+  -- Entry reuses the shared name-mode keypad (the RENAME idiom); OK sets the live token with no reboot.
+  local keypad = Keypad.make(frame)
+  local tokenBtn
+  local function tokenIsSet() return Update.validToken(runtime.token) end
+  local function refreshTokenBtn()
+    if not tokenBtn then return end
+    local set = tokenIsSet()
+    tokenBtn.setLabel(set and "TOKEN OK" or "SET TOKEN")   -- fixed 10-wide field: re-centres, row never shifts
+    tokenBtn.set(set and "on" or "off")
+  end
+  local function onSetTokenClick()
+    keypad.show({
+      title = "TOKEN", mode = "name", value = "",          -- never pre-fill the existing secret
+      onOk = function(tok)
+        M._onSetToken(runtime, tok)
+        refreshTokenBtn()
+      end,
+    })
+  end
+
   local actionRow = configkit.actionRow(frame, { x = 1, y = actionY, w = w }, {
     diagSpec,
     { label = "ENABLE ALL",  kind = "function", onClick = function() M._onEnableAll(runtime, os.epoch("utc")) end },
     { label = "UPDATE ALL",  kind = "function", onClick = onUpdateAllClick },
+    { label = tokenIsSet() and "TOKEN OK" or "SET TOKEN", kind = "state",
+      state = tokenIsSet() and "on" or "off", onClick = onSetTokenClick },
   })
   updateAllBtn = actionRow.buttons[3]
+  tokenBtn = actionRow.buttons[4]
 
   --- apply(view): repaint from runtime:view(now)'s list. Idempotent; never polls peripherals.
   local function apply(view)
@@ -477,7 +513,7 @@ function M.build(basalt, frame, runtime, opts)
     elements = {
       header = headerLbl, divTop = divTop, divBottom = divBottom,
       listImg = listImg, hits = hits,
-      scrollRow = scrollRow, actionRow = actionRow,
+      scrollRow = scrollRow, actionRow = actionRow, keypad = keypad,
       selected = function() return selectedId end,
       selectRow = selectRow,
       scrollBy = scrollBy,

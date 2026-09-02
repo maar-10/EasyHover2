@@ -56,10 +56,12 @@ end)
 -- ===== M._onEnableAll: the TESTABLE intent seam. No Basalt here. =====
 
 local function fakeRuntime()
-  local calls, reinstallAllCalls = {}, {}
-  return {
+  local calls, reinstallAllCalls, setTokenCalls = {}, {}, {}
+  local rt = {
     calls = calls,
     reinstallAllCalls = reinstallAllCalls,
+    setTokenCalls = setTokenCalls,
+    token = nil,   -- starts UNSET, so the roster's SET TOKEN button reads its fail-closed state
     sendCommandAll = function(self, op, args, now)
       calls[#calls + 1] = { op = op, args = args, now = now }
       return true
@@ -68,7 +70,13 @@ local function fakeRuntime()
       reinstallAllCalls[#reinstallAllCalls + 1] = now
       return true
     end,
-  }, calls
+    setToken = function(self, tok)
+      setTokenCalls[#setTokenCalls + 1] = tok
+      self.token = tok   -- mirror the real runtime: the live token updates immediately
+      return true
+    end,
+  }
+  return rt, calls
 end
 
 t.test("_onEnableAll: sends a broadcast 'enable' command with no args", function()
@@ -229,6 +237,55 @@ t.test("UPDATE ALL confirm disarms on leaving the roster (disarmUpdate), so it c
   h.disarmUpdate()                                                           -- leaving the roster (DIAG/DETAIL) disarms it
   h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- a later click must only re-ARM, never send
   t.eq(#rt.reinstallAllCalls, 0, "disarmed on leaving the roster -- the next click re-arms, it does not confirm a stale send")
+end)
+
+-- ===== SET TOKEN: the shared-secret config button (fixes 'UPDATE ALL did nothing' when unset) =====
+
+t.test("_onSetToken: forwards the entered secret to runtime:setToken", function()
+  local rt = fakeRuntime()
+  M._onSetToken(rt, "s3cret")
+  t.eq(#rt.setTokenCalls, 1, "reached the runtime")
+  t.eq(rt.setTokenCalls[1], "s3cret", "the exact secret was forwarded")
+end)
+
+t.test("roster SET TOKEN button: red 'SET TOKEN' when unset, opens the name keypad, OK sets token + goes green 'TOKEN OK'", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()   -- token nil = fail-closed
+  local h = M.build(basalt, frame, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  -- action row is now DIAG / ENABLE ALL / UPDATE ALL / SET TOKEN (index 4).
+  local tokenBtn = h.elements.actionRow.buttons[4]
+  t.truthy(tokenBtn, "the 4th action button exists")
+  t.eq(tokenBtn.button:getText(), "SET TOKEN", "unset -> prompts to set")
+  t.eq(tokenBtn.state, "off", "unset -> off state (red brackets: sends will silently fail)")
+
+  tokenBtn.button:fireEvent("mouse_click", 1, 1, 1)   -- open the entry overlay
+  t.truthy(h.elements.keypad.visible(), "SET TOKEN opens the name keypad overlay")
+
+  h.elements.keypad.tap("s"); h.elements.keypad.tap("3")   -- type the secret
+  h.elements.keypad.ok()                                   -- confirm
+  t.eq(#rt.setTokenCalls, 1, "OK committed the secret to the runtime")
+  t.eq(rt.setTokenCalls[1], "s3", "the typed secret reached setToken")
+  t.eq(tokenBtn.button:getText(), "TOKEN OK", "now set -> the button reflects it")
+  t.eq(tokenBtn.state, "on", "set -> on state (green brackets)")
+  t.truthy(not h.elements.keypad.visible(), "keypad closes after OK")
+end)
+
+t.test("roster SET TOKEN button: starts green 'TOKEN OK' when a token is already configured", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  rt.token = "already-set"
+  local h = M.build(basalt, frame, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  local tokenBtn = h.elements.actionRow.buttons[4]
+  t.eq(tokenBtn.button:getText(), "TOKEN OK", "a configured token -> confirms it's set")
+  t.eq(tokenBtn.state, "on", "configured -> on (green)")
 end)
 
 -- ===== DIAG page: pure formatting helpers =====

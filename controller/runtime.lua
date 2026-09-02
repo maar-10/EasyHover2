@@ -235,4 +235,15 @@ function R:remove(id)
   self:_persist()
 end
 
+--- setToken(token) -- set the controller's shared secret. Updates BOTH self.token (the live value
+--- every send's fail-closed gate reads -- so a freshly-set token works immediately, no reboot) AND
+--- config.updateToken, then persists via _persist (which also re-writes the live roster, keeping
+--- annotations). A blank/whitespace token is stored as-is; Update.validToken still gates sending, so
+--- clearing the token simply disables remote commands again rather than throwing.
+function R:setToken(token)
+  self.token = token
+  self.config.updateToken = token
+  self:_persist()
+end
+
 return M

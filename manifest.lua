@@ -134,9 +134,9 @@
         },
         {
           ["dst"] = "controller/app.lua",
-          ["size"] = 16762,
+          ["size"] = 17284,
           ["src"] = "dist/controller/app.lua",
-          ["sum"] = "6f8a0d9b",
+          ["sum"] = "12db58da",
         },
         {
           ["dst"] = "controller/config.lua",
@@ -152,9 +152,9 @@
         },
         {
           ["dst"] = "controller/runtime.lua",
-          ["size"] = 3979,
+          ["size"] = 4059,
           ["src"] = "dist/controller/runtime.lua",
-          ["sum"] = "04bf4411",
+          ["sum"] = "d342b8c2",
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
@@ -1533,5 +1533,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "30c42182",
+  ["version"] = "89c250e9",
 }

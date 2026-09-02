@@ -266,3 +266,33 @@ t.test("the runtime seeds its roster from config.roster; every seeded id starts 
   t.eq(v[1].pos.x, 1, "seeded lastPos carried into the view")
   t.eq(v[1].status, "SILENT", "seeded, never heard -- starts SILENT")
 end)
+
+t.test("setToken sets the LIVE token + persists updateToken, so sends work with no reboot", function()
+  local saved = {}
+  local function fakeSave(path, cfg) saved.path = path; saved.cfg = cfg end
+  local raw = fakeModem()
+  -- start with NO token: every send is fail-closed (this is exactly the 'UPDATE ALL did nothing' bug).
+  local r = CR.new({ config = { channel = 65000, updateToken = nil, roster = { B1 = { name = "north" } } },
+    modem = modemFor(raw), now = function() return 1000 end, save = fakeSave, path = "/test_ctrl.tbl" })
+  t.eq(r:sendCommandAll("enable", nil, 1000), false, "no token -> refuses, transmits nothing")
+  t.eq(#raw.sent, 0)
+
+  r:setToken("s3cret")
+  t.eq(r.token, "s3cret", "the live token used by every fail-closed send gate is set immediately")
+  t.eq(r.config.updateToken, "s3cret", "persisted into config.updateToken")
+  t.eq(saved.path, "/test_ctrl.tbl", "written through the injected save fn")
+  t.eq(saved.cfg.updateToken, "s3cret", "the saved config carries the new token")
+  t.eq(saved.cfg.roster.B1.name, "north", "save preserves the live roster (annotations kept)")
+
+  t.eq(r:sendCommandAll("enable", nil, 1000), true, "valid token now -> sends, no reboot needed")
+  t.eq(#raw.sent, 1, "the command actually transmitted this time")
+end)
+
+t.test("setToken to a blank string re-disables sending (fail-closed honours the cleared token)", function()
+  local r = CR.new({ config = { channel = 65000, updateToken = "tok", roster = {} },
+    modem = modemFor(fakeModem()), now = function() return 1000 end, save = function() end })
+  t.eq(r:sendCommandAll("enable", nil, 1000), true, "starts with a valid token")
+  r:setToken("")
+  t.eq(r.token, "", "blank token stored")
+  t.eq(r:sendCommandAll("enable", nil, 1000), false, "blank token -> Update.validToken fails -> refuses")
+end)
