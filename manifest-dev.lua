@@ -1424,41 +1424,6 @@
   },
   ["schema"] = 1,
   ["tools"] = {
-    ["beaconupdate"] = {
-      ["dirs"] = {
-        "beacon",
-        "fcs",
-        "tools",
-      },
-      ["entry"] = "beaconupdate",
-      ["files"] = {
-        {
-          ["dst"] = "beacon/update.lua",
-          ["size"] = 3614,
-          ["src"] = "beacon/update.lua",
-          ["sum"] = "b3684570",
-        },
-        {
-          ["dst"] = "beaconupdate",
-          ["size"] = 2914,
-          ["src"] = "launchers/beaconupdate.lua",
-          ["sum"] = "7778dd7d",
-        },
-        {
-          ["dst"] = "fcs/comms/protocol.lua",
-          ["size"] = 655,
-          ["src"] = "fcs/comms/protocol.lua",
-          ["sum"] = "d81926f7",
-        },
-        {
-          ["dst"] = "tools/beaconupdate.lua",
-          ["size"] = 1581,
-          ["src"] = "tools/beaconupdate.lua",
-          ["sum"] = "bbf726f5",
-        },
-      },
-      ["title"] = "Beacon updater",
-    },
     ["fcs2disk"] = {
       ["dirs"] = {
         "fcs",
@@ -1568,5 +1533,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "386802ca",
+  ["version"] = "f75e116a",
 }

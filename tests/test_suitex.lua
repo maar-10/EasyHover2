@@ -38,10 +38,18 @@ end)
 t.test("toolsToInstall returns the ticked tools in order", function()
   t.eq(#SuiteX.toolsToInstall({}), 0)
   t.eq(#SuiteX.toolsToInstall(nil), 0)
-  local both = SuiteX.toolsToInstall({ installBeaconUpdater = true, installSplitConfig = true })
-  t.eq(both[1], "beaconupdate"); t.eq(both[2], "splitconfig")
+  local both = SuiteX.toolsToInstall({ installSplitConfig = true, installFcs2Disk = true })
+  t.eq(both[1], "splitconfig"); t.eq(both[2], "fcs2disk")
   local only = SuiteX.toolsToInstall({ installSplitConfig = true })
   t.eq(#only, 1); t.eq(only[1], "splitconfig")
+end)
+
+-- Phase P6: the standalone beacon updater is retired -- reinstall is folded into the beacon
+-- controller's UPDATE/UPDATE ALL actions (controller/runtime.lua). The Advanced-tab checkbox and
+-- installBeaconUpdater flag are gone; ticking nothing beacon-updater-shaped must never resurrect it.
+t.test("toolsToInstall never returns beaconupdate (retired -- folded into the controller)", function()
+  local out = SuiteX.toolsToInstall({ installBeaconUpdater = true, installSplitConfig = true, installFcs2Disk = true })
+  for _, k in ipairs(out) do t.truthy(k ~= "beaconupdate", "beaconupdate must never be installable again") end
 end)
 
 t.test("toolsToInstall includes fcs2disk when its flag is set", function()
@@ -75,7 +83,7 @@ t.test("buttonStates: Go disabled only when already current", function()
   t.eq(SuiteX.buttonStates("current").go, "disabled")
   t.eq(SuiteX.buttonStates("current").verify, "active")
   -- Repair MUST stay available when already up-to-date: with Go disabled, Repair is the only engine
-  -- op that installs the ticked Advanced-tab optional tools (beacon updater / config splitter) --
+  -- op that installs the ticked Advanced-tab optional tools (split-config / FCS config dump) --
   -- see the repair handler's installToolIfRequested call. If this ever flips to "disabled", there's
   -- no way to add an optional tool without a version bump.
   t.eq(SuiteX.buttonStates("current").repair, "active")

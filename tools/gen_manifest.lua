@@ -111,11 +111,6 @@ local ROLES = {
 -- require() closure of one launcher root, with that launcher shipped at its command `entry` and
 -- every other closure file at dst = src. Folded into `manifest.tools` (both channels).
 local TOOLS = {
-  beaconupdate = {
-    title = "Beacon updater",
-    entry = "beaconupdate",
-    root  = "launchers/beaconupdate.lua",
-  },
   splitconfig = {
     title = "Split legacy config",
     entry = "splitconfig",

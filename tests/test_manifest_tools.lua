@@ -8,26 +8,6 @@ local function readManifest(path)
   return textutils.unserialise(raw)
 end
 
-t.test("both manifests carry a beaconupdate tool with a non-empty file closure", function()
-  for _, path in ipairs({ "/manifest.lua", "/manifest-dev.lua" }) do
-    local m = readManifest(path)
-    t.truthy(type(m.tools) == "table", path .. ": has a tools section")
-    local tool = m.tools and m.tools.beaconupdate
-    t.truthy(type(tool) == "table", path .. ": has beaconupdate")
-    t.eq(tool.entry, "beaconupdate", path .. ": entry")
-    t.truthy(tool.files and #tool.files > 0, path .. ": non-empty closure")
-    -- the launcher ships at its command name, and the pure core is part of the closure
-    local hasEntry, hasCore = false, false
-    for _, e in ipairs(tool.files) do
-      if e.dst == "beaconupdate" then hasEntry = true end
-      if e.dst:find("beaconupdate", 1, true) and e.dst:find("tools/", 1, true) then hasCore = true end
-      t.truthy(type(e.sum) == "string" and type(e.size) == "number", path .. ": every file has sum+size")
-    end
-    t.truthy(hasEntry, path .. ": ships the launcher at 'beaconupdate'")
-    t.truthy(hasCore, path .. ": ships tools/beaconupdate.lua in the closure")
-  end
-end)
-
 t.test("both manifests carry a splitconfig tool with a non-empty file closure", function()
   for _, path in ipairs({ "/manifest.lua", "/manifest-dev.lua" }) do
     local m = readManifest(path)
@@ -65,5 +45,15 @@ t.test("both manifests carry a fcs2disk tool with a non-empty file closure", fun
     end
     t.truthy(hasEntry, path .. ": ships the launcher at 'fcs2disk'")
     t.truthy(hasCore, path .. ": ships tools/fcs2disk.lua in the closure")
+  end
+end)
+
+-- Phase P6: the standalone beacon updater is retired -- reinstall is folded into the controller's
+-- UPDATE/UPDATE ALL actions (controller/runtime.lua's sendReinstall/sendReinstallAll). Neither
+-- manifest channel should still offer it as an installable tool.
+t.test("neither manifest carries a beaconupdate tool (retired -- folded into the controller)", function()
+  for _, path in ipairs({ "/manifest.lua", "/manifest-dev.lua" }) do
+    local m = readManifest(path)
+    t.truthy(m.tools and m.tools.beaconupdate == nil, path .. ": beaconupdate tool retired")
   end
 end)

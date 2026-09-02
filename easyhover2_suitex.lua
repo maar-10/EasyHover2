@@ -33,8 +33,8 @@ function SuiteX.buttonStates(plan)
     verify = "active", repair = "active", switch = "active", tools = "active", quit = "active" }
 end
 
---- toolInstallPlan(opts) -> { install, channel }. The Advanced-tab "Beacon updater" checkbox gates
---- installing the standalone updater tool alongside the role; the dev checkbox picks the variant
+--- toolInstallPlan(opts) -> { install, channel }. An Advanced-tab optional-tool checkbox gates
+--- installing a standalone tool alongside the role; the dev checkbox picks the variant
 --- (off -> minified, on -> readable source), mirroring the role install channel.
 function SuiteX.toolInstallPlan(opts)
   opts = opts or {}
@@ -50,7 +50,6 @@ end
 function SuiteX.toolsToInstall(flags)
   flags = flags or {}
   local out = {}
-  if flags.installBeaconUpdater then out[#out + 1] = "beaconupdate" end
   if flags.installSplitConfig then out[#out + 1] = "splitconfig" end
   if flags.installFcs2Disk then out[#out + 1] = "fcs2disk" end
   return out
@@ -359,7 +358,6 @@ local function applyTheme(ctx)
   ui.advancedLabel:setForeground(pal.dim)
   ui.devCheck:setBackground(pal.bg); ui.devCheck:setForeground(pal.text)
   ui.toolLabel:setForeground(pal.dim)
-  ui.beaconUpdCheck:setBackground(pal.bg); ui.beaconUpdCheck:setForeground(pal.text)
   ui.splitCfgCheck:setBackground(pal.bg); ui.splitCfgCheck:setForeground(pal.text)
   paintTabButtons(ctx)
   refreshStatus(ctx)
@@ -595,16 +593,14 @@ end
 -- channel (min/dev) selected via the dev checkbox, so each tool installs straight from it.
 local function installToolIfRequested(ctx)
   local keys = SuiteX.toolsToInstall({
-    installBeaconUpdater = ctx.installBeaconUpdater, installSplitConfig = ctx.installSplitConfig,
+    installSplitConfig = ctx.installSplitConfig,
     installFcs2Disk = ctx.installFcs2Disk,
   })
   local doneMsg = {
-    beaconupdate = "beacon updater installed -- run 'beaconupdate' to push updates to the beacons",
     splitconfig = "split-config tool installed -- run 'splitconfig' on the FCS to split a legacy fused config",
     fcs2disk = "FCS config-dump tool installed -- run 'fcs2disk' on the FCS to dump its configs to the shared disk",
   }
   local displayName = {
-    beaconupdate = "beacon updater",
     splitconfig = "split-config tool",
     fcs2disk = "FCS config dump",
   }
@@ -722,30 +718,21 @@ local function buildUI(ctx)
     end
   end)
 
-  -- Advanced tab: optionally install the standalone Beacon-updater tool alongside the role. Ticked,
-  -- a successful install/update also lays down `beaconupdate` (+ its closure) so this PC can push
-  -- "update + reboot" to every beacon over the GPS channel. Just a flag here; installToolIfRequested
-  -- does the work after the role install, in the same engine op.
-  ui.toolLabel = ui.frameAdv:addLabel({ x = 2, y = 5, text = "Optional tools", foreground = pal.dim })
-  local beaconOff, beaconOn = SuiteX.checkboxLabels("Beacon updater (push updates to beacons)")
-  ui.beaconUpdCheck = ui.frameAdv:addCheckBox({ x = 2, y = 6, checked = (ctx.installBeaconUpdater == true),
-    text = beaconOff, checkedText = beaconOn, background = pal.bg, foreground = pal.text })
-  ui.beaconUpdCheck:onChange("checked", function(_, checked) ctx.installBeaconUpdater = checked end)
-
   -- Advanced tab: optionally install the standalone Split-config tool alongside the role. Ticked,
   -- a successful install/update also lays down `splitconfig` (+ its closure) so this PC can split
-  -- a legacy fused config into the new per-role files. Same flag-then-installToolIfRequested flow
-  -- as the Beacon-updater checkbox above.
+  -- a legacy fused config into the new per-role files. Just a flag here; installToolIfRequested
+  -- does the work after the role install, in the same engine op.
+  ui.toolLabel = ui.frameAdv:addLabel({ x = 2, y = 5, text = "Optional tools", foreground = pal.dim })
   local splitOff, splitOn = SuiteX.checkboxLabels("Split config (split legacy FCS config)")
-  ui.splitCfgCheck = ui.frameAdv:addCheckBox({ x = 2, y = 7, checked = (ctx.installSplitConfig == true),
+  ui.splitCfgCheck = ui.frameAdv:addCheckBox({ x = 2, y = 6, checked = (ctx.installSplitConfig == true),
     text = splitOff, checkedText = splitOn, background = pal.bg, foreground = pal.text })
   ui.splitCfgCheck:onChange("checked", function(_, checked) ctx.installSplitConfig = checked end)
 
   -- Advanced tab: optionally install the standalone FCS config-dump tool alongside the role. Ticked,
   -- a successful install/update also lays down `fcs2disk` (+ its closure) so this PC can dump its
-  -- FCS configs to the shared disk. Same flag-then-installToolIfRequested flow as the checkboxes above.
+  -- FCS configs to the shared disk. Same flag-then-installToolIfRequested flow as the checkbox above.
   local fcs2diskOff, fcs2diskOn = SuiteX.checkboxLabels("FCS config dump (dump FCS configs to disk)")
-  ui.fcs2diskCheck = ui.frameAdv:addCheckBox({ x = 2, y = 8, checked = (ctx.installFcs2Disk == true),
+  ui.fcs2diskCheck = ui.frameAdv:addCheckBox({ x = 2, y = 7, checked = (ctx.installFcs2Disk == true),
     text = fcs2diskOff, checkedText = fcs2diskOn, background = pal.bg, foreground = pal.text })
   ui.fcs2diskCheck:onChange("checked", function(_, checked) ctx.installFcs2Disk = checked end)
 
