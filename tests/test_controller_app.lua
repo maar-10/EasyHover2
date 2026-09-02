@@ -181,4 +181,194 @@ t.test("ENABLE ALL button click sends the broadcast enable command via M._onEnab
   t.eq(calls[1].op, "enable")
 end)
 
+-- ===== DIAG page: pure formatting helpers =====
+
+t.test("formatEnabled: true/false/nil -> ON/OFF/?", function()
+  t.eq(M.formatEnabled(true), "ON")
+  t.eq(M.formatEnabled(false), "OFF")
+  t.eq(M.formatEnabled(nil), "?")
+end)
+
+t.test("formatSelfCheck: ok -> OK; not ok -> 'N MISM'; missing -> '--'", function()
+  t.eq(M.formatSelfCheck(nil), "--")
+  t.eq(M.formatSelfCheck({ selfCheck = { ok = true, mismatches = 0 } }), "OK")
+  t.eq(M.formatSelfCheck({ selfCheck = { ok = false, mismatches = 2 } }), "2 MISM")
+end)
+
+t.test("formatConstellation: 'H/4 GRADE'; missing -> '--'", function()
+  t.eq(M.formatConstellation(nil), "--")
+  t.eq(M.formatConstellation({ constellation = { hosts = 3, grade = "GOOD" } }), "3/4 GOOD")
+end)
+
+t.test("formatInterval: reuses formatAge's bands; missing -> '--'", function()
+  t.eq(M.formatInterval(nil), "--")
+  t.eq(M.formatInterval({ intervalMs = 3400 }), M.formatAge(3400))
+end)
+
+t.test("diagRowLine: name falls back to id, fields fit their fixed widths, colour spans locate ENABLED/SELFCHK", function()
+  local item = {
+    id = "beacon-70", name = "South Mark", enabled = true,
+    health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 1000 },
+    lastReplyAgeMs = 820,
+  }
+  local line, enAt, enLen, enWord, scAt, scLen, scWord = M.diagRowLine(item)
+  t.eq(enWord, "ON")
+  t.eq(scWord, "OK")
+  t.eq(line:sub(enAt, enAt + enLen - 1), M.fitField("ON", M.DIAG_EN_W))
+  t.eq(line:sub(scAt, scAt + scLen - 1), M.fitField("OK", M.DIAG_SC_W))
+  t.eq(line:sub(1, #"South Mark"), "South Mark")
+  t.truthy(#line <= 51, "row must fit the 51-wide terminal")
+
+  local blank = M.diagRowLine(nil)
+  t.eq(blank:sub(1, 1), "?")
+end)
+
+t.test("pollingText: active -> 'polling...'; inactive -> ''", function()
+  t.eq(M.pollingText(true), "polling...")
+  t.eq(M.pollingText(false), "")
+end)
+
+-- ===== M.build: opts.onDiag wires the DIAG button live (default stays disabled) =====
+
+t.test("M.build with no opts: DIAG button has no onClick (still a stub)", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local h = M.build(basalt, frame, rt)
+  -- Clicking a disabled bracketSwitch (no onClick registered) must not error.
+  local ok = pcall(function() h.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1) end)
+  t.truthy(ok, "clicking the stub DIAG button must not error")
+end)
+
+t.test("M.build with opts.onDiag: DIAG button click invokes it", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local fired = 0
+  local h = M.build(basalt, frame, rt, { onDiag = function() fired = fired + 1 end })
+  h.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(fired, 1)
+end)
+
+-- ===== M.buildDiag: construction probe (real CraftOS-PC Basalt, no peripherals) =====
+
+local MOCK_DIAG_VIEW = {
+  { id = "beacon-67", name = "North Pillar", enabled = true,
+    health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 1000 },
+    lastReplyAgeMs = 600 },
+  { id = "beacon-68", name = "Buddy's Base", enabled = false,
+    health = { selfCheck = { ok = false, mismatches = 2 }, constellation = { hosts = 2, grade = "FAIR" }, intervalMs = 3000 },
+    lastReplyAgeMs = 4200 },
+  { id = "beacon-69", name = nil, enabled = nil, health = nil, lastReplyAgeMs = nil },
+}
+
+t.test("M.buildDiag constructs the element tree; apply() renders the status table + polling indicator", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+
+  local h = M.buildDiag(basalt, frame, rt)
+  t.eq(h.id, "diag")
+  t.truthy(h.elements.listImg ~= nil, "listImg present")
+  t.truthy(h.elements.polling ~= nil, "polling indicator label present")
+  t.truthy(h.elements.actionRow ~= nil, "BACK action row present")
+
+  h.apply(MOCK_DIAG_VIEW, true)
+  basalt.update("timer", -1)
+
+  t.eq(h.elements.colHeader:getText(), M.diagColHeader())
+  t.eq(h.elements.polling:getText(), "polling...", "active=true shows the visible polling indicator")
+
+  local img = h.elements.listImg
+  for i, item in ipairs(MOCK_DIAG_VIEW) do
+    local line, enAt, enLen, enWord, scAt, scLen, scWord = M.diagRowLine(item)
+    t.eq(img:getText(1, i, #line), line, "row " .. i .. " text matches")
+    t.eq(img:getFg(enAt, i, enLen), string.rep(colors.toBlit(M.EN_COLOR[enWord] or colors.white), enLen), "row " .. i .. " ENABLED colour")
+    local scWordColor = (scWord == "OK" and colors.green) or (scWord == "--" and colors.lightGray) or colors.red
+    t.eq(img:getFg(scAt, i, scLen), string.rep(colors.toBlit(scWordColor), scLen), "row " .. i .. " SELFCHK colour")
+  end
+end)
+
+t.test("M.buildDiag apply(view, false): polling indicator clears", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local h = M.buildDiag(basalt, frame, rt)
+  h.apply(MOCK_DIAG_VIEW, false)
+  basalt.update("timer", -1)
+  t.eq(h.elements.polling:getText(), "")
+end)
+
+t.test("M.buildDiag BACK button click invokes opts.onBack", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local fired = 0
+  local h = M.buildDiag(basalt, frame, rt, { onBack = function() fired = fired + 1 end })
+  h.apply(MOCK_DIAG_VIEW, true)
+  basalt.update("timer", -1)
+  h.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(fired, 1)
+end)
+
+-- ===== M.buildApp: wires ROSTER + DIAG together; comms-hygiene gate integration =====
+
+local function fakeRuntimeFull()
+  local sendCalls, queryCalls = {}, {}
+  return {
+    sendCalls = sendCalls, queryCalls = queryCalls,
+    sendCommandAll = function(self, op, args, now) sendCalls[#sendCalls + 1] = { op = op, now = now }; return true end,
+    queryAll = function(self, now) queryCalls[#queryCalls + 1] = now; return true end,
+  }
+end
+
+t.test("M.buildApp: roster visible + diag hidden + gate hidden at construction", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeFull()
+  local h = M.buildApp(basalt, base, rt)
+  basalt.update("timer", -1)
+  t.eq(h.elements.rosterFrame:getVisible(), true)
+  t.eq(h.elements.diagFrame:getVisible(), false)
+  t.eq(h.gate:isShown(), false)
+end)
+
+t.test("M.buildApp: DIAG button opens the diag page + shows the gate; BACK reverses it", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeFull()
+  local h = M.buildApp(basalt, base, rt)
+  h.apply(MOCK_DIAG_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.roster.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(h.gate:isShown(), true, "DIAG button shows the poll gate")
+  t.eq(h.elements.diagFrame:getVisible(), true)
+  t.eq(h.elements.rosterFrame:getVisible(), false)
+
+  h.elements.diag.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(h.gate:isShown(), false, "BACK hides the poll gate")
+  t.eq(h.elements.diagFrame:getVisible(), false)
+  t.eq(h.elements.rosterFrame:getVisible(), true)
+end)
+
+t.test("M.buildApp.poll: comms-hygiene end to end -- NO-OP while roster is shown; polls once DIAG opens; stops again on BACK", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeFull()
+  local h = M.buildApp(basalt, base, rt)
+  basalt.update("timer", -1)
+
+  h.poll(1000)
+  t.eq(#rt.queryCalls, 0, "closed DIAG -- poll() must not transmit")
+
+  h.elements.roster.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  h.poll(2000)
+  t.eq(#rt.queryCalls, 1, "DIAG open -- poll() transmits")
+
+  h.elements.diag.elements.actionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  h.poll(9999)
+  t.eq(#rt.queryCalls, 1, "DIAG closed again -- poll() stops transmitting, even though it would be due")
+end)
+
 return true
