@@ -36,9 +36,9 @@
       ["files"] = {
         {
           ["dst"] = "beacon/app.lua",
-          ["size"] = 7715,
+          ["size"] = 8027,
           ["src"] = "beacon/app.lua",
-          ["sum"] = "2ea3fe2c",
+          ["sum"] = "f6d82b2a",
         },
         {
           ["dst"] = "beacon/command.lua",
@@ -134,9 +134,9 @@
         },
         {
           ["dst"] = "controller/app.lua",
-          ["size"] = 45088,
+          ["size"] = 46072,
           ["src"] = "controller/app.lua",
-          ["sum"] = "7211de7b",
+          ["sum"] = "c5718667",
         },
         {
           ["dst"] = "controller/config.lua",
@@ -1533,5 +1533,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "f75e116a",
+  ["version"] = "0d049c67",
 }

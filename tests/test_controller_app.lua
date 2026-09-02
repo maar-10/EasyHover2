@@ -217,6 +217,20 @@ t.test("UPDATE ALL is destructive -- first click arms a confirm; second click (c
   t.eq(#rt.reinstallAllCalls, 1, "disarmed after confirming -- this click only re-arms")
 end)
 
+t.test("UPDATE ALL confirm disarms on leaving the roster (disarmUpdate), so it can't survive a round-trip", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local h = M.build(basalt, frame, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- arm the confirm
+  h.disarmUpdate()                                                           -- leaving the roster (DIAG/DETAIL) disarms it
+  h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- a later click must only re-ARM, never send
+  t.eq(#rt.reinstallAllCalls, 0, "disarmed on leaving the roster -- the next click re-arms, it does not confirm a stale send")
+end)
+
 -- ===== DIAG page: pure formatting helpers =====
 
 t.test("formatEnabled: true/false/nil -> ON/OFF/?", function()
@@ -693,6 +707,20 @@ t.test("M.buildDetail: UPDATE -- second click (confirm) sends the targeted reins
 
   h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- back to armed, not sent again
   t.eq(#rt.reinstallCalls, 1, "disarmed after confirming -- this click only re-arms")
+end)
+
+t.test("M.buildDetail: UPDATE confirm disarms on leaving the page (disarmUpdate)", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- arm the confirm
+  h.disarmUpdate()                                                          -- leaving DETAIL disarms it
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- a later click must only re-ARM
+  t.eq(#rt.reinstallCalls, 0, "disarmed on leaving detail -- the next click re-arms, no stale reinstall")
 end)
 
 t.test("M.buildDetail: UPDATE with no id shown is a safe no-op", function()

@@ -123,7 +123,10 @@ function M.run()
           if r.save then save() end
           if r.rearm then broadcastTimer = armBroadcast() end
           if r.verify then rt:broadcast() end
-          modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.ack(cfg.id)))
+          -- Reply with a fresh STATUS (built AFTER the mutation), not a bare ack: the controller's
+          -- onMessage merges STATUS into its roster, so an enable/disable/set-interval/set-pos shows
+          -- on the controller immediately instead of waiting for the next DIAG query.
+          modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.status(cfg.id, rt:statusPayload())))
           if r.reboot then os.reboot() end
         end
         repaint()

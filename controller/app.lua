@@ -444,6 +444,11 @@ function M.build(basalt, frame, runtime, opts)
       updateAllBtn.setLabel("CONFIRM?")
     end
   end
+  -- Disarm a pending UPDATE ALL confirm when the operator leaves the roster (opens DIAG/DETAIL), so an
+  -- armed CONFIRM? can never survive a page round-trip and fire on an unrelated later click.
+  local function disarmUpdate()
+    if updateAllArmed then updateAllArmed = false; updateAllBtn.setLabel("UPDATE ALL") end
+  end
 
   local actionRow = configkit.actionRow(frame, { x = 1, y = actionY, w = w }, {
     diagSpec,
@@ -468,6 +473,7 @@ function M.build(basalt, frame, runtime, opts)
   return {
     id = M.id,
     apply = apply,
+    disarmUpdate = disarmUpdate,
     elements = {
       header = headerLbl, divTop = divTop, divBottom = divBottom,
       listImg = listImg, hits = hits,
@@ -736,6 +742,11 @@ function M.buildDetail(basalt, frame, runtime, opts)
       grid.buttons.update.setLabel("CONFIRM?")
     end
   end
+  -- Disarm a pending per-beacon UPDATE confirm when leaving DETAIL (apply() also disarms on a beacon
+  -- switch; this makes leaving the page immediate too).
+  local function disarmUpdate()
+    if updateArmed then updateArmed = false; grid.buttons.update.setLabel("UPDATE") end
+  end
 
   grid = configkit.menuColumn(frame, {
     y = gridY, cols = 3,
@@ -783,6 +794,7 @@ function M.buildDetail(basalt, frame, runtime, opts)
   return {
     id = "detail",
     apply = apply,
+    disarmUpdate = disarmUpdate,
     elements = {
       nameLbl = nameLbl, idLbl = idLbl, infoLbls = infoLbls,
       divTop = divTop, divMid = divMid,
@@ -817,10 +829,11 @@ function M.buildApp(basalt, base, runtime, opts)
   local gate = Diag.new(opts.diag)
   local lastView = {}
   local currentDetailId = nil
-  local detailHandle -- forward-declared: showDetail/hideDetail close over it, assigned below
+  local detailHandle, rosterHandle -- forward-declared: show/hide close over them, assigned below
 
   local function showDiag()
     gate:show()
+    if rosterHandle then rosterHandle.disarmUpdate() end   -- leaving roster: drop any armed UPDATE ALL
     rosterFrame:setVisible(false)
     diagFrame:setVisible(true)
   end
@@ -831,6 +844,7 @@ function M.buildApp(basalt, base, runtime, opts)
   end
 
   local function showDetail(id)
+    if rosterHandle then rosterHandle.disarmUpdate() end   -- leaving roster: drop any armed UPDATE ALL
     currentDetailId = id
     rosterFrame:setVisible(false)
     diagFrame:setVisible(false)
@@ -838,12 +852,13 @@ function M.buildApp(basalt, base, runtime, opts)
     if detailHandle then detailHandle.apply(lastView, currentDetailId) end
   end
   local function hideDetail()
+    if detailHandle then detailHandle.disarmUpdate() end   -- leaving detail: drop any armed UPDATE
     currentDetailId = nil
     detailFrame:setVisible(false)
     rosterFrame:setVisible(true)
   end
 
-  local rosterHandle = M.build(basalt, rosterFrame, runtime, { onDiag = showDiag, onRowSelect = showDetail })
+  rosterHandle = M.build(basalt, rosterFrame, runtime, { onDiag = showDiag, onRowSelect = showDetail })
   local diagHandle = M.buildDiag(basalt, diagFrame, runtime, { onBack = hideDiag })
   detailHandle = M.buildDetail(basalt, detailFrame, runtime, { onBack = hideDetail })
 
