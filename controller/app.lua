@@ -846,9 +846,38 @@ local function findModem()
   return nil
 end
 
+-- ===== M.ensureBasalt: load the vendored Basalt 2.0 build =====
+--
+-- Mirrors nav/app.lua's own M.ensureBasalt -- deliberately NOT required from ui.basalt.app,
+-- which would drag that module's top-level requires (the whole cockpit page registry PLUS the
+-- fcs comms/flight-loop stack) into the beaconcontrol role's require() dependency closure
+-- (tools/closure.lua just follows require() text statically; it does not care that only that
+-- module's ensureBasalt function would ever actually be called). loadfile(path, nil,
+-- _ENV), never dofile(): CC:Tweaked's dofile loads with the BIOS's bare _G (no require/
+-- package), and the vendored bundle needs package.path for its own module loader. The
+-- beaconcontrol role ships release/basalt-full.lua via gen_manifest's extraFiles (same as ui/
+-- nav), so a candidate path always exists on a real install.
+M.BASALT_PATHS = { "/basalt-full.lua", "/release/basalt-full.lua" }
+
+function M.ensureBasalt(opts)
+  opts = opts or {}
+  local paths = opts.paths or M.BASALT_PATHS
+  local exists = opts.exists or fs.exists
+  local doLoadfile = opts.loadfile or loadfile
+  for _, path in ipairs(paths) do
+    if exists(path) then
+      local chunk, err = doLoadfile(path, nil, _ENV)
+      if not chunk then error("Basalt did not parse: " .. tostring(err)) end
+      local ok, basalt = pcall(chunk)
+      if not ok or type(basalt) ~= "table" then error("Basalt failed to load: " .. tostring(basalt)) end
+      return basalt
+    end
+  end
+  error("Basalt not found -- reinstall the beaconcontrol role via the Suite")
+end
+
 function M.run(deps)
   deps = deps or {}
-  local BasaltApp = require("ui.basalt.app")
 
   local saved = Config.load(Config.PATH)
   local cfg = Config.withDefaults(saved or {})
@@ -858,7 +887,7 @@ function M.run(deps)
 
   local rt = deps.runtime or Runtime.new({ config = cfg, modem = modem, now = function() return os.epoch("utc") end })
 
-  local basalt = BasaltApp.ensureBasalt(deps.basaltOpts)
+  local basalt = M.ensureBasalt(deps.basaltOpts)
   Theme.applyTheme(basalt, Theme.DEFAULTS)
   Theme.applyPalette(term, Theme.DEFAULTS)
 
