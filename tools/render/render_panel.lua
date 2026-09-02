@@ -144,6 +144,47 @@ local RECIPES = {
       { id = "beacon-70", name = "South Mark", enabled = nil, health = nil, lastReplyAgeMs = nil },
     } },
 
+  -- Beacon controller DETAIL page (Phase P5c) -- the per-beacon info block + action grid. A fake
+  -- runtime is enough -- every action button's onClick only ever reaches runtime:sendCommand/
+  -- setName/setExpectedPos/remove, never called at build time. The harness's own generic
+  -- `handle.apply(r.state or {})` call passes only ONE arg (view) -- buildDetail's apply(view, id)
+  -- needs a second -- so this recipe wraps `apply` to default a nil id to the demo beacon, letting
+  -- the harness's normal single-arg call still land on the right beacon with no postBuild needed.
+  controller_detail = { W = 51, H = 19, build = function(b, f)
+      local rt = { sendCommandAll = function() end, sendCommand = function() end,
+        setName = function() end, setExpectedPos = function() end, remove = function() end }
+      local h = P("controller.app").buildDetail(b, f, rt)
+      local realApply = h.apply
+      h.apply = function(view, id) return realApply(view, id or "beacon-68") end
+      return h end,
+    state = {
+      { id = "beacon-68", name = "Buddy's Base", status = "SILENT", enabled = false,
+        pos = { x = 6462, y = 200, z = 6107 }, expectedPos = { x = 6460, y = 200, z = 6105 },
+        health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 3000 } },
+    } },
+
+  -- Same DETAIL page, but with the SET POS sub-form popped open (postBuild clicks the button after
+  -- the demo beacon is applied) -- shows the X/Y/Z field-button + SEND/CANCEL overlay in one shot.
+  controller_detail_setpos = (function()
+    local demoView = {
+      { id = "beacon-68", name = "Buddy's Base", status = "SILENT", enabled = false,
+        pos = { x = 6462, y = 200, z = 6107 }, expectedPos = { x = 6460, y = 200, z = 6105 },
+        health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 3000 } },
+    }
+    return { W = 51, H = 19, build = function(b, f)
+        local rt = { sendCommandAll = function() end, sendCommand = function() end,
+          setName = function() end, setExpectedPos = function() end, remove = function() end }
+        local h = P("controller.app").buildDetail(b, f, rt)
+        local realApply = h.apply
+        h.apply = function(view, id) return realApply(view, id or "beacon-68") end
+        return h end,
+      state = demoView,
+      postBuild = function(h)
+        h.apply(demoView, "beacon-68")
+        h.elements.grid.buttons.setpos.button:fireEvent("mouse_click", 1, 1, 1)
+      end }
+  end)(),
+
   -- DESIGN PROTO: the FLIGHT panel's EMC (top) region redesign -- bordered panel, full-width gauges,
   -- 3-row outlined ENG SW/PRIME, an orange double-border status box + CONFIG. EH2_RENDER_PANEL=proto_flight_emc
   proto_flight_emc = { W = 36, H = 17, build = function(b, f)
@@ -268,7 +309,7 @@ end
 
 local ORDER = { "pfd", "flight", "flight_engine", "flight_calfuel", "flight_params",
                 "nav", "hub", "tuning", "mdb", "uical", "uical_settings", "senscal", "senssource", "dtc", "pfdrate",
-                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap", "controller_roster", "controller_diag" }
+                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap", "controller_roster", "controller_diag", "controller_detail", "controller_detail_setpos" }
 
 -- Render one recipe into a fresh rec-term and serialise it to /render_out_<id>.txt.
 local function renderOne(id)
