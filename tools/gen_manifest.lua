@@ -61,10 +61,15 @@ local ROLES = {
   ui = {
     title = "Cockpit display", status = "released",
     blurb = "Receives telemetry, renders reported state, sends commands on touch. Boots the cockpit.",
+    -- S1 (config overhaul): NO sharedDiag. The diagnostic launchers (calibrate/hovertest/probe*)
+    -- require() the whole flight control loop; shipping them here made the UI PC carry a second copy
+    -- of the FCS control stack. The cockpit's own closure keeps the deps its config menus actually
+    -- use (fcs.comauto, fcs.comms.*, fcs.io.*) -- those are separate require() paths. The UI's FCS
+    -- config-FILE copies stay in `configs` for now; removing them is S2 (coupled to the live-write
+    -- path, since the FCS boot-pulls config from the UI's cfgserver today).
     configs = { "/eh2_devbind.tbl", "/eh2_senscal.tbl", "/eh2_tuning.tbl", "/eh2_ui_config.tbl" }, configModule = CONFIG_MODULE, luaPath = "/",
     startup = { src = "launchers/ui.lua", dst = "startup.lua" },
     roots   = { { src = "launchers/cockpit.lua", dst = "cockpit" } },
-    sharedDiag = true,
     -- Basalt is loadfile()'d at RUNTIME by ui/basalt/app.lua's M.ensureBasalt (never require()'d
     -- -- see that file's header comment), so tools/closure.lua's require()-following discovery
     -- can never find it. extraFiles ships it alongside the closure anyway, at exactly

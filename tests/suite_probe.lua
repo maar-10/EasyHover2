@@ -382,6 +382,21 @@ elseif phase == "ui" then
   check(not fs.exists("/fcs/input/pilot.lua"), "no fcs-only input files on a ui computer")
   check(not fs.exists("/fcs/runtime/flight.lua"), "no fcs-only runtime files on a ui computer")
 
+  -- S1: the shared FCS diagnostic launchers and the control loop they drag in are gone from a ui
+  -- computer. The cockpit needs none of them; its config menus keep comauto + the comms link + the
+  -- fcs.io layer, which are separate require() paths. (The UI's FCS config FILES are intentionally
+  -- still present at this phase -- their removal is S2.)
+  check(not fs.exists("/calibrate"), "no calibrate diag launcher on a ui computer")
+  check(not fs.exists("/hovertest"), "no hovertest diag launcher on a ui computer")
+  check(not fs.exists("/probe"), "no probe diag launcher on a ui computer")
+  check(not fs.exists("/fcs/runtime/loop.lua"), "no fcs control loop on a ui computer")
+  check(not fs.exists("/fcs/schemes/level_flight.lua"), "no fcs control scheme on a ui computer")
+  check(not fs.exists("/tools/hover_test.lua"), "no fcs diag tool body on a ui computer")
+  -- But the config menus' real dependencies DID land:
+  check(fs.exists("/fcs/comauto.lua"), "the ui keeps comauto for its FCS TUNING menu")
+  check(fs.exists("/fcs/comms/telemetry.lua"), "the ui keeps the comms link")
+  check(fs.exists("/ui/basalt/bitconfig/tuning.lua"), "the ui keeps its FCS TUNING menu")
+
   -- And re-running is a no-op, the same as it is for fcs.
   local versionBefore = stateField("version")
   runSuite()
@@ -399,6 +414,7 @@ elseif phase == "switch" then
   -- fcs ships a root-level /flight launcher; ui does not. Assert it is here BEFORE the switch so
   -- the "gone after" check below passes for the right reason (it was removed, not never present).
   check(fs.exists("/flight"), "test setup: fcs root launcher /flight present before switch")
+  check(fs.exists("/probe"), "test setup: fcs diag launcher /probe present before switch")
 
   runSuite("ui")
 
@@ -418,13 +434,13 @@ elseif phase == "switch" then
   check(not fs.exists("/fcs/runtime/flight.lua"), "the old role's runtime files were pruned")
   check(#noStagingLeftBehind() == 0, "no .eh2new staging files left behind")
 
-  -- Root-level launchers are pruned on a switch too, not just in-dir modules: the OLD role's
-  -- orphan /flight (whose /tools/flight.lua dependency is now gone) must be removed, or running
-  -- it throws "module not found". A launcher the NEW role ships (/cockpit) and a launcher both
-  -- roles ship (/probe) must survive -- pruning only ever touches suite launchers this role drops.
+  -- The NEW role's own launcher survives; the OLD role's orphan launchers are pruned. After S1 the
+  -- ui role no longer ships the FCS diagnostic launchers, so /probe is now an fcs-only orphan and is
+  -- pruned on the switch, exactly like /flight. (/cockpit covers "a launcher the new role ships
+  -- survives"; pre-S1 both roles shipped /probe, so it used to survive here.)
   check(not fs.exists("/flight"), "the old role's orphan ROOT launcher /flight was pruned")
   check(fs.exists("/cockpit"), "a root launcher the new role ships (/cockpit) survived the switch")
-  check(fs.exists("/probe"), "a root launcher both roles ship (/probe) survived the switch")
+  check(not fs.exists("/probe"), "the old role's diag launcher /probe was pruned (ui no longer ships it)")
 
   -- Idempotent afterwards, same as any other role.
   local versionBefore = stateField("version")

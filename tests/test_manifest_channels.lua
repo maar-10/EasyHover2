@@ -57,3 +57,71 @@ t.test("fcs and ui roles back up all their config files", function()
       path .. ": ui configs are the expected set")
   end
 end)
+
+-- ===== S1 (config overhaul): the FCS flight/diagnostic stack ships ONLY to the fcs role =====
+-- The shared diagnostic launchers (calibrate/hovertest/probe*) require() the whole flight control
+-- loop; before S1 the `ui` role opted into them (sharedDiag) and so carried a full second copy of
+-- the control stack. S1 drops sharedDiag from `ui`, so those commands + the control-loop modules
+-- they alone dragged in must be ABSENT from every non-fcs role, while the UI's real dependencies
+-- (comauto for its FCS TUNING menu, the comms link, the fcs.io config layer, tools.fnv1a) STAY.
+-- The UI's FCS config FILES (devbind/senscal/tuning) are deliberately UNCHANGED here -- their
+-- removal is S2 (see docs/superpowers/plans/2026-09-02-config-overhaul-s1-shipping.md), which is
+-- why the "back up all their config files" test above is left exactly as it is.
+
+local function dstSet(role)
+  local s = {}
+  for _, f in ipairs(role.files) do s[f.dst] = true end
+  return s
+end
+
+-- The diagnostic COMMANDS (bare-name launcher dst) + the control-loop modules they alone pull in.
+-- None of these has a ui/nav/beacon require() path: no ui file requires fcs.control/runtime/
+-- schemes/safety/modes, and ui.basalt.bitconfig.tuning requires fcs.comauto -> fcs.mixer.
+-- level_flight (thrust math), NOT fcs.schemes.level_flight (the control scheme listed here).
+-- NOTE: the calibrate/probe COMMANDS leave, but the MODULE tools/calibrate.lua STAYS on the ui role
+-- and is asserted in UI_KEEPS below -- SENS CAL (ui/basalt/bitconfig/senscal.lua:75) require()s
+-- tools.calibrate to reuse its pure helpers for byte-identical parity with the terminal tool, so it
+-- is a genuine UI dependency, not diagnostic-only. Only the diag tool BODIES with no ui requirer
+-- (hover_test, probe) belong in this leave-list.
+local FCS_ONLY_STACK = {
+  "calibrate", "hovertest", "probe", "probemodem", "probebatch",   -- diagnostic commands (launchers)
+  "tools/hover_test.lua", "tools/probe.lua",                        -- diag tool bodies, no ui requirer
+  "fcs/runtime/loop.lua", "fcs/modes/registry.lua",
+  "fcs/schemes/level_flight.lua", "fcs/control/pid.lua",
+  "fcs/safety/oscillation.lua", "fcs/actuate/level.lua", "fcs/tuning.lua",
+}
+
+-- The UI's LEGITIMATE fcs/tools dependencies -- these MUST survive S1 (the config menus need them).
+-- tools/calibrate.lua (SENS CAL parity) and tools/binddevices.lua (the MDB device-bind menu,
+-- ui/basalt/bitconfig/mdb.lua:22) are shared helper modules the cockpit require()s directly -- the
+-- calibrate COMMAND leaves, but this module stays.
+local UI_KEEPS = {
+  "cockpit", "ui/basalt/app.lua", "tools/fnv1a.lua",
+  "tools/calibrate.lua", "tools/binddevices.lua",
+  "fcs/comauto.lua", "fcs/mixer/level_flight.lua", "fcs/comms/telemetry.lua",
+  "fcs/io/cfgspec.lua", "fcs/io/tuningdefaults.lua", "fcs/io/calibration.lua",
+  "ui/basalt/bitconfig/tuning.lua", "ui/basalt/bitconfig/senscal.lua",
+}
+
+t.test("S1: the fcs flight/diagnostic stack ships only to the fcs role", function()
+  for _, path in ipairs({ "/manifest.lua", "/manifest-dev.lua" }) do
+    local m = load(path)
+    -- fcs KEEPS the whole stack (S1 does not touch the fcs role).
+    local fcs = dstSet(m.roles.fcs)
+    for _, dst in ipairs(FCS_ONLY_STACK) do
+      t.truthy(fcs[dst], path .. ": fcs still ships " .. dst)
+    end
+    -- Every non-fcs role is free of it.
+    for _, role in ipairs({ "ui", "nav", "beacon", "beaconcontrol" }) do
+      local set = dstSet(m.roles[role])
+      for _, dst in ipairs(FCS_ONLY_STACK) do
+        t.truthy(not set[dst], path .. ": " .. role .. " does not ship " .. dst)
+      end
+    end
+    -- The UI keeps its real config-menu dependencies.
+    local ui = dstSet(m.roles.ui)
+    for _, dst in ipairs(UI_KEEPS) do
+      t.truthy(ui[dst], path .. ": ui still ships " .. dst)
+    end
+  end
+end)
