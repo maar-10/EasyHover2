@@ -126,6 +126,24 @@ local RECIPES = {
       { id = "beacon-71", name = "East Spire",   status = "LIVE",     pos = { x = 120,   y = 70,  z = -40 }, ageMs = 800 },
     } },
 
+  -- Beacon controller DIAG page (Phase P5b) -- the active-poll status table + "polling..."
+  -- indicator (design 3.1). A fake runtime is enough: M.buildDiag never calls runtime itself
+  -- (queryAll is entirely controller/diag.lua's job, driven by the app's own timer coroutine).
+  controller_diag = { W = 51, H = 19, build = function(b, f)
+      return P("controller.app").buildDiag(b, f, {}) end,
+    state = {
+      { id = "beacon-67", name = "North Pillar", enabled = true,
+        health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 1000 },
+        lastReplyAgeMs = 420 },
+      { id = "beacon-68", name = "Buddy's Base", enabled = false,
+        health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 3000 },
+        lastReplyAgeMs = 1800 },
+      { id = "beacon-69", name = nil, enabled = true,
+        health = { selfCheck = { ok = false, mismatches = 2 }, constellation = { hosts = 2, grade = "FAIR" }, intervalMs = 1000 },
+        lastReplyAgeMs = 900 },
+      { id = "beacon-70", name = "South Mark", enabled = nil, health = nil, lastReplyAgeMs = nil },
+    } },
+
   -- DESIGN PROTO: the FLIGHT panel's EMC (top) region redesign -- bordered panel, full-width gauges,
   -- 3-row outlined ENG SW/PRIME, an orange double-border status box + CONFIG. EH2_RENDER_PANEL=proto_flight_emc
   proto_flight_emc = { W = 36, H = 17, build = function(b, f)
@@ -250,7 +268,7 @@ end
 
 local ORDER = { "pfd", "flight", "flight_engine", "flight_calfuel", "flight_params",
                 "nav", "hub", "tuning", "mdb", "uical", "uical_settings", "senscal", "senssource", "dtc", "pfdrate",
-                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap", "controller_roster" }
+                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap", "controller_roster", "controller_diag" }
 
 -- Render one recipe into a fresh rec-term and serialise it to /render_out_<id>.txt.
 local function renderOne(id)
