@@ -10,7 +10,7 @@ IDS="pfd flight flight_engine flight_calfuel flight_params nav hub tuning mdb ui
 DATA="$(mktemp -d)"
 COMP="$DATA/computer/0"
 mkdir -p "$COMP"
-for d in fcs ui nav beacon release tools; do [ -d "$ROOT/$d" ] && cp -r "$ROOT/$d" "$COMP/"; done
+for d in fcs ui nav beacon controller release tools; do [ -d "$ROOT/$d" ] && cp -r "$ROOT/$d" "$COMP/"; done
 cat > "$COMP/startup.lua" <<'LUA'
 package.path = "/?.lua;/?/init.lua;" .. package.path
 _G.EH2_RENDER_PANEL = "all"

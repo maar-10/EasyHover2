@@ -11,7 +11,7 @@ mkdir -p "$OUTDIR"
 DATA="$(mktemp -d)"
 COMP="$DATA/computer/0"
 mkdir -p "$COMP"
-for d in fcs ui nav beacon release tools; do
+for d in fcs ui nav beacon controller release tools; do
   [ -d "$ROOT/$d" ] && cp -r "$ROOT/$d" "$COMP/"
 done
 

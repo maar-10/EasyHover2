@@ -112,6 +112,20 @@ local RECIPES = {
   -- A/P (1x1 = 15x10)
   ap      = { W = 15, H = 10, build = function(b, f) return P("ui.basalt.pages.ap").build(b, f, {}) end },
 
+  -- Beacon controller ROSTER (advanced-computer terminal, native = 51x19, no monitor scaling).
+  -- A fake runtime stub is enough -- controller/app.lua's M.build only ever calls
+  -- runtime:sendCommandAll from a button's onClick, never at build time.
+  controller_roster = { W = 51, H = 19, build = function(b, f)
+      local rt = { sendCommandAll = function() end }
+      return P("controller.app").build(b, f, rt) end,
+    state = {
+      { id = "beacon-67", name = "North Pillar", status = "LIVE",     pos = { x = -7737, y = -54, z = 7579 }, ageMs = 600 },
+      { id = "beacon-68", name = "Buddy's Base", status = "SILENT",   pos = { x = 6462,  y = 200, z = 6107 }, ageMs = 183000 },
+      { id = "beacon-69", name = nil,            status = "DISABLED", pos = { x = 7144,  y = 65,  z = -7266 }, ageMs = 900 },
+      { id = "beacon-70", name = "South Mark",   status = "OFFLINE",  pos = nil, ageMs = nil },
+      { id = "beacon-71", name = "East Spire",   status = "LIVE",     pos = { x = 120,   y = 70,  z = -40 }, ageMs = 800 },
+    } },
+
   -- DESIGN PROTO: the FLIGHT panel's EMC (top) region redesign -- bordered panel, full-width gauges,
   -- 3-row outlined ENG SW/PRIME, an orange double-border status box + CONFIG. EH2_RENDER_PANEL=proto_flight_emc
   proto_flight_emc = { W = 36, H = 17, build = function(b, f)
@@ -236,7 +250,7 @@ end
 
 local ORDER = { "pfd", "flight", "flight_engine", "flight_calfuel", "flight_params",
                 "nav", "hub", "tuning", "mdb", "uical", "uical_settings", "senscal", "senssource", "dtc", "pfdrate",
-                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap" }
+                "waypointlist", "keypad_name", "keypad_num", "listpicker", "config", "ap", "controller_roster" }
 
 -- Render one recipe into a fresh rec-term and serialise it to /render_out_<id>.txt.
 local function renderOne(id)
