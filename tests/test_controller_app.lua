@@ -371,4 +371,485 @@ t.test("M.buildApp.poll: comms-hygiene end to end -- NO-OP while roster is shown
   t.eq(#rt.queryCalls, 1, "DIAG closed again -- poll() stops transmitting, even though it would be due")
 end)
 
+-- ===== DETAIL page: pure formatting helpers =====
+
+t.test("findItem: locates by id; nil id or absent id -> nil", function()
+  local view = { { id = "beacon-67", name = "North Pillar" }, { id = "beacon-68" } }
+  t.eq(M.findItem(view, "beacon-68").id, "beacon-68")
+  t.truthy(M.findItem(view, "nope") == nil)
+  t.truthy(M.findItem(view, nil) == nil)
+  t.truthy(M.findItem(nil, "beacon-67") == nil)
+end)
+
+t.test("detailHeaderLines: name falls back to id, then '?'; id line always shows the raw id", function()
+  local name, idLine = M.detailHeaderLines({ name = "Buddy's Base" }, "beacon-68")
+  t.eq(name, "Buddy's Base")
+  t.eq(idLine, "ID: beacon-68")
+
+  local name2, idLine2 = M.detailHeaderLines({ id = "beacon-69" }, "beacon-69")
+  t.eq(name2, "beacon-69", "no name -> falls back to id")
+  t.eq(idLine2, "ID: beacon-69")
+
+  local name3, idLine3 = M.detailHeaderLines(nil, nil)
+  t.eq(name3, "?")
+  t.eq(idLine3, "ID: ?")
+end)
+
+t.test("detailLine: label padded to DETAIL_LABEL_W, then a space, then the value", function()
+  t.eq(M.detailLine("STATUS", "LIVE"), M.fitField("STATUS", M.DETAIL_LABEL_W) .. " LIVE")
+end)
+
+t.test("detailLines: 7 fixed lines, reusing the roster/DIAG formatters; nil item -> all placeholders", function()
+  local item = {
+    status = "LIVE", enabled = true, pos = { x = 1, y = 2, z = 3 }, expectedPos = { x = 1, y = 2, z = 3 },
+    health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 1000 },
+  }
+  local lines = M.detailLines(item)
+  t.eq(#lines, 7)
+  t.eq(lines[1], M.detailLine("STATUS", "LIVE"))
+  t.eq(lines[2], M.detailLine("ENABLED", "ON"))
+  t.eq(lines[3], M.detailLine("POS", "1 2 3"))
+  t.eq(lines[4], M.detailLine("EXPECTED", "1 2 3"))
+  t.eq(lines[5], M.detailLine("INTERVAL", M.formatAge(1000)))
+  t.eq(lines[6], M.detailLine("SELFCHK", "OK"))
+  t.eq(lines[7], M.detailLine("CONST", "3/4 GOOD"))
+
+  local blank = M.detailLines(nil)
+  t.eq(blank[1], M.detailLine("STATUS", "SILENT"))
+  t.eq(blank[2], M.detailLine("ENABLED", "?"))
+  t.eq(blank[3], M.detailLine("POS", "--"))
+  t.eq(blank[4], M.detailLine("EXPECTED", "--"))
+  t.eq(blank[6], M.detailLine("SELFCHK", "--"))
+  t.eq(blank[7], M.detailLine("CONST", "--"))
+end)
+
+t.test("parseNum: rejects '', '-', non-numeric; accepts integers + negatives", function()
+  t.truthy(M.parseNum(nil) == nil)
+  t.truthy(M.parseNum("") == nil)
+  t.truthy(M.parseNum("-") == nil)
+  t.truthy(M.parseNum("abc") == nil)
+  t.eq(M.parseNum("128"), 128)
+  t.eq(M.parseNum("-64"), -64)
+  t.eq(M.parseNum("0"), 0)
+end)
+
+-- ===== DETAIL page: per-action TESTABLE intent seams. No Basalt. =====
+
+local function fakeRuntimeDetail()
+  local sendCalls, nameCalls, expCalls, removeCalls = {}, {}, {}, {}
+  return {
+    sendCalls = sendCalls, nameCalls = nameCalls, expCalls = expCalls, removeCalls = removeCalls,
+    sendCommand = function(self, id, op, args, now)
+      sendCalls[#sendCalls + 1] = { id = id, op = op, args = args, now = now }
+      return true
+    end,
+    setName = function(self, id, name) nameCalls[#nameCalls + 1] = { id = id, name = name } end,
+    setExpectedPos = function(self, id, pos) expCalls[#expCalls + 1] = { id = id, pos = pos } end,
+    remove = function(self, id) removeCalls[#removeCalls + 1] = id end,
+  }
+end
+
+t.test("_onEnable/_onDisable/_onVerify/_onReboot: direct sendCommand, no args", function()
+  local rt = fakeRuntimeDetail()
+  M._onEnable(rt, "beacon-68", 100)
+  M._onDisable(rt, "beacon-68", 200)
+  M._onVerify(rt, "beacon-68", 300)
+  M._onReboot(rt, "beacon-68", 400)
+  t.eq(#rt.sendCalls, 4)
+  t.eq(rt.sendCalls[1].op, "enable"); t.eq(rt.sendCalls[1].args, nil); t.eq(rt.sendCalls[1].now, 100)
+  t.eq(rt.sendCalls[2].op, "disable"); t.eq(rt.sendCalls[2].now, 200)
+  t.eq(rt.sendCalls[3].op, "verify"); t.eq(rt.sendCalls[3].now, 300)
+  t.eq(rt.sendCalls[4].op, "reboot"); t.eq(rt.sendCalls[4].now, 400)
+  for _, c in ipairs(rt.sendCalls) do t.eq(c.id, "beacon-68") end
+end)
+
+t.test("_onSetPos: sendCommand('setPos', { pos = {x,y,z} }) -- EXACTLY beacon/command.lua's contract", function()
+  local rt = fakeRuntimeDetail()
+  M._onSetPos(rt, "beacon-68", { x = 10, y = 2, z = -3 }, 500)
+  t.eq(#rt.sendCalls, 1)
+  t.eq(rt.sendCalls[1].op, "setPos")
+  t.eq(rt.sendCalls[1].args.pos.x, 10)
+  t.eq(rt.sendCalls[1].args.pos.y, 2)
+  t.eq(rt.sendCalls[1].args.pos.z, -3)
+  t.eq(rt.sendCalls[1].now, 500)
+end)
+
+t.test("_onSetInterval: sendCommand('setInterval', { intervalMs = n }) -- EXACTLY beacon/command.lua's contract", function()
+  local rt = fakeRuntimeDetail()
+  M._onSetInterval(rt, "beacon-68", 3000, 600)
+  t.eq(#rt.sendCalls, 1)
+  t.eq(rt.sendCalls[1].op, "setInterval")
+  t.eq(rt.sendCalls[1].args.intervalMs, 3000)
+  t.eq(rt.sendCalls[1].now, 600)
+end)
+
+t.test("_onRename: runtime:setName(id, name), no channel traffic", function()
+  local rt = fakeRuntimeDetail()
+  M._onRename(rt, "beacon-68", "Buddy's Base")
+  t.eq(#rt.sendCalls, 0, "rename is a controller-side annotation, not a beacon command")
+  t.eq(#rt.nameCalls, 1)
+  t.eq(rt.nameCalls[1].id, "beacon-68")
+  t.eq(rt.nameCalls[1].name, "Buddy's Base")
+end)
+
+t.test("_onPinExpected: pins lastPos via setExpectedPos", function()
+  local rt = fakeRuntimeDetail()
+  local ok = M._onPinExpected(rt, "beacon-68", { x = 1, y = 2, z = 3 })
+  t.truthy(ok)
+  t.eq(#rt.expCalls, 1)
+  t.eq(rt.expCalls[1].id, "beacon-68")
+  t.eq(rt.expCalls[1].pos.x, 1)
+end)
+
+t.test("_onPinExpected: nil lastPos is a no-op (never touches the runtime)", function()
+  local rt = fakeRuntimeDetail()
+  local ok = M._onPinExpected(rt, "beacon-68", nil)
+  t.truthy(not ok)
+  t.eq(#rt.expCalls, 0)
+end)
+
+t.test("_onRemove: runtime:remove(id)", function()
+  local rt = fakeRuntimeDetail()
+  local ok = M._onRemove(rt, "beacon-68")
+  t.truthy(ok)
+  t.eq(#rt.removeCalls, 1)
+  t.eq(rt.removeCalls[1], "beacon-68")
+end)
+
+-- ===== M.buildDetail: construction probe (real CraftOS-PC Basalt, no peripherals) =====
+
+local MOCK_DETAIL_ITEM = {
+  id = "beacon-68", name = "Buddy's Base", status = "SILENT", enabled = false,
+  pos = { x = 6462, y = 200, z = 6107 }, expectedPos = { x = 6460, y = 200, z = 6105 },
+  health = { selfCheck = { ok = true }, constellation = { hosts = 3, grade = "GOOD" }, intervalMs = 1000 },
+}
+local MOCK_DETAIL_VIEW = { MOCK_DETAIL_ITEM }
+
+t.test("M.buildDetail constructs the element tree; apply() renders header + info + buttons", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+
+  local h = M.buildDetail(basalt, frame, rt)
+  t.eq(h.id, "detail")
+  t.truthy(h.elements.grid ~= nil, "action grid present")
+  t.truthy(h.elements.grid.buttons.enable ~= nil, "ENABLE button present")
+  t.truthy(h.elements.grid.buttons.remove ~= nil, "REMOVE button present")
+  t.truthy(h.elements.backRow ~= nil, "BACK row present")
+  t.truthy(h.elements.keypad ~= nil, "keypad overlay present")
+
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  t.eq(h.elements.nameLbl:getText(), "Buddy's Base")
+  t.eq(h.elements.idLbl:getText(), "ID: beacon-68")
+  local lines = M.detailLines(MOCK_DETAIL_ITEM)
+  for i = 1, 7 do
+    t.eq(h.elements.infoLbls[i]:getText(), lines[i])
+  end
+end)
+
+t.test("M.buildDetail apply(view, id) with an id not in view: shows the id + placeholder fields", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply({}, "beacon-99")
+  basalt.update("timer", -1)
+  t.eq(h.elements.nameLbl:getText(), "beacon-99")
+  t.eq(h.elements.idLbl:getText(), "ID: beacon-99")
+  t.eq(h.elements.infoLbls[1]:getText(), M.detailLine("STATUS", "SILENT"))
+end)
+
+t.test("M.buildDetail: ENABLE/DISABLE/VERIFY/REBOOT buttons send the right op for the currently-shown id", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.enable.button:fireEvent("mouse_click", 1, 1, 1)
+  h.elements.grid.buttons.disable.button:fireEvent("mouse_click", 1, 1, 1)
+  h.elements.grid.buttons.verify.button:fireEvent("mouse_click", 1, 1, 1)
+  h.elements.grid.buttons.reboot.button:fireEvent("mouse_click", 1, 1, 1)
+
+  t.eq(#rt.sendCalls, 4)
+  t.eq(rt.sendCalls[1].op, "enable")
+  t.eq(rt.sendCalls[2].op, "disable")
+  t.eq(rt.sendCalls[3].op, "verify")
+  t.eq(rt.sendCalls[4].op, "reboot")
+  for _, c in ipairs(rt.sendCalls) do t.eq(c.id, "beacon-68") end
+end)
+
+t.test("M.buildDetail: with no id shown, direct-send buttons are a safe no-op", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  basalt.update("timer", -1)
+  local ok = pcall(function() h.elements.grid.buttons.enable.button:fireEvent("mouse_click", 1, 1, 1) end)
+  t.truthy(ok, "clicking with no current id must not error")
+  t.eq(#rt.sendCalls, 0)
+end)
+
+t.test("M.buildDetail: PIN EXP sends nothing to the runtime channel-side, pins via setExpectedPos; nil lastPos -> no-op", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+  h.elements.grid.buttons.pinexp.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(#rt.expCalls, 1)
+  t.eq(rt.expCalls[1].id, "beacon-68")
+  t.eq(rt.expCalls[1].pos.x, MOCK_DETAIL_ITEM.pos.x)
+
+  -- Now a beacon that has never been heard (no lastPos/pos) -- PIN EXP must no-op.
+  local h2 = M.buildDetail(basalt, frame, rt)
+  h2.apply({ { id = "beacon-99" } }, "beacon-99")
+  basalt.update("timer", -1)
+  h2.elements.grid.buttons.pinexp.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(#rt.expCalls, 1, "no lastPos -- PIN EXP stays a no-op")
+end)
+
+t.test("M.buildDetail: UPDATE stays a disabled stub", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+  t.eq(h.elements.grid.buttons.update.state, "disabled")
+  local ok = pcall(function() h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1) end)
+  t.truthy(ok, "clicking the disabled UPDATE stub must not error")
+  t.eq(#rt.sendCalls, 0)
+end)
+
+t.test("M.buildDetail: SET POS opens the X/Y/Z sub-form pre-filled from the current pos; SEND sends { pos = {x,y,z} }", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.setpos.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(h.elements.posOverlay:getVisible(), true, "SET POS opens the sub-form")
+  t.eq(h.elements.posXBtn:getText(), "6462", "pre-filled from the current broadcast pos")
+  t.eq(h.elements.posYBtn:getText(), "200")
+  t.eq(h.elements.posZBtn:getText(), "6107")
+
+  -- Edit X via the shared keypad (a single show/ok cycle -- keypad.lua's OK always closes back to
+  -- the form that opened it, so each field is its own independent prompt, never chained).
+  h.elements.posXBtn:fireEvent("mouse_click", 1, 1, 1)
+  t.truthy(h.elements.keypad.visible())
+  h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP")
+  h.elements.keypad.tap("1"); h.elements.keypad.tap("0")
+  h.elements.keypad.ok()
+  t.truthy(not h.elements.keypad.visible(), "keypad closes back to the SET POS form")
+  t.eq(h.elements.posXBtn:getText(), "10")
+
+  h.elements.posZBtn:fireEvent("mouse_click", 1, 1, 1)
+  h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP"); h.elements.keypad.tap("BKSP")
+  h.elements.keypad.tap("-"); h.elements.keypad.tap("3")
+  h.elements.keypad.ok()
+  t.eq(h.elements.posZBtn:getText(), "-3")
+
+  h.elements.posActionRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)   -- SEND
+  t.eq(h.elements.posOverlay:getVisible(), false, "SEND closes the sub-form")
+  t.eq(#rt.sendCalls, 1)
+  t.eq(rt.sendCalls[1].op, "setPos")
+  t.eq(rt.sendCalls[1].args.pos.x, 10)
+  t.eq(rt.sendCalls[1].args.pos.y, 200, "Y left untouched -- keeps its pre-filled value")
+  t.eq(rt.sendCalls[1].args.pos.z, -3)
+end)
+
+t.test("M.buildDetail: SET POS with a never-heard beacon pre-fills blank fields; CANCEL sends nothing", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply({ { id = "beacon-99" } }, "beacon-99")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.setpos.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(h.elements.posXBtn:getText(), "...", "no known pos -- field starts blank")
+
+  h.elements.posActionRow.buttons[2].button:fireEvent("mouse_click", 1, 1, 1)   -- CANCEL
+  t.eq(h.elements.posOverlay:getVisible(), false)
+  t.eq(#rt.sendCalls, 0, "CANCEL must not send")
+end)
+
+t.test("M.buildDetail: SET INTERVAL keypad -> sends { intervalMs = n }", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.setint.button:fireEvent("mouse_click", 1, 1, 1)
+  t.truthy(h.elements.keypad.visible())
+  h.elements.keypad.tap("3"); h.elements.keypad.tap("0"); h.elements.keypad.tap("0"); h.elements.keypad.tap("0")
+  h.elements.keypad.ok()
+
+  t.eq(#rt.sendCalls, 1)
+  t.eq(rt.sendCalls[1].op, "setInterval")
+  t.eq(rt.sendCalls[1].args.intervalMs, 3000)
+end)
+
+t.test("M.buildDetail: RENAME keypad -> runtime:setName, no channel traffic", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.rename.button:fireEvent("mouse_click", 1, 1, 1)
+  t.truthy(h.elements.keypad.visible())
+  -- RENAME pre-fills the current name for editing (same convention as ui/basalt/pages/nav.lua's
+  -- wptform NAME field) -- clear it, then type the new one.
+  for _ = 1, #"Buddy's Base" do h.elements.keypad.tap("BKSP") end
+  h.elements.keypad.tap("X")
+  h.elements.keypad.ok()
+
+  t.eq(#rt.sendCalls, 0)
+  t.eq(#rt.nameCalls, 1)
+  t.eq(rt.nameCalls[1].id, "beacon-68")
+  t.eq(rt.nameCalls[1].name, "X")
+end)
+
+t.test("M.buildDetail: REMOVE calls runtime:remove(id) and invokes opts.onBack", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local fired = 0
+  local h = M.buildDetail(basalt, frame, rt, { onBack = function() fired = fired + 1 end })
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+  h.elements.grid.buttons.remove.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(#rt.removeCalls, 1)
+  t.eq(rt.removeCalls[1], "beacon-68")
+  t.eq(fired, 1)
+end)
+
+t.test("M.buildDetail: BACK button invokes opts.onBack", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local fired = 0
+  local h = M.buildDetail(basalt, frame, rt, { onBack = function() fired = fired + 1 end })
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+  h.elements.backRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(fired, 1)
+end)
+
+-- ===== M.build: opts.onRowSelect wiring (selecting opens DETAIL; deselecting does not) =====
+
+t.test("M.build: selecting a row invokes opts.onRowSelect(id); deselecting the same row does not", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntime()
+  local seen = {}
+  local h = M.build(basalt, frame, rt, { onRowSelect = function(id) seen[#seen + 1] = id end })
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.selectRow(1)   -- row 1 -> beacon-67, selecting
+  t.eq(#seen, 1)
+  t.eq(seen[1], "beacon-67")
+
+  h.elements.selectRow(1)   -- click again -> deselect, must NOT navigate away
+  t.eq(#seen, 1, "deselecting must not fire onRowSelect")
+
+  h.elements.selectRow(2)   -- beacon-68, selecting
+  t.eq(#seen, 2)
+  t.eq(seen[2], "beacon-68")
+end)
+
+-- ===== M.buildApp: DETAIL page wiring (Phase P5c) =====
+
+local function fakeRuntimeAppFull()
+  local sendCalls, queryCalls, removeCalls = {}, {}, {}
+  return {
+    sendCalls = sendCalls, queryCalls = queryCalls, removeCalls = removeCalls,
+    sendCommandAll = function(self, op, args, now) return true end,
+    sendCommand = function(self, id, op, args, now) sendCalls[#sendCalls + 1] = { id = id, op = op, args = args, now = now }; return true end,
+    queryAll = function(self, now) queryCalls[#queryCalls + 1] = now; return true end,
+    setName = function() end,
+    setExpectedPos = function() end,
+    remove = function(self, id) removeCalls[#removeCalls + 1] = id end,
+  }
+end
+
+t.test("M.buildApp: roster row-select opens DETAIL for that beacon; DETAIL hidden + roster visible at construction", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeAppFull()
+  local h = M.buildApp(basalt, base, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  t.eq(h.elements.detailFrame:getVisible(), false)
+
+  h.elements.roster.elements.selectRow(1)   -- beacon-67
+  t.eq(h.elements.detailFrame:getVisible(), true, "selecting a row opens DETAIL")
+  t.eq(h.elements.rosterFrame:getVisible(), false)
+  t.eq(h.elements.detail.elements.nameLbl:getText(), "North Pillar")
+  t.eq(h.elements.detail.elements.idLbl:getText(), "ID: beacon-67")
+end)
+
+t.test("M.buildApp: DETAIL's BACK button returns to the roster", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeAppFull()
+  local h = M.buildApp(basalt, base, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.roster.elements.selectRow(1)
+  t.eq(h.elements.detailFrame:getVisible(), true)
+
+  h.elements.detail.elements.backRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(h.elements.detailFrame:getVisible(), false)
+  t.eq(h.elements.rosterFrame:getVisible(), true)
+end)
+
+t.test("M.buildApp: an action button on DETAIL sends the targeted command via runtime:sendCommand", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeAppFull()
+  local h = M.buildApp(basalt, base, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.roster.elements.selectRow(2)   -- beacon-68
+  h.elements.detail.elements.grid.buttons.disable.button:fireEvent("mouse_click", 1, 1, 1)
+
+  t.eq(#rt.sendCalls, 1)
+  t.eq(rt.sendCalls[1].id, "beacon-68")
+  t.eq(rt.sendCalls[1].op, "disable")
+end)
+
+t.test("M.buildApp: REMOVE on DETAIL removes the beacon and returns to the roster", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local base = basalt.createFrame()
+  local rt = fakeRuntimeAppFull()
+  local h = M.buildApp(basalt, base, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  h.elements.roster.elements.selectRow(4)   -- beacon-70
+  t.eq(h.elements.detailFrame:getVisible(), true)
+
+  h.elements.detail.elements.grid.buttons.remove.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(#rt.removeCalls, 1)
+  t.eq(rt.removeCalls[1], "beacon-70")
+  t.eq(h.elements.detailFrame:getVisible(), false)
+  t.eq(h.elements.rosterFrame:getVisible(), true)
+end)
+
 return true

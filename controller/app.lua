@@ -19,6 +19,7 @@ local Runtime   = require("controller.runtime")
 local Diag      = require("controller.diag")
 local Theme     = require("ui.theme")
 local configkit = require("ui.basalt.configkit")
+local Keypad    = require("ui.basalt.keypad")
 
 local M = {}
 M.id = "roster"
@@ -178,6 +179,110 @@ function M.pollingText(active)
   return active and "polling..." or ""
 end
 
+-- ===== DETAIL page: pure formatting helpers (testable with no Basalt/peripherals) =====
+
+--- M.findItem(view, id) -> the entry in `view` (a runtime:view(now) list) whose id matches, or nil
+--- (never-seen / vanished id). PURE.
+function M.findItem(view, id)
+  if id == nil then return nil end
+  for _, it in ipairs(view or {}) do
+    if it.id == id then return it end
+  end
+  return nil
+end
+
+--- M.detailHeaderLines(item, id) -> nameLine, idLine. Friendly name (falls back to id, then "?")
+--- on top; the raw beacon id always shown on its own line underneath, same "name may lie, id never
+--- does" discipline as the roster's M.rowLine.
+function M.detailHeaderLines(item, id)
+  local name = (item and item.name) or id or "?"
+  return tostring(name), "ID: " .. tostring(id or "?")
+end
+
+M.DETAIL_LABEL_W = 9
+
+--- M.detailLine(label, value) -> "LABEL    value", label padded to M.DETAIL_LABEL_W. PURE.
+function M.detailLine(label, value)
+  return M.fitField(label, M.DETAIL_LABEL_W) .. " " .. tostring(value)
+end
+
+--- M.detailLines(item) -> the DETAIL page's fixed 7-line info block (status/enabled/pos/expected/
+--- interval/selfcheck/constellation), reusing the same formatters the roster + DIAG pages already
+--- rely on. `item` may be nil (id not present in the current view) -- every field then falls back
+--- to its own "unknown" placeholder, same as a never-seen beacon everywhere else in this module.
+function M.detailLines(item)
+  return {
+    M.detailLine("STATUS",   (item and item.status) or "SILENT"),
+    M.detailLine("ENABLED",  M.formatEnabled(item and item.enabled)),
+    M.detailLine("POS",      M.formatPos(item and item.pos)),
+    M.detailLine("EXPECTED", M.formatPos(item and item.expectedPos)),
+    M.detailLine("INTERVAL", M.formatInterval(item and item.health)),
+    M.detailLine("SELFCHK",  M.formatSelfCheck(item and item.health)),
+    M.detailLine("CONST",    M.formatConstellation(item and item.health)),
+  }
+end
+
+--- M.parseNum(s) -> an integer, or nil for anything that isn't one ("", "-", non-numeric text). No
+--- decimals -- matches the keypad's own num-mode buffer, which only ever holds digits + a leading
+--- "-" (ui/basalt/keypad.lua:M.apply), and the roster/DETAIL display's whole-block rounding.
+function M.parseNum(s)
+  if s == nil or s == "" or s == "-" then return nil end
+  local n = tonumber(s)
+  if type(n) ~= "number" then return nil end
+  return n
+end
+
+-- ===== DETAIL page: per-action TESTABLE intent seams. No Basalt. =====
+--
+-- Each mirrors beacon/command.lua's OPS table EXACTLY -- same op name, same args shape -- so a
+-- token-valid send round-trips through the beacon's own M.apply with no translation layer to drift
+-- out of sync. Direct-send ops (enable/disable/verify/reboot) carry no args at all; setPos/
+-- setInterval carry EXACTLY the {pos={x,y,z}} / {intervalMs=n} shapes beacon/command.lua expects.
+-- Fail-closed by construction: runtime:sendCommand itself refuses (no transmit) without a valid
+-- token, so none of these need extra gating.
+function M._onEnable(runtime, id, now) return runtime:sendCommand(id, "enable", nil, now) end
+function M._onDisable(runtime, id, now) return runtime:sendCommand(id, "disable", nil, now) end
+function M._onVerify(runtime, id, now) return runtime:sendCommand(id, "verify", nil, now) end
+function M._onReboot(runtime, id, now) return runtime:sendCommand(id, "reboot", nil, now) end
+
+--- M._onSetPos(runtime, id, pos, now) -> sendCommand(id, "setPos", { pos = pos }, now). `pos` must
+--- already be a plain { x, y, z } (the keypad-chain caller in M.buildDetail parses the three
+--- numeric prompts before calling this; a malformed pos is beacon/command.lua's own problem to
+--- reject, not this seam's).
+function M._onSetPos(runtime, id, pos, now)
+  return runtime:sendCommand(id, "setPos", { pos = pos }, now)
+end
+
+--- M._onSetInterval(runtime, id, intervalMs, now) -> sendCommand(id, "setInterval",
+--- { intervalMs = intervalMs }, now).
+function M._onSetInterval(runtime, id, intervalMs, now)
+  return runtime:sendCommand(id, "setInterval", { intervalMs = intervalMs }, now)
+end
+
+--- M._onRename(runtime, id, name) -> runtime:setName(id, name) (controller-side annotation, not a
+--- beacon command -- persists via runtime's own injected save/path, no channel traffic).
+function M._onRename(runtime, id, name)
+  return runtime:setName(id, name)
+end
+
+--- M._onPinExpected(runtime, id, lastPos) -> pins `lastPos` (the beacon's current broadcast
+--- position) as the operator-surveyed "correct" position. No-op (returns false, does not touch the
+--- runtime at all) when lastPos is nil -- a beacon the controller has never actually heard has
+--- nothing to pin.
+function M._onPinExpected(runtime, id, lastPos)
+  if not lastPos then return false end
+  runtime:setExpectedPos(id, lastPos)
+  return true
+end
+
+--- M._onRemove(runtime, id) -> runtime:remove(id). Always succeeds (removing an already-absent id
+--- is a harmless no-op inside runtime:remove itself); the caller (M.buildDetail's REMOVE button)
+--- follows this with a return to the roster.
+function M._onRemove(runtime, id)
+  runtime:remove(id)
+  return true
+end
+
 -- ===== M._onEnableAll: the TESTABLE intent seam for the ENABLE ALL footer button. No Basalt. =====
 --
 -- Fail-closed by construction: runtime:sendCommandAll (controller/runtime.lua) itself refuses (no
@@ -263,6 +368,10 @@ function M.build(basalt, frame, runtime, opts)
     if not it then return end
     if selectedId == it.id then selectedId = nil else selectedId = it.id end
     render()
+    -- Opening the DETAIL page (opts.onRowSelect, wired by M.buildApp) fires only on a genuine
+    -- SELECT, never on the second click that deselects -- deselecting a row should never navigate
+    -- away. A bare M.build call (render-recipe / older tests) passes no onRowSelect -- no-op.
+    if selectedId and opts.onRowSelect then opts.onRowSelect(selectedId) end
   end
 
   for i = 1, ROWS do
@@ -446,24 +555,208 @@ function M.buildDiag(basalt, frame, runtime, opts)
   }
 end
 
--- ===== M.buildApp: wires the ROSTER + DIAG pages together (Phase P5b) =====
+-- ===== M.buildDetail: the per-beacon DETAIL page (Phase P5c) =====
+--
+-- M.buildDetail(basalt, frame, runtime, opts) -> { id = "detail", apply(view, id), elements }
+-- `apply(view, id)` takes the SAME runtime:view(now) shape the roster/DIAG pages consume, plus the
+-- id of the beacon currently on screen (M.buildApp drives this from the roster's row-select).
+-- opts.onBack (optional): wired to the pinned BACK button AND to REMOVE (removing the beacon shown
+-- has nothing left to display, so it returns to the roster same as BACK). Every action button is a
+-- thin Basalt wrapper around a pure M._on* intent seam above -- direct sends (ENABLE/DISABLE/
+-- VERIFY/REBOOT) fire immediately; SET POS/SET INTERVAL/RENAME reuse ui/basalt/keypad.lua's overlay
+-- (SET POS chains three numeric prompts, X -> Y -> Z, before sending -- matching beacon/command.
+-- lua's {x,y,z} contract exactly); UPDATE stays a disabled stub (P6 folds the reinstall flow in).
+function M.buildDetail(basalt, frame, runtime, opts)
+  opts = opts or {}
+  local w, h = frame:getSize()
+  local FONT = Theme.role("font")
+
+  local currentId, currentItem = nil, nil
+
+  -- ----- header: name (falls back to id) + the raw id underneath + a divider -----
+  local nameLbl = frame:addLabel({ x = 1, y = 1, width = w, height = 1, autoSize = false, text = "" })
+  nameLbl:setForeground(FONT)
+  local idLbl = frame:addLabel({ x = 1, y = 2, width = w, height = 1, autoSize = false, text = "" })
+  idLbl:setForeground(FONT)
+  local divTop = frame:addLabel({ x = 1, y = 3, width = w, height = 1, autoSize = false, text = string.rep("-", w) })
+  divTop:setForeground(FONT)
+
+  -- ----- info block: the fixed 7 lines M.detailLines returns, starting row 4 -----
+  local infoTop = 4
+  local infoLbls = {}
+  for i = 1, 7 do
+    local lbl = frame:addLabel({ x = 1, y = infoTop + i - 1, width = w, height = 1, autoSize = false, text = "" })
+    lbl:setForeground(FONT)
+    infoLbls[i] = lbl
+  end
+
+  local divMidY = infoTop + 7
+  local divMid = frame:addLabel({ x = 1, y = divMidY, width = w, height = 1, autoSize = false, text = string.rep("-", w) })
+  divMid:setForeground(FONT)
+
+  -- ----- action grid (above the pinned BACK row) -----
+  local gridY = divMidY + 1
+
+  local function nowMs() return os.epoch("utc") end
+
+  local keypad = Keypad.make(frame)
+
+  -- ----- SET POS sub-form: three field buttons (X/Y/Z) + SEND/CANCEL, each field independently
+  -- opening the SHARED keypad for numeric entry -- exactly ui/basalt/pages/nav.lua's wptform idiom
+  -- (one keypad.show() per user tap; the keypad's own OK always closes back to whichever screen
+  -- called it -- ui/basalt/keypad.lua's ctrl.ok() runs onOk() THEN unconditionally hides, so
+  -- chaining keypad.show() calls INSIDE one another's onOk is not this component's contract; three
+  -- independent field buttons is the supported multi-field pattern). A modal black overlay (same
+  -- opaque-cover idiom keypad.lua itself uses) so nothing underneath is reachable while it's up.
+  local posDraft = { x = "", y = "", z = "" }
+  local renderPosForm -- forward-declared: the field buttons' onClick close over it
+  local posOverlay = frame:addFrame({ x = 1, y = 1, width = w, height = h })
+  posOverlay:setZ(50)
+  posOverlay:setBackground(colors.black)
+  posOverlay:setVisible(false)
+  local posTitleLbl = posOverlay:addLabel({ x = 1, y = 1, width = w, height = 1, autoSize = false, text = "SET POSITION" })
+  posTitleLbl:setForeground(FONT)
+  local function posFieldRow(label, y)
+    local lbl = posOverlay:addLabel({ x = 1, y = y, width = 4, height = 1, autoSize = false, text = label })
+    lbl:setForeground(FONT)
+    local btn = posOverlay:addButton({ x = 6, y = y, width = 12, height = 1, text = "" })
+    return lbl, btn
+  end
+  local xLbl, xBtn = posFieldRow("X", 3)
+  local yLbl, yBtn = posFieldRow("Y", 4)
+  local zLbl, zBtn = posFieldRow("Z", 5)
+
+  renderPosForm = function()
+    xBtn:setText(posDraft.x ~= "" and posDraft.x or "...")
+    yBtn:setText(posDraft.y ~= "" and posDraft.y or "...")
+    zBtn:setText(posDraft.z ~= "" and posDraft.z or "...")
+  end
+
+  xBtn:onClick(function() keypad.show({ title = "X", mode = "num", value = posDraft.x, onOk = function(v) posDraft.x = v; renderPosForm() end }) end)
+  yBtn:onClick(function() keypad.show({ title = "Y", mode = "num", value = posDraft.y, onOk = function(v) posDraft.y = v; renderPosForm() end }) end)
+  zBtn:onClick(function() keypad.show({ title = "Z", mode = "num", value = posDraft.z, onOk = function(v) posDraft.z = v; renderPosForm() end }) end)
+
+  local posActionRow = configkit.actionRow(posOverlay, { x = 1, y = h, w = w }, {
+    { label = "SEND", id = "send", kind = "function", onClick = function()
+        local id = currentId
+        local x, y, z = M.parseNum(posDraft.x), M.parseNum(posDraft.y), M.parseNum(posDraft.z)
+        if id and x ~= nil and y ~= nil and z ~= nil then
+          M._onSetPos(runtime, id, { x = x, y = y, z = z }, nowMs())
+        end
+        posOverlay:setVisible(false)
+      end },
+    { label = "CANCEL", id = "cancel", kind = "menu", onClick = function() posOverlay:setVisible(false) end },
+  })
+
+  local function startSetPos()
+    local id = currentId
+    if not id then return end
+    local p = currentItem and currentItem.pos
+    posDraft = { x = p and tostring(round(p.x)) or "", y = p and tostring(round(p.y)) or "", z = p and tostring(round(p.z)) or "" }
+    renderPosForm()
+    posOverlay:setVisible(true)
+  end
+
+  local function startSetInterval()
+    local id = currentId
+    if not id then return end
+    keypad.show({ title = "INTERVAL", mode = "num", value = "", onOk = function(s)
+      local n = M.parseNum(s)
+      if n ~= nil then M._onSetInterval(runtime, id, n, nowMs()) end
+    end })
+  end
+
+  local function startRename()
+    local id = currentId
+    if not id then return end
+    keypad.show({ title = "NAME", mode = "name", value = (currentItem and currentItem.name) or "", onOk = function(name)
+      if name ~= nil and name ~= "" then M._onRename(runtime, id, name) end
+    end })
+  end
+
+  local function doRemove()
+    if not currentId then return end
+    M._onRemove(runtime, currentId)
+    if opts.onBack then opts.onBack() end
+  end
+
+  local grid = configkit.menuColumn(frame, {
+    y = gridY, cols = 3,
+    items = {
+      { id = "enable",  label = "ENABLE",   kind = "function", onClick = function() if currentId then M._onEnable(runtime, currentId, nowMs()) end end },
+      { id = "disable", label = "DISABLE",  kind = "function", onClick = function() if currentId then M._onDisable(runtime, currentId, nowMs()) end end },
+      { id = "verify",  label = "VERIFY",   kind = "function", onClick = function() if currentId then M._onVerify(runtime, currentId, nowMs()) end end },
+      { id = "reboot",  label = "REBOOT",   kind = "function", onClick = function() if currentId then M._onReboot(runtime, currentId, nowMs()) end end },
+      { id = "setpos",  label = "SET POS",  kind = "function", onClick = startSetPos },
+      { id = "setint",  label = "SET INT",  kind = "function", onClick = startSetInterval },
+      { id = "rename",  label = "RENAME",   kind = "function", onClick = startRename },
+      { id = "pinexp",  label = "PIN EXP",  kind = "function", onClick = function() if currentId then M._onPinExpected(runtime, currentId, currentItem and currentItem.pos) end end },
+      -- Reinstall fold-in is P6 -- stays a disabled stub with no onClick until then.
+      { id = "update",  label = "UPDATE",   kind = "function", state = "disabled" },
+      { id = "remove",  label = "REMOVE",   kind = "function", onClick = doRemove },
+    },
+  })
+
+  local backRow = configkit.actionRow(frame, { x = 1, y = h, w = w }, {
+    { label = "BACK", id = "back", kind = "menu", onClick = function() if opts.onBack then opts.onBack() end end },
+  })
+
+  local function render()
+    local name, idLine = M.detailHeaderLines(currentItem, currentId)
+    nameLbl:setText(name)
+    idLbl:setText(idLine)
+    local lines = M.detailLines(currentItem)
+    for i = 1, 7 do infoLbls[i]:setText(lines[i] or "") end
+  end
+
+  --- apply(view, id): repaint from runtime:view(now)'s list + the id currently on screen. Idempotent;
+  --- never touches peripherals.
+  local function apply(view, id)
+    currentId = id
+    currentItem = M.findItem(view, id)
+    render()
+  end
+
+  apply({}, nil)
+
+  return {
+    id = "detail",
+    apply = apply,
+    elements = {
+      nameLbl = nameLbl, idLbl = idLbl, infoLbls = infoLbls,
+      divTop = divTop, divMid = divMid,
+      grid = grid, backRow = backRow, keypad = keypad,
+      posOverlay = posOverlay, posXBtn = xBtn, posYBtn = yBtn, posZBtn = zBtn, posActionRow = posActionRow,
+      current = function() return currentId end,
+    },
+  }
+end
+
+-- ===== M.buildApp: wires the ROSTER + DIAG + DETAIL pages together (Phases P5b/P5c) =====
 --
 -- M.buildApp(basalt, base, runtime, opts) -> { apply(view), poll(now), elements }
--- Builds both pages as sibling full-size child frames on `base` (roster visible, diag hidden,
--- mirroring ui/basalt/region.lua's build-both/toggle-visibility idiom, but hand-rolled here since
--- neither page needs its own internal nav stack). The roster's DIAG button shows the diag frame
--- and opens controller/diag.lua's poll gate; the diag page's BACK button reverses both. `poll(now)`
--- forwards to the gate -- the ONLY path to runtime:queryAll, and only while the diag page is shown
--- (M.run calls this from its existing ~1s timer coroutine, right alongside repaint -- no new loop).
+-- Builds all three pages as sibling full-size child frames on `base` (roster visible, diag + detail
+-- hidden, mirroring ui/basalt/region.lua's build-both/toggle-visibility idiom, but hand-rolled here
+-- since none of the three needs its own internal nav stack). The roster's DIAG button shows the
+-- diag frame and opens controller/diag.lua's poll gate; the diag page's BACK button reverses both.
+-- Selecting a roster row (M.build's opts.onRowSelect) opens the DETAIL page for that beacon id;
+-- DETAIL's BACK (and REMOVE, which has nothing left to show once it succeeds) return to the
+-- roster. `poll(now)` forwards to the gate -- the ONLY path to runtime:queryAll, and only while the
+-- diag page is shown (M.run calls this from its existing ~1s timer coroutine, right alongside
+-- repaint -- no new loop).
 function M.buildApp(basalt, base, runtime, opts)
   opts = opts or {}
   local w, h = base:getSize()
   local rosterFrame = base:addFrame({ x = 1, y = 1, width = w, height = h })
   local diagFrame = base:addFrame({ x = 1, y = 1, width = w, height = h })
+  local detailFrame = base:addFrame({ x = 1, y = 1, width = w, height = h })
   diagFrame:setVisible(false)
+  detailFrame:setVisible(false)
 
   local gate = Diag.new(opts.diag)
   local lastView = {}
+  local currentDetailId = nil
+  local detailHandle -- forward-declared: showDetail/hideDetail close over it, assigned below
 
   local function showDiag()
     gate:show()
@@ -476,16 +769,31 @@ function M.buildApp(basalt, base, runtime, opts)
     rosterFrame:setVisible(true)
   end
 
-  local rosterHandle = M.build(basalt, rosterFrame, runtime, { onDiag = showDiag })
-  local diagHandle = M.buildDiag(basalt, diagFrame, runtime, { onBack = hideDiag })
+  local function showDetail(id)
+    currentDetailId = id
+    rosterFrame:setVisible(false)
+    diagFrame:setVisible(false)
+    detailFrame:setVisible(true)
+    if detailHandle then detailHandle.apply(lastView, currentDetailId) end
+  end
+  local function hideDetail()
+    currentDetailId = nil
+    detailFrame:setVisible(false)
+    rosterFrame:setVisible(true)
+  end
 
-  --- apply(view): repaints BOTH pages from the same runtime:view(now) list (cheap Label/Image
+  local rosterHandle = M.build(basalt, rosterFrame, runtime, { onDiag = showDiag, onRowSelect = showDetail })
+  local diagHandle = M.buildDiag(basalt, diagFrame, runtime, { onBack = hideDiag })
+  detailHandle = M.buildDetail(basalt, detailFrame, runtime, { onBack = hideDetail })
+
+  --- apply(view): repaints ALL THREE pages from the same runtime:view(now) list (cheap Label/Image
   --- writes, no peripheral access) -- so whichever one is visible is always current, and switching
   --- never shows stale data while a hidden page waits for its next tick.
   local function apply(view)
     lastView = view or {}
     rosterHandle.apply(lastView)
     diagHandle.apply(lastView, gate:isShown())
+    detailHandle.apply(lastView, currentDetailId)
   end
 
   --- poll(now): the app's ONE call site for controller/diag.lua's gate -- a true no-op whenever the
@@ -503,9 +811,11 @@ function M.buildApp(basalt, base, runtime, opts)
     gate = gate,
     showDiag = showDiag,
     hideDiag = hideDiag,
+    showDetail = showDetail,
+    hideDetail = hideDetail,
     elements = {
-      roster = rosterHandle, diag = diagHandle,
-      rosterFrame = rosterFrame, diagFrame = diagFrame,
+      roster = rosterHandle, diag = diagHandle, detail = detailHandle,
+      rosterFrame = rosterFrame, diagFrame = diagFrame, detailFrame = detailFrame,
     },
   }
 end
