@@ -122,7 +122,9 @@ end
 
 --- view(now) -> a list of every known beacon, sorted by id:
 ---   { id, name, pos (status.pos or lastPos), expectedPos, lastSeen, ageMs, enabled (status.enabled),
----     health (status.selfCheck/constellation), status = LIVE|DISABLED|OFFLINE|SILENT, posDrift }
+---     health (status.selfCheck/constellation/intervalMs), status = LIVE|DISABLED|OFFLINE|SILENT,
+---     posDrift, lastReply, lastReplyAgeMs (age since the last STATUS reply -- DIAG's own column,
+---     distinct from ageMs which tracks passive-broadcast lastSeen) }
 function R:view(now)
   now = now or self.now()
   local ids = {}
@@ -141,9 +143,11 @@ function R:view(now)
       lastSeen = e.lastSeen,
       ageMs = e.lastSeen and (now - e.lastSeen) or nil,
       enabled = status and status.enabled,
-      health = status and { selfCheck = status.selfCheck, constellation = status.constellation } or nil,
+      health = status and { selfCheck = status.selfCheck, constellation = status.constellation, intervalMs = status.intervalMs } or nil,
       status = classify(now, e, self.staleMs),
       posDrift = posDrift(e.expectedPos, e.lastPos),
+      lastReply = e.lastReply,
+      lastReplyAgeMs = e.lastReply and (now - e.lastReply) or nil,
     }
   end
   return out

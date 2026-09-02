@@ -52,6 +52,12 @@ t.test("an Update STATUS frame merges enabled/health into the roster entry", fun
   t.truthy(v[1].health, "health summary present")
   t.eq(v[1].health.selfCheck.ok, true)
   t.eq(v[1].health.constellation.grade, "GOOD")
+  t.eq(v[1].health.intervalMs, 2500, "the beacon's own broadcast interval rides the STATUS reply")
+  t.eq(v[1].lastReplyAgeMs, 0, "just replied -- age since the STATUS reply is 0 at this instant")
+
+  c.v = 2400
+  local v2 = r:view(2400)
+  t.eq(v2[1].lastReplyAgeMs, 400, "lastReplyAgeMs advances with the clock, independent of ageMs (lastSeen)")
 end)
 
 t.test("an Update ACK frame sets lastAck (does not raise/crash, matches)", function()
