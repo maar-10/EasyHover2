@@ -1,0 +1,2 @@
+package.path = "/?.lua;/?/init.lua;" .. package.path
+require("controller.app").run()

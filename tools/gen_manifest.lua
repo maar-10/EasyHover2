@@ -90,6 +90,20 @@ local ROLES = {
     startup = { src = "launchers/beacon.lua", dst = "startup.lua" },
     roots   = {},   -- no Basalt: a beacon runs on a basic computer
   },
+  beaconcontrol = {
+    title = "Beacon controller", status = "released",
+    blurb = "Roster + remote control of every GPS beacon on the mesh. Advanced computer, Basalt UI.",
+    configs = { "/eh2_beacon_control.tbl" }, configModule = "controller.config", luaPath = "/",
+    startup = { src = "launchers/beaconcontrol.lua", dst = "startup.lua" },
+    roots   = {},   -- no extra command entry points; NO sharedDiag (those launchers pull the
+                     -- whole flight stack, which this role must never ship -- same rule as nav/beacon).
+    -- Like the ui/nav roles: the controller UI loadfile's Basalt at RUNTIME (controller/app.lua's
+    -- own M.ensureBasalt -- deliberately not require("ui.basalt.app"), which would drag the fcs
+    -- comms/flight-loop stack into this closure), so tools/closure.lua's require()-following
+    -- discovery can never find it. extraFiles ships it alongside the closure anyway, at exactly
+    -- "/basalt-full.lua" -- M.BASALT_PATHS' first (installed-location) candidate.
+    extraFiles = { { src = "release/basalt-full.lua", dst = "basalt-full.lua" } },
+  },
 }
 
 -- Standalone TOOLS: a tool is a shell command SuiteX can install onto any PC, independent of any
