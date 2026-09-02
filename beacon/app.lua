@@ -82,11 +82,19 @@ function M.run()
     elseif name == "modem_message" then
       -- side, channel, replyChannel, message, distance
       rt:onModemMessage(ev[3], ev[4], ev[5], ev[6])
-      -- Remote update: a token-valid command -> ack, reinstall via the classic Suite, reboot. Fail
-      -- closed -- Update.accepts() rejects a blank/mismatched token, so an unprovisioned beacon (no
-      -- updateToken set) never reboots, and a stray GPS frame on this channel is decoded to nil.
+      -- Remote update: a token-valid, TARGETED command -> ack, reinstall via the classic Suite,
+      -- reboot. Fail closed -- Update.accepts() rejects a blank/mismatched token, so an
+      -- unprovisioned beacon (no updateToken set) never reboots, and a stray GPS frame on this
+      -- channel is decoded to nil. Phase P6: Update.targeted() is pure ADDRESSING (same predicate
+      -- the op-tagged path below already used) -- a nil target still reinstalls every beacon; a
+      -- non-nil target reinstalls only the matching cfg.id, so the controller's per-beacon UPDATE
+      -- button hits just that one beacon. Backward-compat: this check only exists once a beacon is
+      -- ALREADY running this (post-P6) code -- an older, not-yet-updated beacon has no targeted()
+      -- gate on its reinstall path and reinstalls on any valid-token reinstall regardless of
+      -- target; that is exactly how a targeted UPDATE first reaches an old fleet (every old beacon
+      -- reinstalls once, then runs this code and honours targeting from then on).
       local frame = Update.decode(ev[5])
-      if frame and modem and Update.accepts(frame, cfg.updateToken) then
+      if frame and modem and Update.accepts(frame, cfg.updateToken) and Update.targeted(frame, cfg.id) then
         modem.transmit(cfg.channel, cfg.channel, Update.encode(Update.ack(cfg.id)))
         term.setCursorPos(1, 1); term.clear()
         print("remote update received -- reinstalling + rebooting...")

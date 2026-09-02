@@ -91,3 +91,25 @@ t.test("targeted is pure ADDRESSING, separate from the token auth gate", functio
   t.eq(U.targeted({ target = "b1" }, "b1"), true, "addressed to this beacon")
   t.eq(U.targeted({ target = "b1" }, "b2"), false, "addressed to a different beacon")
 end)
+
+-- ===== P6: command() carries an optional target (LEGACY reinstall protocol) =====
+
+t.test("command carries an optional target beacon id (nil = broadcast)", function()
+  local targeted = U.command("tok", "b1")
+  t.eq(targeted.k, U.CMD_KIND); t.eq(targeted.token, "tok"); t.eq(targeted.target, "b1")
+  local broadcast = U.command("tok")
+  t.eq(broadcast.target, nil)
+end)
+
+t.test("command's target survives encode/decode", function()
+  local c = U.decode(U.encode(U.command("tok", "b1")))
+  t.truthy(c and c.target == "b1", "target survives the wire round-trip")
+  local b = U.decode(U.encode(U.command("tok")))
+  t.eq(b.target, nil)
+end)
+
+t.test("accepts ignores target entirely -- auth is unaffected by targeting", function()
+  t.eq(U.accepts(U.command("tok", "b1"), "tok"), true, "targeted + matching token still accepted")
+  t.eq(U.accepts(U.command("tok", "b1"), "other"), false, "targeted but mismatched token still rejected")
+  t.eq(U.accepts(U.command("", "b1"), "tok"), false, "targeted but blank command token still rejected")
+end)

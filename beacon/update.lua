@@ -31,7 +31,9 @@ function M.validToken(t)
   return type(t) == "string" and t:gsub("%s", "") ~= ""
 end
 
-function M.command(token) return { k = M.CMD_KIND, token = token } end
+--- target is a beacon id string to address ONE beacon, or nil to broadcast the reinstall to all
+--- (Phase P6, folding the retired standalone updater's protocol -- see M.targeted below).
+function M.command(token, target) return { k = M.CMD_KIND, token = token, target = target } end
 function M.ack(id) return { k = M.ACK_KIND, id = id } end
 
 function M.encode(frame) return protocol.encode(frame) end
@@ -64,6 +66,11 @@ end
 
 --- Pure ADDRESSING predicate, separate from the token auth gate above: a frame is targeted at
 --- this beacon iff it carries no target (broadcast to all) or its target matches cfgId exactly.
+--- Phase P6 also applies this to the LEGACY reinstall command (CMD_KIND, M.command) -- see
+--- beacon/app.lua's modem_message handler. Backward-compat: an ALREADY-DEPLOYED beacon running a
+--- pre-P6 beacon/app.lua has no M.targeted() check on its reinstall path at all, so it ignores
+--- `target` entirely and reinstalls on ANY valid-token reinstall frame; that old code is exactly
+--- what a targeted reinstall replaces once it runs, so this is expected, not a bug.
 function M.targeted(frame, cfgId)
   return frame.target == nil or frame.target == cfgId
 end

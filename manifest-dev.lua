@@ -36,9 +36,9 @@
       ["files"] = {
         {
           ["dst"] = "beacon/app.lua",
-          ["size"] = 6926,
+          ["size"] = 7715,
           ["src"] = "beacon/app.lua",
-          ["sum"] = "793d3ff1",
+          ["sum"] = "2ea3fe2c",
         },
         {
           ["dst"] = "beacon/command.lua",
@@ -66,9 +66,9 @@
         },
         {
           ["dst"] = "beacon/update.lua",
-          ["size"] = 2932,
+          ["size"] = 3614,
           ["src"] = "beacon/update.lua",
-          ["sum"] = "2f907940",
+          ["sum"] = "b3684570",
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
@@ -128,15 +128,15 @@
         },
         {
           ["dst"] = "beacon/update.lua",
-          ["size"] = 2932,
+          ["size"] = 3614,
           ["src"] = "beacon/update.lua",
-          ["sum"] = "2f907940",
+          ["sum"] = "b3684570",
         },
         {
           ["dst"] = "controller/app.lua",
-          ["size"] = 42236,
+          ["size"] = 45088,
           ["src"] = "controller/app.lua",
-          ["sum"] = "a674cd2c",
+          ["sum"] = "7211de7b",
         },
         {
           ["dst"] = "controller/config.lua",
@@ -152,9 +152,9 @@
         },
         {
           ["dst"] = "controller/runtime.lua",
-          ["size"] = 8473,
+          ["size"] = 9621,
           ["src"] = "controller/runtime.lua",
-          ["sum"] = "b1b7e2a9",
+          ["sum"] = "3541611c",
         },
         {
           ["dst"] = "fcs/comms/protocol.lua",
@@ -1434,9 +1434,9 @@
       ["files"] = {
         {
           ["dst"] = "beacon/update.lua",
-          ["size"] = 2932,
+          ["size"] = 3614,
           ["src"] = "beacon/update.lua",
-          ["sum"] = "2f907940",
+          ["sum"] = "b3684570",
         },
         {
           ["dst"] = "beaconupdate",
@@ -1568,5 +1568,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "cc366da1",
+  ["version"] = "386802ca",
 }

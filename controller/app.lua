@@ -1,8 +1,8 @@
 -- controller/app.lua
 -- GPS beacon controller: Basalt 2.0 shell UI on an advanced computer terminal (native 51x19, no
--- monitor scaling), wired to the P3b controller.runtime. Phase P5a builds the app skeleton PLUS the
--- ROSTER page only -- per-beacon detail + DIAG are P5b, UPDATE ALL (folding the standalone updater
--- in) is P6. Follows ui/basalt/pages/*.lua's exact contract: M.build(basalt, frame, runtime) ->
+-- monitor scaling), wired to the P3b controller.runtime. ROSTER (P5a), DIAG (P5b), per-beacon
+-- DETAIL (P5c), and UPDATE/UPDATE ALL (P6, folding the retired standalone updater in) are all
+-- built. Follows ui/basalt/pages/*.lua's exact contract: M.build(basalt, frame, runtime) ->
 -- { apply(view), elements }, Basalt-free/testable intent seams for every button, and a thin M.run()
 -- that wires peripherals + the event loop -- so `require("controller.app")` loads clean headless.
 --
@@ -275,6 +275,14 @@ function M._onPinExpected(runtime, id, lastPos)
   return true
 end
 
+--- M._onUpdate(runtime, id, now) -> runtime:sendReinstall(id, now) -- Phase P6, folding
+--- launchers/beaconupdate.lua's retired standalone updater into the per-beacon DETAIL page. The
+--- caller (M.buildDetail's UPDATE button) gates this behind a two-tap confirm, since a reinstall
+--- reboots the beacon; this seam only fires the actual send, never the arming step.
+function M._onUpdate(runtime, id, now)
+  return runtime:sendReinstall(id, now)
+end
+
 --- M._onRemove(runtime, id) -> runtime:remove(id). Always succeeds (removing an already-absent id
 --- is a harmless no-op inside runtime:remove itself); the caller (M.buildDetail's REMOVE button)
 --- follows this with a return to the roster.
@@ -289,6 +297,16 @@ end
 -- transmit) when the controller has no valid token, so this seam needs no extra gating.
 function M._onEnableAll(runtime, now)
   return runtime:sendCommandAll("enable", nil, now)
+end
+
+--- M._onUpdateAll: the TESTABLE intent seam for the UPDATE ALL footer button (Phase P6, folding
+--- launchers/beaconupdate.lua's retired standalone updater in). Fail-closed by construction:
+--- runtime:sendReinstallAll (controller/runtime.lua) itself refuses (no transmit) when the
+--- controller has no valid token. UPDATE ALL reboots every beacon on the mesh, so the caller
+--- (M.build's footer button below) gates this behind a two-tap confirm -- this seam only fires the
+--- actual send, never the arming step.
+function M._onUpdateAll(runtime, now)
+  return runtime:sendReinstallAll(now)
 end
 
 -- ===== M.build: construct the element tree =====
@@ -409,13 +427,30 @@ function M.build(basalt, frame, runtime, opts)
   if opts.onDiag then diagSpec.state = "off"; diagSpec.onClick = opts.onDiag
   else diagSpec.state = "disabled" end
 
+  -- UPDATE ALL folds launchers/beaconupdate.lua's retired standalone updater into this button
+  -- (Phase P6). Rebooting every beacon on the mesh is destructive, so it needs a confirm step: the
+  -- first click just arms it (label flips to CONFIRM?); a second click while armed actually sends
+  -- via M._onUpdateAll, then disarms. "set channel" is deliberately never offered here (design
+  -- §3.2). updateAllBtn is captured right after actionRow builds it, below.
+  local updateAllArmed = false
+  local updateAllBtn
+  local function onUpdateAllClick()
+    if updateAllArmed then
+      updateAllArmed = false
+      updateAllBtn.setLabel("UPDATE ALL")
+      M._onUpdateAll(runtime, os.epoch("utc"))
+    else
+      updateAllArmed = true
+      updateAllBtn.setLabel("CONFIRM?")
+    end
+  end
+
   local actionRow = configkit.actionRow(frame, { x = 1, y = actionY, w = w }, {
     diagSpec,
     { label = "ENABLE ALL",  kind = "function", onClick = function() M._onEnableAll(runtime, os.epoch("utc")) end },
-    -- P6 folds launchers/beaconupdate.lua's standalone updater into this button; stays disabled
-    -- (no onClick) until then -- "set channel" is deliberately never offered here (design §3.2).
-    { label = "UPDATE ALL",  kind = "function", state = "disabled" },
+    { label = "UPDATE ALL",  kind = "function", onClick = onUpdateAllClick },
   })
+  updateAllBtn = actionRow.buttons[3]
 
   --- apply(view): repaint from runtime:view(now)'s list. Idempotent; never polls peripherals.
   local function apply(view)
@@ -565,7 +600,8 @@ end
 -- thin Basalt wrapper around a pure M._on* intent seam above -- direct sends (ENABLE/DISABLE/
 -- VERIFY/REBOOT) fire immediately; SET POS/SET INTERVAL/RENAME reuse ui/basalt/keypad.lua's overlay
 -- (SET POS chains three numeric prompts, X -> Y -> Z, before sending -- matching beacon/command.
--- lua's {x,y,z} contract exactly); UPDATE stays a disabled stub (P6 folds the reinstall flow in).
+-- lua's {x,y,z} contract exactly); UPDATE sends a targeted reinstall (P6, beacon/update.lua's
+-- LEGACY M.command), gated behind a two-tap confirm since it reboots the beacon.
 function M.buildDetail(basalt, frame, runtime, opts)
   opts = opts or {}
   local w, h = frame:getSize()
@@ -680,7 +716,28 @@ function M.buildDetail(basalt, frame, runtime, opts)
     if opts.onBack then opts.onBack() end
   end
 
-  local grid = configkit.menuColumn(frame, {
+  -- UPDATE folds launchers/beaconupdate.lua's retired standalone updater into this per-beacon
+  -- button (Phase P6). Rebooting the beacon is destructive, so it needs a confirm step, same
+  -- two-tap idiom as the roster's UPDATE ALL: first click arms (label -> CONFIRM?), a second click
+  -- while armed sends via M._onUpdate then disarms. `grid` is forward-declared -- startUpdate reads
+  -- grid.buttons.update (assigned once configkit.menuColumn builds it, below) only when actually
+  -- clicked, by which point construction has finished.
+  local grid
+  local updateArmed = false
+  local function startUpdate()
+    local id = currentId
+    if not id then return end
+    if updateArmed then
+      updateArmed = false
+      grid.buttons.update.setLabel("UPDATE")
+      M._onUpdate(runtime, id, nowMs())
+    else
+      updateArmed = true
+      grid.buttons.update.setLabel("CONFIRM?")
+    end
+  end
+
+  grid = configkit.menuColumn(frame, {
     y = gridY, cols = 3,
     items = {
       { id = "enable",  label = "ENABLE",   kind = "function", onClick = function() if currentId then M._onEnable(runtime, currentId, nowMs()) end end },
@@ -691,8 +748,7 @@ function M.buildDetail(basalt, frame, runtime, opts)
       { id = "setint",  label = "SET INT",  kind = "function", onClick = startSetInterval },
       { id = "rename",  label = "RENAME",   kind = "function", onClick = startRename },
       { id = "pinexp",  label = "PIN EXP",  kind = "function", onClick = function() if currentId then M._onPinExpected(runtime, currentId, currentItem and currentItem.pos) end end },
-      -- Reinstall fold-in is P6 -- stays a disabled stub with no onClick until then.
-      { id = "update",  label = "UPDATE",   kind = "function", state = "disabled" },
+      { id = "update",  label = "UPDATE",   kind = "function", onClick = startUpdate },
       { id = "remove",  label = "REMOVE",   kind = "function", onClick = doRemove },
     },
   })
@@ -710,8 +766,13 @@ function M.buildDetail(basalt, frame, runtime, opts)
   end
 
   --- apply(view, id): repaint from runtime:view(now)'s list + the id currently on screen. Idempotent;
-  --- never touches peripherals.
+  --- never touches peripherals. Navigating to a different beacon (or away entirely) disarms a
+  --- pending UPDATE confirm -- a confirm armed for one beacon must never fire against another.
   local function apply(view, id)
+    if id ~= currentId and updateArmed then
+      updateArmed = false
+      grid.buttons.update.setLabel("UPDATE")
+    end
     currentId = id
     currentItem = M.findItem(view, id)
     render()

@@ -180,6 +180,26 @@ end
 function R:query(id, now) return self:sendCommand(id, "query", nil, now) end
 function R:queryAll(now) return self:sendCommandAll("query", nil, now) end
 
+--- sendReinstall(id, now) -- Phase P6: folds the retired standalone updater (tools/beaconupdate.lua)
+--- into the controller. Fail-closed, same gate as sendCommand: refuses (returns false, transmits
+--- nothing) unless the controller has a valid token. Sends the LEGACY reinstall command
+--- (beacon/update.lua's M.command/CMD_KIND), NOT an op-tagged Update.cmd -- already-deployed
+--- beacons predate the op-tagged protocol and only understand this reinstall frame. Targets exactly
+--- one beacon id; see beacon/update.lua's M.targeted for the addressing + backward-compat note.
+function R:sendReinstall(id, now)
+  if not Update.validToken(self.token) then return false end
+  self.modem.transmit(self.channel, self.channel, Update.encode(Update.command(self.token, id)))
+  return true
+end
+
+--- sendReinstallAll(now) -- same fail-closed gate and LEGACY protocol as sendReinstall, broadcasts
+--- the reinstall to every beacon (target = nil).
+function R:sendReinstallAll(now)
+  if not Update.validToken(self.token) then return false end
+  self.modem.transmit(self.channel, self.channel, Update.encode(Update.command(self.token)))
+  return true
+end
+
 --- toConfigRoster() -> the serializable roster { [id] = { name, expectedPos, lastPos } }, stripped
 --- of every runtime-only field (lastSeen/status/lastReply/lastQueried/lastAck never persist).
 function R:toConfigRoster()

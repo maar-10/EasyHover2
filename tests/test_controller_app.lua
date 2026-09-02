@@ -56,11 +56,16 @@ end)
 -- ===== M._onEnableAll: the TESTABLE intent seam. No Basalt here. =====
 
 local function fakeRuntime()
-  local calls = {}
+  local calls, reinstallAllCalls = {}, {}
   return {
     calls = calls,
+    reinstallAllCalls = reinstallAllCalls,
     sendCommandAll = function(self, op, args, now)
       calls[#calls + 1] = { op = op, args = args, now = now }
+      return true
+    end,
+    sendReinstallAll = function(self, now)
+      reinstallAllCalls[#reinstallAllCalls + 1] = now
       return true
     end,
   }, calls
@@ -74,6 +79,16 @@ t.test("_onEnableAll: sends a broadcast 'enable' command with no args", function
   t.eq(calls[1].op, "enable")
   t.eq(calls[1].args, nil)
   t.eq(calls[1].now, 1234)
+end)
+
+-- ===== P6: M._onUpdateAll -- the TESTABLE intent seam for the UPDATE ALL footer button =====
+
+t.test("_onUpdateAll: sends a broadcast reinstall via runtime:sendReinstallAll", function()
+  local rt = fakeRuntime()
+  local ok = M._onUpdateAll(rt, 1234)
+  t.truthy(ok)
+  t.eq(#rt.reinstallAllCalls, 1)
+  t.eq(rt.reinstallAllCalls[1], 1234)
 end)
 
 -- ===== Construction probe: real CraftOS-PC Basalt, no real peripherals =====
@@ -179,6 +194,27 @@ t.test("ENABLE ALL button click sends the broadcast enable command via M._onEnab
   h.elements.actionRow.buttons[2].button:fireEvent("mouse_click", 1, 1, 1)
   t.eq(#calls, 1, "ENABLE ALL click reached the runtime")
   t.eq(calls[1].op, "enable")
+end)
+
+t.test("UPDATE ALL is destructive -- first click arms a confirm; second click (confirm) sends", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+
+  local rt = fakeRuntime()
+  local h = M.build(basalt, frame, rt)
+  h.apply(MOCK_VIEW)
+  basalt.update("timer", -1)
+
+  -- actionRow's buttons are indexed in spec order: 1=DIAG (disabled), 2=ENABLE ALL, 3=UPDATE ALL.
+  t.truthy(h.elements.actionRow.buttons[3].state ~= "disabled", "UPDATE ALL is a live button now (P6)")
+  h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- arm
+  t.eq(#rt.reinstallAllCalls, 0, "first click only arms the confirm -- no send yet")
+
+  h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- confirm
+  t.eq(#rt.reinstallAllCalls, 1, "second click confirms the broadcast reinstall")
+
+  h.elements.actionRow.buttons[3].button:fireEvent("mouse_click", 1, 1, 1)   -- re-arms, not a second send
+  t.eq(#rt.reinstallAllCalls, 1, "disarmed after confirming -- this click only re-arms")
 end)
 
 -- ===== DIAG page: pure formatting helpers =====
@@ -436,11 +472,16 @@ end)
 -- ===== DETAIL page: per-action TESTABLE intent seams. No Basalt. =====
 
 local function fakeRuntimeDetail()
-  local sendCalls, nameCalls, expCalls, removeCalls = {}, {}, {}, {}
+  local sendCalls, nameCalls, expCalls, removeCalls, reinstallCalls = {}, {}, {}, {}, {}
   return {
     sendCalls = sendCalls, nameCalls = nameCalls, expCalls = expCalls, removeCalls = removeCalls,
+    reinstallCalls = reinstallCalls,
     sendCommand = function(self, id, op, args, now)
       sendCalls[#sendCalls + 1] = { id = id, op = op, args = args, now = now }
+      return true
+    end,
+    sendReinstall = function(self, id, now)
+      reinstallCalls[#reinstallCalls + 1] = { id = id, now = now }
       return true
     end,
     setName = function(self, id, name) nameCalls[#nameCalls + 1] = { id = id, name = name } end,
@@ -506,6 +547,17 @@ t.test("_onPinExpected: nil lastPos is a no-op (never touches the runtime)", fun
   local ok = M._onPinExpected(rt, "beacon-68", nil)
   t.truthy(not ok)
   t.eq(#rt.expCalls, 0)
+end)
+
+-- ===== P6: M._onUpdate -- the TESTABLE intent seam for the DETAIL page's UPDATE button =====
+
+t.test("_onUpdate: sends a targeted reinstall via runtime:sendReinstall", function()
+  local rt = fakeRuntimeDetail()
+  local ok = M._onUpdate(rt, "beacon-68", 700)
+  t.truthy(ok)
+  t.eq(#rt.reinstallCalls, 1)
+  t.eq(rt.reinstallCalls[1].id, "beacon-68")
+  t.eq(rt.reinstallCalls[1].now, 700)
 end)
 
 t.test("_onRemove: runtime:remove(id)", function()
@@ -613,17 +665,45 @@ t.test("M.buildDetail: PIN EXP sends nothing to the runtime channel-side, pins v
   t.eq(#rt.expCalls, 1, "no lastPos -- PIN EXP stays a no-op")
 end)
 
-t.test("M.buildDetail: UPDATE stays a disabled stub", function()
+t.test("M.buildDetail: UPDATE is destructive -- first click arms a confirm, does not send", function()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame()
   local rt = fakeRuntimeDetail()
   local h = M.buildDetail(basalt, frame, rt)
   h.apply(MOCK_DETAIL_VIEW, "beacon-68")
   basalt.update("timer", -1)
-  t.eq(h.elements.grid.buttons.update.state, "disabled")
+
+  t.truthy(h.elements.grid.buttons.update.state ~= "disabled", "UPDATE is a live button now (P6)")
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)
+  t.eq(#rt.reinstallCalls, 0, "first click only arms the confirm -- no send yet")
+end)
+
+t.test("M.buildDetail: UPDATE -- second click (confirm) sends the targeted reinstall, then disarms", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  h.apply(MOCK_DETAIL_VIEW, "beacon-68")
+  basalt.update("timer", -1)
+
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- arm
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- confirm
+  t.eq(#rt.reinstallCalls, 1, "second click confirms the reinstall")
+  t.eq(rt.reinstallCalls[1].id, "beacon-68")
+
+  h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1)   -- back to armed, not sent again
+  t.eq(#rt.reinstallCalls, 1, "disarmed after confirming -- this click only re-arms")
+end)
+
+t.test("M.buildDetail: UPDATE with no id shown is a safe no-op", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local rt = fakeRuntimeDetail()
+  local h = M.buildDetail(basalt, frame, rt)
+  basalt.update("timer", -1)
   local ok = pcall(function() h.elements.grid.buttons.update.button:fireEvent("mouse_click", 1, 1, 1) end)
-  t.truthy(ok, "clicking the disabled UPDATE stub must not error")
-  t.eq(#rt.sendCalls, 0)
+  t.truthy(ok, "clicking UPDATE with no current id must not error")
+  t.eq(#rt.reinstallCalls, 0)
 end)
 
 t.test("M.buildDetail: SET POS opens the X/Y/Z sub-form pre-filled from the current pos; SEND sends { pos = {x,y,z} }", function()

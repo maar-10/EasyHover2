@@ -215,6 +215,44 @@ t.test("setName / setExpectedPos / remove mutate the roster and persist the conf
   t.eq(saved[3].cfg.roster.B1, nil, "removed from the persisted roster too")
 end)
 
+-- ===== P6: sendReinstall / sendReinstallAll -- the LEGACY reinstall command, folded from the
+-- retired standalone updater (tools/beaconupdate.lua). Already-deployed beacons only understand
+-- Update.command (beacon/update.lua's CMD_KIND), NOT the op-tagged Update.cmd used by sendCommand.
+
+t.test("sendReinstall transmits a targeted LEGACY reinstall (Update.command) carrying the token", function()
+  local raw = fakeModem()
+  local r = CR.new({ config = { channel = 65000, updateToken = "tok123", roster = {} }, modem = modemFor(raw), now = function() return 5000 end })
+  t.truthy(r:sendReinstall("B1", 5000))
+  t.eq(#raw.sent, 1)
+  t.eq(raw.sent[1].ch, 65000)
+  local f = Update.decode(raw.sent[1].msg)
+  t.eq(f.k, Update.CMD_KIND, "the LEGACY reinstall kind, not the op-tagged CMD2_KIND")
+  t.eq(f.token, "tok123")
+  t.eq(f.target, "B1")
+end)
+
+t.test("sendReinstallAll transmits a broadcast LEGACY reinstall (target=nil)", function()
+  local raw = fakeModem()
+  local r = CR.new({ config = { channel = 65000, updateToken = "tok", roster = {} }, modem = modemFor(raw), now = function() return 5000 end })
+  t.truthy(r:sendReinstallAll(5000))
+  t.eq(#raw.sent, 1)
+  local f = Update.decode(raw.sent[1].msg)
+  t.eq(f.k, Update.CMD_KIND)
+  t.eq(f.token, "tok")
+  t.eq(f.target, nil, "broadcast to all -- no single target")
+end)
+
+t.test("sendReinstall / sendReinstallAll refuse (no transmit) when the token is blank or nil -- fail-closed", function()
+  local raw = fakeModem()
+  local r1 = CR.new({ config = { channel = 65000, updateToken = nil, roster = {} }, modem = modemFor(raw), now = function() return 5000 end })
+  t.eq(r1:sendReinstall("B1", 5000), false)
+  t.eq(r1:sendReinstallAll(5000), false)
+  local r2 = CR.new({ config = { channel = 65000, updateToken = "   ", roster = {} }, modem = modemFor(raw), now = function() return 5000 end })
+  t.eq(r2:sendReinstall("B1", 5000), false)
+  t.eq(r2:sendReinstallAll(5000), false)
+  t.eq(#raw.sent, 0, "nothing transmitted either way")
+end)
+
 t.test("the runtime seeds its roster from config.roster; every seeded id starts SILENT", function()
   local cfg = {
     channel = 65000, updateToken = "tok",
