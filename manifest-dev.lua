@@ -406,6 +406,12 @@
           ["sum"] = "8ce90757",
         },
         {
+          ["dst"] = "fcs/io/cfgdefault.lua",
+          ["size"] = 1900,
+          ["src"] = "fcs/io/cfgdefault.lua",
+          ["sum"] = "8984ff4e",
+        },
+        {
           ["dst"] = "fcs/io/cfgroles.lua",
           ["size"] = 1171,
           ["src"] = "fcs/io/cfgroles.lua",
@@ -675,6 +681,12 @@
           ["sum"] = "0512c63c",
         },
         {
+          ["dst"] = "fcs/io/cfgdefault.lua",
+          ["size"] = 1900,
+          ["src"] = "fcs/io/cfgdefault.lua",
+          ["sum"] = "8984ff4e",
+        },
+        {
           ["dst"] = "fcs/io/cfgroles.lua",
           ["size"] = 1171,
           ["src"] = "fcs/io/cfgroles.lua",
@@ -896,6 +908,12 @@
           ["size"] = 5372,
           ["src"] = "fcs/io/calibration.lua",
           ["sum"] = "ec647b01",
+        },
+        {
+          ["dst"] = "fcs/io/cfgdefault.lua",
+          ["size"] = 1900,
+          ["src"] = "fcs/io/cfgdefault.lua",
+          ["sum"] = "8984ff4e",
         },
         {
           ["dst"] = "fcs/io/cfgroles.lua",
@@ -1434,5 +1452,5 @@
     ["size"] = 75885,
     ["sum"] = "a971502f",
   },
-  ["version"] = "55519b4b",
+  ["version"] = "534dd465",
 }

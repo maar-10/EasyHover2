@@ -126,3 +126,15 @@ t.test("S1: the fcs flight/diagnostic stack ships only to the fcs role", functio
     end
   end
 end)
+
+-- S5: Suite --flag-defaults/--migrate-config require() fcs.io.cfgdefault on an already-installed
+-- role computer. The suite is wget-run, so that require cannot ship the module; extraFiles must.
+t.test("S5: fcs, ui, and nav ship fcs/io/cfgdefault.lua", function()
+  for _, path in ipairs({ "/manifest.lua", "/manifest-dev.lua" }) do
+    local m = load(path)
+    for _, role in ipairs({ "fcs", "ui", "nav" }) do
+      local set = dstSet(m.roles[role])
+      t.truthy(set["fcs/io/cfgdefault.lua"], path .. ": " .. role .. " ships fcs/io/cfgdefault.lua")
+    end
+  end
+end)

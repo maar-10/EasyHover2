@@ -57,6 +57,9 @@ local ROLES = {
     roots   = { { src = "launchers/flight.lua", dst = "flight" },
                 { src = "launchers/fcslog.lua", dst = "fcslog" } }, -- + SHARED_DIAG + config module
     sharedDiag = true,
+    -- S5: Suite --flag-defaults/--migrate-config require() this on the installed computer. The
+    -- suite is wget-run, so closure discovery never sees it; extraFiles ships it anyway.
+    extraFiles = { { src = "fcs/io/cfgdefault.lua", dst = "fcs/io/cfgdefault.lua" } },
   },
   ui = {
     title = "Cockpit display", status = "released",
@@ -75,7 +78,10 @@ local ROLES = {
     -- -- see that file's header comment), so tools/closure.lua's require()-following discovery
     -- can never find it. extraFiles ships it alongside the closure anyway, at exactly
     -- "/basalt-full.lua" -- M.BASALT_PATHS' first (installed-location) candidate.
-    extraFiles = { { src = "release/basalt-full.lua", dst = "basalt-full.lua" } },
+    extraFiles = {
+      { src = "release/basalt-full.lua", dst = "basalt-full.lua" },
+      { src = "fcs/io/cfgdefault.lua", dst = "fcs/io/cfgdefault.lua" },
+    },
   },
   -- NAV + beacon roles (Batch 1). NO sharedDiag: the FCS diagnostic launchers (calibrate/hovertest/
   -- probe*) pull the whole flight stack through their require() closure, which nav/beacon must never
@@ -87,7 +93,10 @@ local ROLES = {
     startup = { src = "launchers/nav.lua", dst = "startup.lua" },
     roots   = {},
     -- Like the ui role: nav ships Basalt (loadfile'd at runtime by nav/app.lua's own ensureBasalt).
-    extraFiles = { { src = "release/basalt-full.lua", dst = "basalt-full.lua" } },
+    extraFiles = {
+      { src = "release/basalt-full.lua", dst = "basalt-full.lua" },
+      { src = "fcs/io/cfgdefault.lua", dst = "fcs/io/cfgdefault.lua" },
+    },
   },
   beacon = {
     title = "GPS beacon", status = "released",
