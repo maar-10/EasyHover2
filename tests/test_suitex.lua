@@ -63,6 +63,22 @@ t.test("toolsToInstall omits fcs2disk when its flag is unset", function()
   for _, k in ipairs(SuiteX.toolsToInstall({})) do t.truthy(k ~= "fcs2disk", "no fcs2disk unless flagged") end
 end)
 
+-- S5 Advanced-tab config ops: SuiteX tests are glue-only (no Basalt), so the two button
+-- ids/labels live on a pure helper. A missing FLAG DEFAULTS / MIGRATE CONFIG, a swapped
+-- order, or a non-ASCII label is a product bug -- those strings are what the operator sees
+-- and the ids are the Suite.runConfigFlags keys the click handlers pass through.
+t.test("advancedOps returns FLAG DEFAULTS then MIGRATE CONFIG with ASCII labels", function()
+  local ops = SuiteX.advancedOps()
+  t.eq(#ops, 2, "exactly two Advanced config ops")
+  t.eq(ops[1].id, "flagDefaults")
+  t.eq(ops[1].label, "FLAG DEFAULTS")
+  t.eq(ops[2].id, "migrateConfig")
+  t.eq(ops[2].label, "MIGRATE CONFIG")
+  for _, op in ipairs(ops) do
+    t.eq(op.label:match("^[%u ]+$"), op.label, op.id .. " label is ASCII A-Z/space")
+  end
+end)
+
 t.test("checkboxLabels renders a visible box and a full-width (clickable) line in both states", function()
   local off, on = SuiteX.checkboxLabels("Split config (split legacy FCS config)")
   t.truthy(off:find("[ ]", 1, true), "unchecked shows an EMPTY box, not an invisible space")

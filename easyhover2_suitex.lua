@@ -55,6 +55,16 @@ function SuiteX.toolsToInstall(flags)
   return out
 end
 
+--- advancedOps() -> ordered { { id, label }, ... } for the Advanced-tab config buttons.
+--- Pure so tests can assert the two ids/labels without constructing Basalt. `id` is the
+--- Suite.runConfigFlags key the click handler sets; `label` is the ASCII button text.
+function SuiteX.advancedOps()
+  return {
+    { id = "flagDefaults", label = "FLAG DEFAULTS" },
+    { id = "migrateConfig", label = "MIGRATE CONFIG" },
+  }
+end
+
 --- checkboxLabels(label) -> uncheckedText, checkedText: the two static strings for one Advanced-tab
 --- checkbox. The description is folded INTO the CheckBox element's own text/checkedText behind a
 --- visible "[ ]"/"[x]" box (rather than sitting in a separate addLabel beside a bare 1-char box).
@@ -301,6 +311,17 @@ local function setButtonsEnabled(ctx, ready)
       paintButton(ctx, key, ready and states[key] ~= "disabled")
     end
   end
+  -- Advanced-tab FLAG DEFAULTS / MIGRATE CONFIG: grey out for the same opInFlight/check
+  -- window as Go/Repair. Always re-enabled when ready (unlike Go, these are valid at "current").
+  local pal = ctx.pal
+  for _, btn in ipairs((ctx.ui and ctx.ui.advOpButtons) or {}) do
+    btn:setEnabled(ready == true)
+    if ready then
+      btn:setBackground(pal.btn); btn:setForeground(pal.btnText)
+    else
+      btn:setBackground(pal.btnDisabled); btn:setForeground(pal.dim)
+    end
+  end
 end
 
 local function refreshStatus(ctx)
@@ -359,6 +380,7 @@ local function applyTheme(ctx)
   ui.devCheck:setBackground(pal.bg); ui.devCheck:setForeground(pal.text)
   ui.toolLabel:setForeground(pal.dim)
   ui.splitCfgCheck:setBackground(pal.bg); ui.splitCfgCheck:setForeground(pal.text)
+  ui.fcs2diskCheck:setBackground(pal.bg); ui.fcs2diskCheck:setForeground(pal.text)
   paintTabButtons(ctx)
   refreshStatus(ctx)
   -- Repaint the palette even mid-op, but don't let a theme toggle re-enable the action buttons
@@ -534,7 +556,10 @@ end
 --- prior completed check). Set true before the op starts; cleared in the coroutine's tail on
 --- BOTH the success and failure path, since that line always runs after the pcall regardless of
 --- outcome.
-local function runEngineOp(ctx, fn)
+---
+--- persistChannel (default true): Go/Repair persist /eh2_channel.txt after a real install.
+--- FLAG DEFAULTS / MIGRATE CONFIG pass false -- they are local config ops, not an install.
+local function runEngineOp(ctx, fn, persistChannel)
   ctx.opInFlight = true
   setButtonsEnabled(ctx, false)
   ctx.ui.log:clear()
@@ -545,7 +570,7 @@ local function runEngineOp(ctx, fn)
     ctx.opInFlight = false
     if not ok then
       logLine(ctx, "action failed: " .. tostring(err), ctx.pal.error)
-    else
+    elseif persistChannel ~= false then
       -- Persist the channel actually installed so a later bare classic run stays on it (mirrors
       -- the classic suite writing /eh2_channel.txt on a real --dev/--min install). PROTECTED gates
       -- only the release install/delete path, never the Suite's own marker write.
@@ -735,6 +760,28 @@ local function buildUI(ctx)
   ui.fcs2diskCheck = ui.frameAdv:addCheckBox({ x = 2, y = 7, checked = (ctx.installFcs2Disk == true),
     text = fcs2diskOff, checkedText = fcs2diskOn, background = pal.bg, foreground = pal.text })
   ui.fcs2diskCheck:onChange("checked", function(_, checked) ctx.installFcs2Disk = checked end)
+
+  -- Advanced tab: FLAG DEFAULTS / MIGRATE CONFIG -- same local ops as classic
+  -- --flag-defaults / --migrate-config. Below the optional-tool checkboxes. Lua 5.1
+  -- reuses the loop variable, so capture op.id in a fresh local for the onClick closure.
+  ui.advOpButtons = {}
+  local opX = 2
+  for _, op in ipairs(SuiteX.advancedOps()) do
+    local w = #op.label
+    local btn = ui.frameAdv:addButton({
+      x = opX, y = 9, width = w, height = 1, text = op.label,
+      background = pal.btn, foreground = pal.btnText,
+    })
+    local opId = op.id
+    btn:onClick(function()
+      if ctx.opInFlight then return end
+      runEngineOp(ctx, function()
+        ctx.Suite.runConfigFlags({ [opId] = true }, ctx.role)
+      end, false)
+    end)
+    ui.advOpButtons[#ui.advOpButtons + 1] = btn
+    opX = opX + w + 1
+  end
 
   ui.buttons.go:onClick(function()
     -- Defense in depth: setButtonsEnabled()/ctx.opInFlight already keep this disabled during an
