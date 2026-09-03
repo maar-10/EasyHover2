@@ -51,10 +51,13 @@ t.test("fcs and ui roles back up all their config files", function()
     t.truthy(fcs["/eh2_devbind.tbl"] and fcs["/eh2_senscal.tbl"] and fcs["/eh2_tuning.tbl"] and fcs["/eh2_hw_config.tbl"],
       path .. ": fcs configs are the expected set")
 
+    -- S2b: the ui role no longer holds any FCS config file -- it reads/writes the FCS live -- so it
+    -- backs up ONLY its own eh2_ui_config.tbl. (fcs still keeps its 4, asserted above.)
     local ui = toSet(m.roles.ui.configs)
-    t.eq(#m.roles.ui.configs, 4, path .. ": ui has 4 configs")
-    t.truthy(ui["/eh2_devbind.tbl"] and ui["/eh2_senscal.tbl"] and ui["/eh2_tuning.tbl"] and ui["/eh2_ui_config.tbl"],
-      path .. ": ui configs are the expected set")
+    t.eq(#m.roles.ui.configs, 1, path .. ": ui has exactly 1 config")
+    t.truthy(ui["/eh2_ui_config.tbl"], path .. ": ui backs up only eh2_ui_config.tbl")
+    t.truthy(not (ui["/eh2_devbind.tbl"] or ui["/eh2_senscal.tbl"] or ui["/eh2_tuning.tbl"]),
+      path .. ": ui no longer backs up the FCS config files")
   end
 end)
 
@@ -64,9 +67,7 @@ end)
 -- the control stack. S1 drops sharedDiag from `ui`, so those commands + the control-loop modules
 -- they alone dragged in must be ABSENT from every non-fcs role, while the UI's real dependencies
 -- (comauto for its FCS TUNING menu, the comms link, the fcs.io config layer, tools.fnv1a) STAY.
--- The UI's FCS config FILES (devbind/senscal/tuning) are deliberately UNCHANGED here -- their
--- removal is S2 (see docs/superpowers/plans/2026-09-02-config-overhaul-s1-shipping.md), which is
--- why the "back up all their config files" test above is left exactly as it is.
+-- S2b removed the UI's FCS config-file copies from the ui role (backup is eh2_ui_config.tbl only).
 
 local function dstSet(role)
   local s = {}

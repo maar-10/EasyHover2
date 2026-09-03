@@ -755,9 +755,6 @@
       ["blurb"] = "Receives telemetry, renders reported state, sends commands on touch. Boots the cockpit.",
       ["configModule"] = "fcs.io.config",
       ["configs"] = {
-        "/eh2_devbind.tbl",
-        "/eh2_senscal.tbl",
-        "/eh2_tuning.tbl",
         "/eh2_ui_config.tbl",
       },
       ["dirs"] = {
