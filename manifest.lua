@@ -962,9 +962,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/senssource.lua",
-          ["size"] = 4199,
+          ["size"] = 4198,
           ["src"] = "dist/ui/basalt/bitconfig/senssource.lua",
-          ["sum"] = "c01747c8",
+          ["sum"] = "92acff71",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/tuning.lua",
@@ -1377,5 +1377,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "0b82f64a",
+  ["version"] = "584bdfc1",
 }

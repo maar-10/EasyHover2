@@ -1,13 +1,11 @@
 -- ui/basalt/bitconfig/senssource.lua
 -- SENS SOURCE sub-menu (BIT/CONFIG hub, screen id "senssource"): picks which sensor-cal profile
--- the PFD attitude/SAS reader (ui/basalt/senssource.lua's M.resolve, wired into
--- ui/basalt/app.lua's attitude poll loop) uses -- FCS (the UI PC's own eh2_senscal.tbl, the SAME
--- file SENS CAL calibrates), SELF (a locally-held config.sens.self cal, calibrated HERE via a
--- compact 4-step guided capture reusing ui/basalt/senssource.lua's selfSteps/selfApply pure
--- helpers), or OFF (no attitude/SAS reading at all). Persists into runtime.config.sens
--- (source/self) -- the SAME /eh2_ui_config.tbl ui/config.lua's M.load/M.save round-trip (see the
--- DECISION note by realWrite below for why this writes through the injected write(filename,body)
--- seam rather than calling ui.config's M.save directly).
+-- to use -- FCS / SELF / OFF -- and runs SELF-cal. PFD attitude/SAS already come from the FCS
+-- snapshot; this menu does not feed the PFD render. SELF-cal's sampler reads FCS-cached
+-- eh2_devbind sensor names via ui.basalt.cfgseam; picker/SELF-cal still persist config.sens
+-- (source/self) into the UI's own /eh2_ui_config.tbl via local realWrite (not an FCS config
+-- file -- must never go through cfgseam). SELF-cal reuses ui/basalt/senssource.lua's
+-- selfSteps/selfApply pure helpers.
 --
 -- ===== PURE intent seam: M._select =====
 -- M._select(config, source, save): sets config.sens.source = source, then calls save() if given.
@@ -44,6 +42,7 @@ local cfgspec    = require("fcs.io.cfgspec")
 local shim       = require("fcs.io.shim")
 local fsx        = require("fcs.io.fsx")
 local senssource = require("ui.basalt.senssource")
+local cfgseam    = require("ui.basalt.cfgseam")
 
 local M = {}
 M.id = "senssource"
@@ -57,10 +56,10 @@ function M._select(config, source, save)
   return source
 end
 
--- ===== real read/write (default injected seams; never called at module load) =====
--- Mirrors senscal.lua's realRead/realWrite exactly (delegates to fcs/io/fsx.lua's shared atomic
--- helper): `read` loads eh2_devbind.tbl's sensor names for the SELF-cal sampler; `write` persists
--- the SAME /eh2_ui_config.tbl ui/config.lua's M.load/M.save round-trip.
+-- ===== real write (default injected seam; never called at module load) =====
+-- `read` defaults to cfgseam.read(runtime) so SELF-cal wraps FCS-cached eh2_devbind sensor
+-- names. `write` stays LOCAL: persists the SAME /eh2_ui_config.tbl ui/config.lua's M.load/M.save
+-- round-trip -- not an FCS config file -- so it must never go through cfgseam.
 --
 -- DECISION: this reuses the injected write(filename, body) seam -- the SAME convention senscal.lua
 -- /tuning.lua/mdb.lua/dtc.lua all use -- rather than calling ui.config's M.save(path, cfg)
@@ -68,10 +67,6 @@ end
 -- needs a lazy require("ui.basalt.app") just to reach its own CONFIG_PATH constant (the filename
 -- is fixed at module scope below instead, and resolves to the identical absolute path).
 local UI_CONFIG_FILE = "eh2_ui_config.tbl" -- same file as ui/basalt/app.lua's M.CONFIG_PATH ("/eh2_ui_config.tbl")
-
-local function realRead(filename)
-  return fsx.read("/" .. filename)
-end
 
 local function realWrite(filename, body)
   return fsx.writeAtomic("/" .. filename, body)
@@ -103,7 +98,11 @@ M._realSampler = realSampler
 -- showScreen -> page.build(basalt, childFrame, runtime, frameRec.nav)) only ever passes the first
 -- four args -- read/write/sampler default to the real seams above, exactly like senscal.lua.
 function M.build(basalt, frame, runtime, nav, read, write, sampler)
-  read = read or realRead
+  -- S2b: SELF-cal sampler needs the FCS's live devbind sensor names, so `read` defaults to the
+  -- FCS cache. `write` stays LOCAL (realWrite): this menu persists config.sens into the UI's own
+  -- eh2_ui_config.tbl -- not an FCS config file -- so it must never go through cfgseam/the FCS.
+  -- PFD attitude/SAS already come from the FCS snapshot; this menu does not feed the PFD render.
+  read = read or cfgseam.read(runtime)
   write = write or realWrite
   sampler = sampler or realSampler
 
