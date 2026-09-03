@@ -58,7 +58,34 @@ local function loadConfig()
   return hwconfig.merge(saved or {}, hwconfig.defaults())
 end
 
+-- Session overlay: DEFAULT-for-this-boot writes eh2_tuning.session.tbl without clobbering
+-- current. Prefer it when present and parseable; else eh2_tuning.tbl. Applied onto the
+-- fcs.tuning singleton before buildLoop so the flying mixer uses this boot's choice.
+local function loadTuning()
+  local function readBody(path)
+    if not fs.exists(path) then return nil end
+    local f = fs.open(path, "r"); local body = f.readAll(); f.close(); return body
+  end
+  local sessionBody = readBody("/eh2_tuning.session.tbl")
+  if sessionBody then
+    local parsed = textutils.unserialise(sessionBody)
+    if type(parsed) == "table" then return cfgspec.merge("tuning", parsed) end
+  end
+  local currentBody = readBody("/eh2_tuning.tbl")
+  if currentBody then
+    local parsed = textutils.unserialise(currentBody)
+    if type(parsed) == "table" then return cfgspec.merge("tuning", parsed) end
+  end
+  return nil
+end
+
+local function applyLoadedTuning(over)
+  if type(over) ~= "table" then return end
+  for k, v in pairs(over) do tuning[k] = v end
+end
+
 local config  = loadConfig()
+applyLoadedTuning(loadTuning())
 local backend = Backend.new(shim, config)
 local loop, registry = hover.buildLoop(backend)   -- SINGLE arg; buildLoop reads tuning itself
 

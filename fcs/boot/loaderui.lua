@@ -1,11 +1,12 @@
 -- fcs/boot/loaderui.lua
 -- Terminal boot UI: lets the pilot pick a SOURCE per config concern (binding/sensor/tuning),
--- assembles the runtime config via fcs.boot.loader, and writes the two files the flight app
--- already reads (/eh2_hw_config.tbl + /eh2_tuning.tbl) -- the whole handoff. Sources are
--- own / disk / defaults only (the FCS boots from its own files or a config disk). Boot UI
--- and the flight app never run concurrently: this program returns (or the launcher exits)
--- before launchers/flight.lua starts. No Basalt here on purpose -- keeps the FCS boot path
--- light and dependency-free.
+-- assembles the runtime config via fcs.boot.loader, and writes the files the flight app
+-- reads (/eh2_hw_config.tbl plus /eh2_tuning.tbl or /eh2_tuning.session.tbl). Sources are
+-- current / default / disk (the FCS boots from its own files, a sibling DEFAULT, or a
+-- config disk). DEFAULT tuning is a session overlay and does not clobber current.
+-- Boot UI and the flight app never run concurrently: this program returns (or the launcher
+-- exits) before launchers/flight.lua starts. No Basalt here on purpose -- keeps the FCS
+-- boot path light and dependency-free.
 --
 -- CRITICAL: no peripheral/disk access at module load time -- headless has no disk,
 -- so `require("fcs.boot.loaderui")` must load clean. All peripheral access lives inside
@@ -13,6 +14,7 @@
 
 local loader         = require("fcs.boot.loader")
 local cfgspec         = require("fcs.io.cfgspec")
+local cfgroles        = require("fcs.io.cfgroles")
 local tuningdefaults  = require("fcs.io.tuningdefaults")
 local fsx             = require("fcs.io.fsx")
 
@@ -20,6 +22,7 @@ local M = {}
 
 local HW_CONFIG_PATH  = "/eh2_hw_config.tbl"
 local TUNING_PATH     = "/eh2_tuning.tbl"
+local TUNING_SESSION_PATH = "/eh2_tuning.session.tbl"
 local LEGACY_CONFIG_PATH = HW_CONFIG_PATH -- same file; legacy read-through source, not the write target
 
 -- concern name -> cfgspec kind (mirrors fcs/boot/loader.lua's KIND table)
@@ -31,39 +34,58 @@ local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning" }
 
 local realWrite = fsx.writeAtomic
 
--- Atomically write the assembled hw + tuning tables to the two files the flight app reads.
--- `write(path, body)` is injected for testing; defaults to the real atomic tmp-then-move writer.
-function M.commit(assembled, write)
+-- Atomically write the assembled hw + tuning tables the flight app reads.
+-- `write(path, body)` / `delete(path)` are injected for testing; defaults are fsx.
+-- `choices` is optional: 2-arg callers write fused + current tuning as before.
+-- DEFAULT writes the session overlay and does not clobber /eh2_tuning.tbl. Disk import
+-- writes current and deletes any leftover session. Current deletes the session overlay
+-- and does not rewrite /eh2_tuning.tbl (it already is the source).
+function M.commit(assembled, write, choices, delete)
   write = write or realWrite
+  delete = delete or fsx.delete
   write(HW_CONFIG_PATH, textutils.serialise(assembled.hw))
+  local src = choices and choices.tuning
+  if src == "default" then
+    write(TUNING_SESSION_PATH, textutils.serialise(assembled.tuning))
+    return true
+  end
+  if src == "disk" then
+    write(TUNING_PATH, textutils.serialise(assembled.tuning))
+    delete(TUNING_SESSION_PATH)
+    return true
+  end
+  if src == "current" then
+    delete(TUNING_SESSION_PATH)
+    return true
+  end
   write(TUNING_PATH, textutils.serialise(assembled.tuning))
   return true
 end
 
 -- Resolve the pilot's chosen sources into an assembled config, then commit it.
 -- Returns true, assembled  on success, or  false, nil, err  (nothing is written on failure).
-function M.finish(choices, sources, write)
+function M.finish(choices, sources, write, delete)
   local ok, assembled, err, failedConcern = loader.resolve(choices, sources)
   if not ok then return false, nil, err, failedConcern end
-  M.commit(assembled, write)
+  M.commit(assembled, write, choices, delete)
   return true, assembled
 end
 
 -- True for sources that come from OUTSIDE this computer's own filesystem ("disk") --
 -- these overwrite the FCS runtime config from an external source, so the in-game pick flow
--- confirms with the pilot before proceeding. "own"/"defaults" are local/inert and proceed
+-- confirms with the pilot before proceeding. "current"/"default" are local/inert and proceed
 -- silently. Pure: no fs/peripheral/read() -- safe to unit test headless.
 function M.needsConfirm(src) return src == "disk" end
 
 -- =====================================================================================
 -- In-game only from here down: real fs/peripheral/disk/read() access. NOT headless-tested
 -- (no disk in the CraftOS-PC harness); kept coherent by reading, mirrored against the
--- design doc's "Own / Load from disk / Load defaults" flow.
+-- design doc's "current / disk / DEFAULT" flow.
 -- =====================================================================================
 
 local realRead = fsx.read
 
--- "own": the local split file (eh2_devbind.tbl / eh2_senscal.tbl); if that file is ABSENT and
+-- "current": the local split file (eh2_devbind.tbl / eh2_senscal.tbl); if that file is ABSENT and
 -- the legacy combined /eh2_hw_config.tbl exists, seed from splitLegacy read-through (mirrors
 -- tools/calibrate.lua's M._loadCal / loadSensors so terminal tool and boot UI agree).
 local function ownSource(concern)
@@ -98,13 +120,28 @@ local function diskSource(concern)
   return cfgspec.merge(kind, saved)
 end
 
+-- "default": sibling DEFAULT file (eh2_<name>.default.tbl). Tuning with no sibling falls
+-- back to the immutable code baseline. Present-but-unparseable is unavailable (except
+-- tuning, which still has the code baseline).
+local function defaultSource(concern)
+  local kind = KIND[concern]
+  local name = cfgroles.defaultFile(kind)
+  local body = name and realRead("/" .. name)
+  if body then
+    local saved = textutils.unserialise(body)
+    if type(saved) == "table" then return cfgspec.merge(kind, saved) end
+  end
+  if concern == "tuning" then return tuningdefaults.get() end
+  return nil
+end
+
 -- Real sources table: get(concern, src) -> cfgTable | nil.
 function M.buildSources()
   return {
     get = function(concern, src)
-      if src == "own" then return ownSource(concern) end
+      if src == "current" then return ownSource(concern) end
       if src == "disk" then return diskSource(concern) end
-      if src == "defaults" and concern == "tuning" then return tuningdefaults.get() end
+      if src == "default" then return defaultSource(concern) end
       return nil
     end,
   }
@@ -140,7 +177,7 @@ local function pickSource(concern)
   print(("== %s source ==  (%s)"):format(LABEL[concern], diskIndicator()))
   local opts = loader.SOURCES[concern]
   for i, s in ipairs(opts) do
-    local extra = (s == "own") and ("  [" .. ownIndicator(concern) .. "]") or ""
+    local extra = (s == "current") and ("  [" .. ownIndicator(concern) .. "]") or ""
     print(("  %d) %s%s"):format(i, s, extra))
   end
   write("choice (q aborts): ")
@@ -165,7 +202,7 @@ end
 
 -- Prompt for one concern until a valid source is picked; returns the source, or "ABORT" on 'q'.
 -- External sources ("disk") are confirmed with the pilot before being accepted -- on N,
--- re-pick the same concern; "own"/"defaults" proceed silently.
+-- re-pick the same concern; "current"/"default" proceed silently.
 local function pickUntilValid(concern)
   while true do
     local src = pickSource(concern)
@@ -227,7 +264,8 @@ function M.run()
     print("resolving...")
     local ok, assembled, err, failedConcern = M.finish(choices, sources)
     if ok then
-      print("OK -- wrote " .. HW_CONFIG_PATH .. " + " .. TUNING_PATH)
+      local tuningOut = (choices.tuning == "default") and TUNING_SESSION_PATH or TUNING_PATH
+      print("OK -- wrote " .. HW_CONFIG_PATH .. " + " .. tuningOut)
       -- Logging choice comes first (per the boot-flow spec), then the boot question. The launcher
       -- turns `logging` into _G.EH2_FLIGHTLOG for tools/flight.lua.
       local logging = confirmLogging()

@@ -13,7 +13,7 @@ local hwconfig = require("fcs.io.hwconfig")
 local cfgspec = require("fcs.io.cfgspec")
 local tuningdefaults = require("fcs.io.tuningdefaults")
 
-t.test("finish resolves current+current+default and commits both handoff files, no real fs / read()", function()
+t.test("finish resolves current+current+default and commits fused + session overlay, no real fs / read()", function()
   local legacy = hwconfig.defaults()
   local split = cfgspec.splitLegacy(legacy)
   local stub = { get = function(concern, src)
@@ -22,7 +22,7 @@ t.test("finish resolves current+current+default and commits both handoff files, 
     if concern == "tuning" and src == "default" then return tuningdefaults.get() end
     return nil
   end }
-  local written = {}
+  local written = { ["/eh2_tuning.tbl"] = "SEEDED-CURRENT" }
   local function captureWrite(path, body) written[path] = body end
 
   local ok, assembled = M.finish({ binding = "current", sensor = "current", tuning = "default" }, stub, captureWrite)
@@ -32,8 +32,9 @@ t.test("finish resolves current+current+default and commits both handoff files, 
   local hw = textutils.unserialise(written["/eh2_hw_config.tbl"])
   t.truthy(hw and hw.thrusters and hw.bindings, "captured hw_config has thrusters + bindings")
 
-  local tuning = textutils.unserialise(written["/eh2_tuning.tbl"])
-  t.truthy(tuning and tuning.gains, "captured tuning has gains")
+  t.eq(written["/eh2_tuning.tbl"], "SEEDED-CURRENT", "finish DEFAULT must not clobber current")
+  local tuning = textutils.unserialise(written["/eh2_tuning.session.tbl"])
+  t.truthy(tuning and tuning.gains, "captured session overlay has gains")
 end)
 
 t.test("finish surfaces loader.resolve failures without writing anything", function()
@@ -48,12 +49,81 @@ end)
 
 t.test("needsConfirm is true only for the disk source", function()
   t.eq(M.needsConfirm("disk"), true)
+  t.eq(M.needsConfirm("current"), false)
+  t.eq(M.needsConfirm("default"), false)
   t.eq(M.needsConfirm("ui"), false)
-  t.eq(M.needsConfirm("own"), false)
-  t.eq(M.needsConfirm("defaults"), false)
 end)
 
 t.test("retired UI-pull surface is gone (CFG_CH, closeCfgChannels)", function()
   t.eq(M.CFG_CH, nil)
   t.eq(M.closeCfgChannels, nil)
+end)
+
+-- Break this test would catch: DEFAULT commit writing /eh2_tuning.tbl (clobbering current)
+-- instead of the session overlay.
+t.test("commit default writes session overlay and leaves current tuning untouched", function()
+  local assembled = { hw = hwconfig.defaults(), tuning = tuningdefaults.get() }
+  assembled.tuning.gains.hoverDuty = 0.11
+  local files = { ["/eh2_tuning.tbl"] = "SEEDED-CURRENT" }
+  local function captureWrite(path, body) files[path] = body end
+
+  M.commit(assembled, captureWrite, { tuning = "default" })
+
+  t.eq(files["/eh2_tuning.tbl"], "SEEDED-CURRENT", "DEFAULT must not clobber current")
+  local session = textutils.unserialise(files["/eh2_tuning.session.tbl"])
+  t.eq(session and session.gains and session.gains.hoverDuty, 0.11)
+  local hw = textutils.unserialise(files["/eh2_hw_config.tbl"])
+  t.truthy(hw and hw.thrusters and hw.bindings, "fused hw is always written")
+end)
+
+t.test("commit disk writes current tuning and deletes the session overlay", function()
+  local assembled = { hw = hwconfig.defaults(), tuning = tuningdefaults.get() }
+  assembled.tuning.gains.hoverDuty = 0.33
+  local files = { ["/eh2_tuning.session.tbl"] = "OLD-SESSION", ["/eh2_tuning.tbl"] = "OLD-CURRENT" }
+  local function captureWrite(path, body) files[path] = body end
+  local function captureDelete(path) files[path] = nil end
+
+  M.commit(assembled, captureWrite, { tuning = "disk" }, captureDelete)
+
+  t.eq(files["/eh2_tuning.session.tbl"], nil, "disk import deletes session overlay")
+  local current = textutils.unserialise(files["/eh2_tuning.tbl"])
+  t.eq(current and current.gains and current.gains.hoverDuty, 0.33)
+end)
+
+t.test("commit current deletes session overlay and does not rewrite current tuning", function()
+  local assembled = { hw = hwconfig.defaults(), tuning = tuningdefaults.get() }
+  local files = { ["/eh2_tuning.session.tbl"] = "OLD-SESSION", ["/eh2_tuning.tbl"] = "SEEDED-CURRENT" }
+  local function captureWrite(path, body) files[path] = body end
+  local function captureDelete(path) files[path] = nil end
+
+  M.commit(assembled, captureWrite, { tuning = "current" }, captureDelete)
+
+  t.eq(files["/eh2_tuning.session.tbl"], nil, "current boot drops leftover session overlay")
+  t.eq(files["/eh2_tuning.tbl"], "SEEDED-CURRENT", "current file already is the source")
+end)
+
+t.test("commit with two args still writes fused + current tuning (legacy callers)", function()
+  local assembled = { hw = hwconfig.defaults(), tuning = tuningdefaults.get() }
+  assembled.tuning.gains.hoverDuty = 0.44
+  local files = {}
+  local function captureWrite(path, body) files[path] = body end
+
+  M.commit(assembled, captureWrite)
+
+  local hw = textutils.unserialise(files["/eh2_hw_config.tbl"])
+  t.truthy(hw and hw.thrusters)
+  local tuning = textutils.unserialise(files["/eh2_tuning.tbl"])
+  t.eq(tuning and tuning.gains and tuning.gains.hoverDuty, 0.44)
+  t.eq(files["/eh2_tuning.session.tbl"], nil)
+end)
+
+t.test("tools/flight.lua prefers eh2_tuning.session.tbl over eh2_tuning.tbl", function()
+  local f = fs.open("/tools/flight.lua", "r")
+  t.truthy(f, "tools/flight.lua readable")
+  local body = f.readAll(); f.close()
+  local sessionAt = body:find('"/eh2_tuning.session.tbl"', 1, true)
+  local currentAt = body:find('"/eh2_tuning.tbl"', 1, true)
+  t.truthy(sessionAt, "flight loadConfig must look for the session overlay")
+  t.truthy(currentAt, "flight loadConfig still falls back to current tuning")
+  t.truthy(sessionAt < currentAt, "session overlay is preferred before current")
 end)

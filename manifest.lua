@@ -251,9 +251,9 @@
         },
         {
           ["dst"] = "fcs/boot/loaderui.lua",
-          ["size"] = 3874,
+          ["size"] = 4442,
           ["src"] = "dist/fcs/boot/loaderui.lua",
-          ["sum"] = "648076b4",
+          ["sum"] = "9a0efa31",
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
@@ -404,6 +404,12 @@
           ["size"] = 953,
           ["src"] = "dist/fcs/io/cfgaccess.lua",
           ["sum"] = "fca525ec",
+        },
+        {
+          ["dst"] = "fcs/io/cfgroles.lua",
+          ["size"] = 737,
+          ["src"] = "dist/fcs/io/cfgroles.lua",
+          ["sum"] = "776c1f88",
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
@@ -575,9 +581,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 9014,
+          ["size"] = 9609,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "aa11324f",
+          ["sum"] = "e32cee25",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -1380,5 +1386,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "8f8c3be2",
+  ["version"] = "5b014950",
 }
