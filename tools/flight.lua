@@ -27,8 +27,14 @@ local health    = require("fcs.comms.health")
 local Inst      = require("fcs.bringup.instrument")
 local Status    = require("fcs.bringup.status")
 local LogBuffer = require("fcs.bringup.logbuffer")
+local cfgsync   = require("fcs.comms.cfgsync")
+local cfgaccess = require("fcs.io.cfgaccess")
 
 local CH = { telemetry = 101, command = 102, ack = 103, health = 104 }
+-- Config responder pair (105/106): separate from telemetry/command/ack/health so live config
+-- traffic never touches the control-loop comms budget. Ownership moved here from fcs/boot/loaderui
+-- (S2): the boot no longer pulls config from the UI; the UI now reads/writes THIS FCS live.
+local CFG_CH = { req = 105, reply = 106 }
 local CONFIG_PATH = "/eh2_hw_config.tbl"
 
 -- Clear the boot-loader's console and show a status the operator can see during the (short)
@@ -108,6 +114,8 @@ end
 -- FCS RECEIVES commands on 102 and SENDS: telemetry on 101, acks on 103, heartbeat on 104.
 local modem = assert(peripheral.find("modem"), "FCS needs a modem")
 for _, c in pairs(CH) do modem.open(c) end
+for _, c in pairs(CFG_CH) do modem.open(c) end
+local cfgLink = modemlib.wrap(modem, { txCh = CFG_CH.reply, rxCh = CFG_CH.req })
 local telLink = modemlib.wrap(modem, { txCh = CH.telemetry, rxCh = CH.command })
 local cmdLink = modemlib.wrap(modem, { txCh = CH.ack,       rxCh = CH.command })
 local hbLink  = modemlib.wrap(modem, { txCh = CH.health,    rxCh = CH.command })
@@ -342,6 +350,40 @@ local function commandTask()
   end
 end
 
+-- ---- Live config responder (CFG_CH): serves the UI's BIT/CONFIG menus from THIS FCS's own config
+-- files and applies their writes. Stateless per request (a sibling of commandTask): each req/set is
+-- self-contained, handled between control ticks -- no config "session" state. Traffic occurs only
+-- when the operator opens/saves a menu. Reads/writes go through fcs.io.cfgaccess (pure, tested).
+local function cfgProvider(kind) return cfgaccess.getKind(kind, readFile) end
+local function cfgApplier(kind, body)
+  local ok, err = cfgaccess.setKind(kind, body, readFile, writeFile)
+  -- Apply-timing preserved: the ONLY hot config change is CoM. A tuning set carrying com{} is
+  -- pushed to the mixer LIVE via the same setCom path the COM screen uses, so a hand trim takes
+  -- effect now; tuning/bindings otherwise need an FCS reload. Idempotent with the COM screen's own
+  -- command-channel setCom (fcs/runtime/flight.lua:132).
+  if ok and kind == "tuning" and type(body) == "table" and type(body.com) == "table" then
+    pcall(function()
+      flight:handleCommand({ k = "setCom",
+        fwd = body.com.fwd or 0, right = body.com.right or 0,
+        spanFwd = body.com.spanFwd or body.com.span, spanRight = body.com.spanRight or body.com.span })
+    end)
+  end
+  return ok, err
+end
+
+local function configTask()
+  while true do
+    local _, _, ch, _, msg = os.pullEvent("modem_message")
+    local frame_ = cfgLink:onMessage(ch, msg)
+    if frame_ then
+      fault.protect(function()
+        local reply = cfgsync.Responder.decide(frame_, cfgProvider, cfgApplier)
+        if reply then cfgLink:send(reply) end
+      end)
+    end
+  end
+end
+
 local function healthTask()
   while true do
     local beat = hbTx:beat(os.epoch("utc") / 1000)
@@ -396,13 +438,13 @@ loadT0 = os.epoch("utc")
 if LOGGING then
   logStart()
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask, logKeyTask)
+                        healthTask, fuelTask, statusTask, logKeyTask, configTask)
   safeShutdown()
   logFinish()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 else
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask)
+                        healthTask, fuelTask, statusTask, configTask)
   safeShutdown()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 end

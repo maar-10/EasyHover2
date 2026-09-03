@@ -400,6 +400,12 @@
           ["sum"] = "000ba4ea",
         },
         {
+          ["dst"] = "fcs/io/cfgaccess.lua",
+          ["size"] = 953,
+          ["src"] = "dist/fcs/io/cfgaccess.lua",
+          ["sum"] = "fca525ec",
+        },
+        {
           ["dst"] = "fcs/io/cfgspec.lua",
           ["size"] = 1785,
           ["src"] = "dist/fcs/io/cfgspec.lua",
@@ -569,9 +575,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 8238,
+          ["size"] = 9014,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "7b8d08e1",
+          ["sum"] = "aa11324f",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -1365,5 +1371,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "a1a9bf87",
+  ["version"] = "1ae62f59",
 }
