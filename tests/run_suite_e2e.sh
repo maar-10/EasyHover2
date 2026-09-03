@@ -13,7 +13,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-CRAFTOS="/c/Program Files/CraftOS-PC/CraftOS-PC_console.exe"
+CRAFTOS="${CRAFTOS_BIN:-/c/Program Files/CraftOS-PC/CraftOS-PC_console.exe}"
 WORK="$HERE/.craftos/suite_e2e"
 DATA="$WORK/data"
 C0="$DATA/computer/0"

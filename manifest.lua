@@ -164,6 +164,12 @@
           ["sum"] = "2b5f776e",
         },
         {
+          ["dst"] = "fcs/bringup/logstream.lua",
+          ["size"] = 509,
+          ["src"] = "dist/fcs/bringup/logstream.lua",
+          ["sum"] = "661e7774",
+        },
+        {
           ["dst"] = "fcs/bringup/profile.lua",
           ["size"] = 1703,
           ["src"] = "dist/fcs/bringup/profile.lua",
@@ -465,9 +471,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 10545,
+          ["size"] = 11974,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "dc2f7ad9",
+          ["sum"] = "dcf7d572",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -1470,5 +1476,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "d58acc93",
+  ["version"] = "622ceb9c",
 }

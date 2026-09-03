@@ -30,6 +30,7 @@ local Status    = require("fcs.bringup.status")
 local LogBuffer = require("fcs.bringup.logbuffer")
 local cfgsync   = require("fcs.comms.cfgsync")
 local cfgaccess = require("fcs.io.cfgaccess")
+local LogStream = require("fcs.bringup.logstream")
 
 local CH = { telemetry = 101, command = 102, ack = 103, health = 104 }
 -- Config responder pair (105/106): separate from telemetry/command/ack/health so live config
@@ -168,8 +169,8 @@ local LOGGING   = _G.EH2_FLIGHTLOG == true
 local LOG_PATH  = "/eh2_flight_log.csv"
 local MAX_ROWS  = 3000   -- bound RAM/disk; the in-memory summary still covers the whole run
 local logSummary, logT0, logRows
--- ROLLING ring buffer of the last MAX_ROWS raw samples (fcs.bringup.logbuffer): P dumps a
--- bounded, recent window on demand while the FCS keeps flying. CC file writes are synchronous +
+-- ROLLING ring buffer of the last MAX_ROWS raw samples (fcs.bringup.logbuffer): P toggles
+-- a carbide stream of the bounded, recent window on demand while the FCS keeps flying. CC file writes are synchronous +
 -- non-yielding, so the write happens ONLY on a P press / on exit, never on the control loop --
 -- same "nothing that can block belongs on the hot path" lesson as the fuel decouple.
 local function logStart()
@@ -235,7 +236,7 @@ local function logPlain()
 end
 
 -- Compose the log body (header + rows + running summary) to LOG_PATH. Returns rowCount.
--- Off the flight path (called only from logDump/logFinish).
+-- Off the flight path (called only from dumpOnce and logFinish).
 local function logWriteFile()
   -- Format the buffered raw samples to slim CSV rows HERE, at dump time (P press / exit), not
   -- per cycle; then either delta-encode them (fcs.bringup.logcodec) or write them plainly.
@@ -261,14 +262,16 @@ local function logWriteFile()
   end)
   return #rows
 end
--- P-triggered: write the rolling window locally, then STREAM it to carbide as an appendable
--- paste (one per flight): the first P creates the stream, later presses append only the rows
--- since the last press. Falls back to a plain `carbide put` when the installed carbide client
--- predates the stream verbs. All carbide IO stays off the flight path (P press only) and every
--- carbide call is pcall-guarded -- a dead server must never take the FCS down.
+-- P-TOGGLED streaming: P starts the stream when idle (immediate first upload), P again
+-- flushes pending rows and stops it; while streaming, streamTask() auto-appends every
+-- LogStream.PERIOD seconds so the ring can no longer overrun between uploads (the continuity
+-- loss of manual P presses). Falls back to a plain `carbide put` when the installed carbide
+-- client predates the stream verbs. All carbide IO stays off the flight path (P press / timer
+-- tick only) and every carbide call is pcall-guarded -- a dead server must never take the FCS down.
 local stream     -- nil | { id, url, enc = logcodec state, uploaded = rows-ever-uploaded }
 local carbLib    -- nil = not probed yet, false = installed client lacks stream verbs, table = usable
 local carbWarned = false
+local streamCtl = LogStream.new()   -- P-toggle state; the timer task appends while streaming
 
 -- Load the installed carbide client as a library and require stream support. A positive probe
 -- result is cached; a negative one is re-probed on every press (cheap), so installing a new
@@ -292,10 +295,18 @@ local function carbideStreamLib()
 end
 
 -- Append `rows` to the current stream paste (starting one when needed). Pure state machine;
--- never advances state on failure, so the next P re-encodes the identical chunk.
-local function logStream()
-  -- plain mode: no codec anywhere, so streaming is out too -- one plain paste per press
+-- never advances state on failure, so the next dump re-encodes the identical chunk.
+-- manual=true (P press / exit flush): a failed streamBegin falls back to a plain snapshot
+-- paste so the press still uploads something. manual=false (auto tick): no fallback -- a
+-- paste per retry would spam carbide and redo the maximum off-path work every period;
+-- the tick just retries the begin next period.
+local function logStream(manual)
+  -- plain mode: no codec anywhere, so streaming is out too -- one plain paste per press.
+  -- Auto ticks never paste while unsustainable: plain may have flipped after the tick's
+  -- canStream() probe (the dump yields during format/write), so re-check here -- the next
+  -- tick then leaves streaming explicitly.
   if logPlain() then
+    if not manual then return end
     return shell.run("carbide", "put", LOG_PATH)
   end
   local carb = carbideStreamLib()
@@ -313,8 +324,12 @@ local function logStream()
   if not stream or behind > logRows:count() then
     local r, err = carb.streamBegin("eh2 flight log")
     if not r then
-      print("(stream-begin failed: " .. tostring(err) .. " -- uploading window as a plain paste)")
-      return pcall(function() return shell.run("carbide", "put", LOG_PATH) end)
+      if manual then
+        print("(stream-begin failed: " .. tostring(err) .. " -- uploading window as a plain paste)")
+        return pcall(function() return shell.run("carbide", "put", LOG_PATH) end)
+      end
+      print("(stream-begin failed: " .. tostring(err) .. " -- will retry next tick)")
+      return
     end
     stream = { id = r.id, url = r.url, enc = Codec.encoder(Inst.header()), uploaded = 0 }
     behind = total
@@ -340,44 +355,118 @@ local function logStream()
   local text, newState = Codec.encodeChunk(stream.enc, rows)
   local r, err = carb.streamAppend(stream.id, text)
   if not r then
-    -- 4xx (stream full, paste gone, rate limit) -> drop the stream; the next P starts a fresh
-    -- paste. 5xx / pure network errors keep the stream and retry, since state did not advance.
+    -- 4xx (stream full, paste gone, rate limit) -> drop the stream; the next dump (tick
+    -- while streaming, else the next P) starts a fresh paste. 5xx / pure network errors
+    -- keep the stream and retry, since state did not advance.
     if tostring(err):find("^4%d%d") then
       stream = nil
-      print("(stream rejected (" .. tostring(err) .. ") -- next P starts a fresh paste)")
+      print("(stream rejected (" .. tostring(err) .. ") -- next " ..
+        (streamCtl.streaming and "tick" or "P") .. " starts a fresh paste)")
       return
     end
-    print("(append failed: " .. tostring(err) .. " -- will retry next P)")
+    print("(append failed: " .. tostring(err) .. " -- will retry next " ..
+      (streamCtl.streaming and "tick" or "P") .. ")")
     return
   end
   stream.enc, stream.uploaded = newState, total
 end
 
--- P-triggered: write the rolling window to LOG_PATH (always self-contained) + stream/append to
--- carbide, then KEEP FLYING. Repeatable. Feedback lands on row 4, below the status rows.
--- The WHOLE body is pcall-wrapped: logDump runs in its own parallel task, and an uncaught
+-- One dump: write the rolling window to LOG_PATH (always self-contained) + push the
+-- pending slice to the carbide stream. Shared by the P toggle and the auto-append tick so
+-- both paths format each row exactly once. Feedback lands on row 4, below the status rows.
+-- manual selects the streamBegin-failure policy in logStream (plain fallback or tick retry).
+local function dumpOnce(manual)
+  local n = logWriteFile()
+  pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
+  print(("LOG: %d rows -> carbide..."):format(n))
+  -- logWriteFile() already did the row formatting for the file copy; logStream() formats
+  -- only its own pending slice, so a dump does no second full-ring format.
+  logStream(manual)
+end
+
+-- dumping serializes dumpOnce() across the key and timer tasks: every dump yields mid-way
+-- (the 256-row format quantum, file IO, carbide/network calls), so a P press landing mid-tick
+-- would otherwise read the same uploaded cursor, append duplicate rows, and race on LOG_PATH.
+-- A skipped dump loses nothing -- stream state advances only on a confirmed upload, so the
+-- next tick re-encodes the same rows. Mirrors the uploading guard on the UI log path
+-- (ui/basalt/app.lua). Check-then-set is atomic here: neither the test below nor the set in
+-- dumpGuarded yields, so the two tasks cannot interleave between them.
+local dumping = false
+-- dumpGuarded(manual) -> true when a dump ran. Skips (false, silently) while another dump is
+-- in flight; the caller prints its own busy notice when a press deserves one. Owns the
+-- pcall: a failed dump costs a warning, never the flight.
+local function dumpGuarded(manual)
+  if dumping then return false end
+  dumping = true
+  local ok, err = pcall(dumpOnce, manual)
+  dumping = false
+  if not ok then print("(log dump failed: " .. tostring(err) .. " -- grab " .. LOG_PATH .. " manually)") end
+  return true
+end
+
+-- canStream() -> true when an auto-stream is sustainable right now: plain mode off AND the
+-- installed carbide client has the stream verbs. Probed live (never cached negative), so
+-- installing a new carbide.lua mid-flight or flipping eh2_log_plain takes effect on the
+-- next P press without a restart.
+local function canStream()
+  if logPlain() then return false end
+  return carbideStreamLib() and true or false
+end
+
+-- P-toggle: start streaming when idle (immediate first upload), flush + stop when streaming,
+-- then KEEP FLYING. Without stream verbs (plain mode / old client) P stays a legacy one-shot
+-- snapshot upload and explicitly leaves streaming mode -- staying flagged would paste every
+-- tick. A P press landing mid-dump is refused with a notice (no toggle): the rows wait for
+-- the next tick, and the press can simply be repeated.
+-- The WHOLE body is pcall-wrapped: logToggle runs in its own parallel task, and an uncaught
 -- error here would unwind the entire task group (safeShutdown = thrust off mid-air). A failed
 -- dump must cost nothing but a printed warning.
-local function logDump()
+local function logToggle()
   if not LOGGING then return end
   local ok, err = pcall(function()
-    local n = logWriteFile()
-    pcall(function() term.setCursorPos(1, 4); term.clearLine() end)
-    print(("LOG: %d rows -> carbide..."):format(n))
-    -- logWriteFile() already did the row formatting for the file copy; logStream() formats
-    -- only its own pending slice, so the P press does no second full-ring format.
-    logStream()
+    if not canStream() then
+      if streamCtl.streaming then
+        streamCtl.streaming = false
+        print("(streaming stopped -- single snapshot per P from here)")
+      elseif logPlain() then
+        print("(plain mode -- streaming off; single snapshot per P)")
+      end
+      dumpGuarded(true)
+      return
+    end
+    if dumping then
+      print("(upload in progress -- press P again in a moment)")
+      return
+    end
+    local action = LogStream.key(streamCtl, "p")
+    if action == "start" then
+      print("LOG: streaming started (P again to stop)")
+      dumpGuarded(true)
+    elseif action == "stop" then
+      dumpGuarded(true)   -- flush pending rows so the paste ends complete
+      print(("LOG: streaming stopped%s"):format(
+        stream and stream.url and (" -- " .. stream.url) or ""))
+    end
   end)
   if not ok then
     print("(log dump failed: " .. tostring(err) .. " -- grab " .. LOG_PATH .. " manually)")
   end
 end
--- Exit-only: stop thrust, write the final window LOCALLY (no auto-upload -- P is the upload
--- action). Runs even when per-cycle logging disabled itself (LOGGING false): the buffered rows
--- still get written, only the live cycle capture stopped.
+-- Exit-only: stop thrust, flush a final chunk when streaming was left on, then write the
+-- final window LOCALLY. Runs even when per-cycle logging disabled itself (LOGGING false):
+-- the buffered rows still get written, only the live cycle capture stopped.
 local function logFinish()
   if logRows == nil then return end
   loop:arm(false); pcall(function() loop:cycle(0, backend:sensors()) end)   -- stop thrust on exit
+  -- Final flush when a stream was left on, even if live capture disabled itself (LOGGING
+  -- false): buffered rows stay valid -- only the per-cycle capture stopped.
+  -- The flag resets unconditionally: the task group is over, so no dump can still be in
+  -- flight, even one abandoned mid-yield by the teardown itself.
+  dumping = false
+  if LogStream.finish(streamCtl) then
+    local okf, errf = pcall(dumpOnce, true)
+    if not okf then print("(final stream flush failed: " .. tostring(errf) .. ")") end
+  end
   local ok, n = pcall(function() return logWriteFile() end)
   n = ok and n or 0
   pcall(function() term.setCursorPos(1, 4) end)
@@ -565,7 +654,7 @@ end
 
 -- ---- Console status (fcs.bringup.status): tells the operator the FCS is alive + what it's doing.
 -- Own low-rate (~4Hz) parallel task -- one cursor-move + write per tick, yields immediately, so it
--- never competes with the control loop. Owns rows 1-2; logDump feedback lands on row 4.
+-- never competes with the control loop. Owns rows 1-2; dump feedback lands on row 4.
 local WARMUP_MS = 20000   -- ~20s display-only settle window (never gates engagement)
 local loadT0 = nil        -- set when flight tasks start; nil => LOADING
 local function statusTask()
@@ -583,11 +672,30 @@ local function statusTask()
   end
 end
 
--- P dumps + uploads the rolling log window and keeps flying (only meaningful when LOGGING).
+-- P toggles streaming mode and keeps flying (only meaningful when LOGGING).
 local function logKeyTask()
   while true do
     local _, key = os.pullEvent("char")
-    if key == "p" or key == "P" then logDump() end
+    if key == "p" or key == "P" then logToggle() end
+  end
+end
+
+-- Auto-append while streaming: every LogStream.PERIOD seconds push the pending slice so the
+-- ring can no longer overrun between uploads. Own low-rate parallel task. A dump already in
+-- flight (P press) is skipped silently -- the rows wait for the next tick. A stream that
+-- turned unsustainable (plain mode flipped on mid-stream) is left explicitly, never pasted
+-- on a timer. Skips entirely when idle or when the logger disabled itself (LOGGING false).
+local function streamTask()
+  while true do
+    sleep(LogStream.PERIOD)
+    if LOGGING then
+      local decision = LogStream.auto(streamCtl, canStream())
+      if decision == "dump" then
+        dumpGuarded(false)
+      elseif decision == "leave" then
+        print("(streaming stopped -- single snapshot per P from here)")
+      end
+    end
   end
 end
 
@@ -607,7 +715,7 @@ loadT0 = os.epoch("utc")
 if LOGGING then
   logStart()
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask, logKeyTask, configTask)
+                        healthTask, fuelTask, statusTask, logKeyTask, configTask, streamTask)
   safeShutdown()
   logFinish()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
