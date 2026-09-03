@@ -10,13 +10,24 @@ local M = {}
 function M.hello(sid) return { k = "hello", sid = sid } end
 function M.req(sid, kind) return { k = "req", sid = sid, kind = kind } end
 function M.cfg(sid, kind, body) return { k = "cfg", sid = sid, kind = kind, body = body } end
+function M.set(sid, kind, body) return { k = "set", sid = sid, kind = kind, body = body } end
+function M.ack(sid, kind, ok, err) return { k = "ack", sid = sid, kind = kind, ok = ok and true or false, err = err } end
 
--- Responder: gated -- only replies when the provider holds the requested kind.
+-- Responder: gated. `req` is answered only when the provider holds the requested kind (unchanged);
+-- `set` is applied via the injected applier (validate + persist) and always acked (ok=false+err on
+-- failure). `applier(kind, body) -> ok, err`. A `set` with no applier is ignored.
 M.Responder = {}
-function M.Responder.decide(frame, provider)
-  if type(frame) ~= "table" or frame.k ~= "req" then return nil end
-  local body = provider(frame.kind)
-  if body ~= nil then return M.cfg(frame.sid, frame.kind, body) end
+function M.Responder.decide(frame, provider, applier)
+  if type(frame) ~= "table" then return nil end
+  if frame.k == "req" then
+    local body = provider and provider(frame.kind)
+    if body ~= nil then return M.cfg(frame.sid, frame.kind, body) end
+    return nil
+  elseif frame.k == "set" then
+    if not applier then return nil end
+    local ok, err = applier(frame.kind, frame.body)
+    return M.ack(frame.sid, frame.kind, ok, err)
+  end
   return nil
 end
 
