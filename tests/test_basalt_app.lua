@@ -121,8 +121,8 @@ t.test("buildRuntime wires comms/engine/fuel/cfgsync with injected deps, no real
   t.truthy(runtime.hbRx ~= nil, "hbRx present")
   t.truthy(runtime.engine ~= nil, "engine present")
   t.truthy(runtime.fuelReaders ~= nil and runtime.fuelReaders.pump and runtime.fuelReaders.tank, "fuelReaders present")
-  t.truthy(runtime.cfgserver ~= nil, "cfgserver present")
-  t.truthy(runtime.cfgserver:running() == false, "cfgserver NOT auto-started")
+  t.truthy(runtime.cfgClient ~= nil, "cfgClient present")
+  t.truthy(type(runtime.cfgCache) == "table", "cfgCache present")
   t.eq(runtime.uiRev, 0)
   -- UI logger present + a no-op setLogStatus (real overlay wired only in M.run, in-game).
   t.truthy(runtime.uilog ~= nil, "uilog present")
@@ -165,21 +165,34 @@ t.test("routeModem marks health rx up", function()
   t.eq(runtime.hbRx:up(os.epoch("utc") / 1000), true, "heartbeat -> up")
 end)
 
-t.test("routeModem answers a cfgsync req when the server is running and holds the file", function()
-  local runtime, modem = newRuntime({ ["/eh2_tuning.tbl"] = "TUNING-BODY" })
-  runtime.cfgserver:start()
-  local reply = M.routeModem(runtime, CFG_CH.req, protocol.encode(S.req("sid1", "tuning")))
-  t.truthy(reply ~= nil, "a reply frame should come back")
-  t.eq(reply.body, "TUNING-BODY", "reply carries the raw file body string")
-  t.eq(#modem._sent, 1, "the reply was actually transmitted on the modem")
+t.test("routeModem delivers a cfg reply to the cfg client's read callback", function()
+  local runtime = newRuntime()
+  local got
+  local sid = runtime.cfgClient:readKind("tuning", function(body) got = body end)
+  M.routeModem(runtime, CFG_CH.reply, protocol.encode(S.cfg(sid, "tuning", { gains = 3 })))
+  t.truthy(got ~= nil and got.gains == 3, "cfg reply reached the read callback")
 end)
 
-t.test("routeModem stays silent for cfgsync req when the server is stopped", function()
-  local runtime, modem = newRuntime({ ["/eh2_tuning.tbl"] = "TUNING-BODY" })
-  -- server never started
-  local reply = M.routeModem(runtime, CFG_CH.req, protocol.encode(S.req("sid1", "tuning")))
-  t.eq(reply, nil, "stopped server -> no reply")
-  t.eq(#modem._sent, 0, "nothing transmitted")
+t.test("routeModem delivers an ack to the cfg client's write callback", function()
+  local runtime = newRuntime()
+  local okSeen
+  local sid = runtime.cfgClient:writeKind("tuning", { gains = {}, caps = {}, feel = {} },
+    function(ok) okSeen = ok end)
+  M.routeModem(runtime, CFG_CH.reply, protocol.encode(S.ack(sid, "tuning", true, nil)))
+  t.eq(okSeen, true, "ack reached the write callback")
+end)
+
+t.test("cfgMenuStatus reports sync until cached, then ok, and requests missing kinds once", function()
+  local runtime = { cfgCache = {} }
+  local requested = {}
+  local requestFn = function(kind) requested[#requested + 1] = kind end
+  t.eq(M.cfgMenuStatus(runtime, "mdb", requestFn), "sync", "missing kind -> sync")
+  t.eq(requested[1], "devbind", "the missing kind was requested")
+  runtime.cfgCache.devbind = { body = {}, status = "ok" }
+  t.eq(M.cfgMenuStatus(runtime, "mdb", requestFn), "ok")
+  runtime.cfgCache.devbind = { body = nil, status = "fail" }
+  t.eq(M.cfgMenuStatus(runtime, "mdb", requestFn), "fail")
+  t.eq(M.cfgMenuStatus(runtime, "emc", requestFn), "ok", "a non-config screen is always ok")
 end)
 
 t.test("buildState assembles the flat cadence keys from telemetry + engine + fuel + uiRev", function()

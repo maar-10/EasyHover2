@@ -44,7 +44,7 @@ local RelayWriter = require("ui.relaywriter")
 local Fuel      = require("ui.fuel")
 local FuelRate  = require("ui.fuelrate")
 local FedTrack  = require("ui.fedtrack")
-local CfgServer = require("ui.cfgserver")
+local CfgClient = require("ui.basalt.cfgclient")
 local renderpolicy = require("ui.basalt.renderpolicy")
 local fcslink   = require("ui.basalt.fcslink")
 local Nav       = require("ui.basalt.nav")
@@ -58,7 +58,6 @@ local modemlib  = require("fcs.comms.modem")
 local telemetry = require("fcs.comms.telemetry")
 local command   = require("fcs.comms.command")
 local health    = require("fcs.comms.health")
-local fsx       = require("fcs.io.fsx")
 
 local M = {}
 
@@ -96,10 +95,37 @@ M.PAGES = {
   fcssync   = require("ui.basalt.bitconfig.fcssync"),
 }
 
--- Same channel convention as ui/main.lua (101-104) and fcs/boot/loaderui.lua's cfgsync client
--- (105-106, mirrored here: the UI is the RESPONDER -- listens on req, sends on reply).
+-- Same channel convention as ui/main.lua (101-104) and the FCS config responder (105-106):
+-- the UI is the CLIENT -- sends req/set on req (105), hears cfg/ack on reply (106).
 M.CH = { telemetry = 101, command = 102, ack = 103, health = 104 }
 M.CFG_CH = { req = 105, reply = 106 }
+
+-- Which FCS config kinds each BIT/CONFIG menu needs cached before it can render live. tuning's
+-- COM/AUTO-COM drilldown also reads devbind/senscal, so all three are prefetched on open.
+M.CFG_MENU_KINDS = {
+  tuning = { "tuning", "devbind", "senscal" },
+  mdb = { "devbind" },
+  senscal = { "devbind", "senscal" },
+  senssource = { "devbind" },
+}
+
+-- cfgMenuStatus(runtime, screenId, requestFn) -> "ok" | "sync" | "fail". PURE given the cache: a
+-- non-config screen is always "ok"; "fail" if any needed kind failed; "sync" if any is missing/in
+-- flight (requestFn(kind) is invoked once per not-yet-requested kind); else "ok".
+function M.cfgMenuStatus(runtime, screenId, requestFn)
+  local kinds = M.CFG_MENU_KINDS[screenId]
+  if not kinds then return "ok" end
+  local agg = "ok"
+  for _, kind in ipairs(kinds) do
+    local c = runtime.cfgCache[kind]
+    if c and c.status == "fail" then return "fail" end
+    if not c or c.status == "sync" then
+      if not c then requestFn(kind) end
+      agg = "sync"
+    end
+  end
+  return agg
+end
 
 M.CONFIG_PATH = "/eh2_ui_config.tbl"
 M.UI_LOG_PATH = "/eh2_ui_log.txt"   -- rolling UI log; P uploads this to carbide from the cockpit
@@ -344,6 +370,22 @@ function M.showScreen(basalt, runtime, frameRec, screenId)
   local page = M.PAGES[screenId]
   if not page then return nil end
 
+  -- S2: FCS config menus render only once their kinds are cached (fetched live from the FCS).
+  -- While syncing / on timeout, show a placeholder instead of the menu -- the menu never sees a
+  -- half-fetched cfg. requestFn kicks a client read whose reply flips the cache to "ok" and
+  -- repaints (applyNow), rebuilding the real menu here.
+  local cfgStatus = M.cfgMenuStatus(runtime, screenId, function(kind)
+    runtime.cfgCache[kind] = { body = nil, status = "sync" }
+    runtime.cfgClient:readKind(kind, function(body)
+      runtime.cfgCache[kind] = { body = body, status = body ~= nil and "ok" or "fail" }
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+      pcall(function() M.applyNow(basalt, runtime, frameRec) end)
+    end)
+  end)
+  if cfgStatus ~= "ok" then
+    return M._cfgPlaceholder(basalt, frameRec, screenId, cfgStatus)
+  end
+
   local entry = frameRec.built[screenId]
   if not entry then
     local w, h = frameRec.frame:getSize()
@@ -357,6 +399,27 @@ function M.showScreen(basalt, runtime, frameRec, screenId)
     e.childFrame:setVisible(id == screenId)
   end
   return entry
+end
+
+-- A minimal SYNC / FCS-NOT-ANSWERING frame shown in place of a config menu until its cfg arrives.
+-- Cached under a distinct built key so the real menu rebuilds when the cache flips to "ok".
+function M._cfgPlaceholder(basalt, frameRec, screenId, status)
+  local key = "__cfggate_" .. screenId
+  local rec = frameRec.built[key]
+  if not rec then
+    local w, h = frameRec.frame:getSize()
+    local child = frameRec.frame:addFrame({ x = 1, y = 1, width = w, height = h })
+    local msg = child:addLabel({ x = 2, y = 2, width = math.max(1, w - 2), height = 2, autoSize = false, text = "" })
+    local back = child:addButton({ x = 2, y = h - 1, width = math.min(6, w - 2), height = 1, text = "<" })
+    back:onClick(function() if frameRec.nav then frameRec.nav:pop() end end)
+    rec = { childFrame = child, handle = { apply = function() end }, _msg = msg }
+    frameRec.built[key] = rec
+  end
+  rec._msg:setText(status == "fail"
+    and "FCS NOT ANSWERING -- seed via a config disk & reboot"
+    or "SYNCING FCS...")
+  for id, r in pairs(frameRec.built) do r.childFrame:setVisible(id == key) end
+  return rec
 end
 
 -- M.applyNow(basalt, runtime, frameRec) -> entry|nil
@@ -401,11 +464,6 @@ end
 
 -- ===== Runtime: comms/engine/fuel machinery (reused verbatim from ui/main.lua) =====
 
--- Real atomic-tmp-write-free file reader for cfgserver -- mirrors fcs/boot/loaderui.lua's
--- realRead exactly (read-only: cfgserver only ever answers `req` frames with file bodies).
--- Delegates to fcs/io/fsx.lua's shared helper.
-local realRead = fsx.read
-
 -- Select the engine's relay writer by mode. basic -> single-side level writer (config.relay.side);
 -- latch -> two-line pulse writer (config.relay.blockSide/feedSide). Read fresh via closures so a
 -- rebind/side change is picked up without rebuilding. Pure but for the injected getRelay.
@@ -422,15 +480,13 @@ end
 -- deps.modem   -- a modem peripheral (default peripheral.find("modem"))
 -- deps.wrap    -- peripheral.wrap override (default peripheral.wrap)
 -- deps.find    -- peripheral.find override, used only when deps.modem is absent
--- deps.read    -- file reader for cfgserver, (path) -> body|nil (default realRead)
 --
 -- NO peripheral access happens outside this function -- `require("ui.basalt.app")` stays clean
--- headless; a test supplies deps.modem/deps.wrap/deps.read so this runs under CraftOS-PC too.
+-- headless; a test supplies deps.modem/deps.wrap so this runs under CraftOS-PC too.
 function M.buildRuntime(deps)
   deps = deps or {}
   local wrap = deps.wrap or peripheral.wrap
   local find = deps.find or peripheral.find
-  local read = deps.read or realRead
 
   local modem = deps.modem or find("modem")
   assert(modem, "UI-PC needs a modem on the wired network")
@@ -438,12 +494,13 @@ function M.buildRuntime(deps)
   local CH, CFG_CH = M.CH, M.CFG_CH
 
   -- One link per logical channel (UI listens on telemetry/ack/health, sends on command) --
-  -- PLUS the cfgsync link, mirrored the opposite way round from fcs/boot/loaderui.lua's client:
-  -- the UI listens on req (105) and sends replies on reply (106).
+  -- PLUS the CFG_CH client (S2): the UI now reads/writes the running FCS's config live -- SEND
+  -- req/set on req (105), HEAR cfg/ack on reply (106). (Pre-S2 the UI was the config SERVER; that
+  -- inversion retired ui/cfgserver.lua and the FCS boot's "ui" source.)
   local telLink = modemlib.wrap(modem, { txCh = CH.command, rxCh = CH.telemetry })
   local ackLink = modemlib.wrap(modem, { txCh = CH.command, rxCh = CH.ack })
   local hbLink  = modemlib.wrap(modem, { txCh = CH.command, rxCh = CH.health })
-  local cfgLink = modemlib.wrap(modem, { txCh = CFG_CH.reply, rxCh = CFG_CH.req })
+  local cfgLink = modemlib.wrap(modem, { txCh = CFG_CH.req, rxCh = CFG_CH.reply })
   -- NAV computer relay (nav/runtime.lua): fire-and-forget navfix frames on wired ch 107, no
   -- reply expected -- txCh is set to the same channel purely so the link shape matches the
   -- others; the UI never sends on it.
@@ -544,8 +601,7 @@ function M.buildRuntime(deps)
   local fuelRate = FuelRate.new(config.fuel and config.fuel.rate)
   local fedTrack = FedTrack.new()   -- LFED: solid-fuel-fed-per-feed, from the 3s pump poll (no extra reads)
 
-  -- Not auto-started: FCS SYNC (a later page task) starts/stops this on demand.
-  local cfgserver = CfgServer.new({ read = read, dir = "/" })
+  local cfgClient = CfgClient.new({ link = cfgLink })
 
   return {
     links = { tel = telLink, ack = ackLink, hb = hbLink },
@@ -560,7 +616,9 @@ function M.buildRuntime(deps)
     fuelReaders = fuelReaders,
     fuelRate = fuelRate,
     fedTrack = fedTrack,
-    cfgserver = cfgserver,
+    cfgClient = cfgClient,
+    cfgCache = {},          -- kind -> { body = table, status = "ok"|"sync"|"fail" }
+    cfgSaveStatus = nil,    -- last save result string, shown by the menus + FCS SYNC checker
     config = config,
     rebindRelay = rebindRelay,
     rebuildEngineWriter = rebuildEngineWriter,
@@ -582,9 +640,8 @@ end
 -- ===== Modem routing (testable, no sleeping) =====
 
 -- M.routeModem(runtime, ch, msg) -> replyFrame|nil
--- Mirrors ui/main.lua's netLoop routing for tel/ack/health EXACTLY, plus cfgsync on top: a `req`
--- frame on CFG_CH.req is handed to cfgserver:onMessage, and any reply it produces is sent back on
--- cfgLink (and returned, so a test can assert on it directly without capturing a modem transmit).
+-- Mirrors ui/main.lua's netLoop routing for tel/ack/health EXACTLY, plus CFG_CH client replies:
+-- a cfg/ack frame on CFG_CH.reply is handed to cfgClient:onReply (the UI is the requester).
 function M.routeModem(runtime, ch, msg)
   local f = runtime.links.tel:onMessage(ch, msg)
   if f then
@@ -606,11 +663,8 @@ function M.routeModem(runtime, ch, msg)
 
   local c = runtime.cfgLink:onMessage(ch, msg)
   if c then
-    local reply = runtime.cfgserver:onMessage(c)
-    if reply then
-      runtime.cfgLink:send(reply)
-      return reply
-    end
+    runtime.cfgClient:onReply(c, os.epoch("utc"))
+    return nil
   end
 
   local n = runtime.navLink:onMessage(ch, msg)
@@ -826,7 +880,7 @@ function M.gateFrame(rec, pol, state, now)
 end
 
 -- M.startScheduled(basalt, runtime, frameRecs)
--- Registers six basalt.schedule sleep-loop coroutines -- the SAME composition ui/main.lua ran
+-- Registers seven basalt.schedule sleep-loop coroutines -- the SAME composition ui/main.lua ran
 -- under parallel.waitForAny, ported one-for-one onto Basalt's own coroutine scheduler (verified
 -- against release/basalt-full.lua: b_a.schedule creates a coroutine, resumes it once, and stores
 -- its yielded filter; b_a's internal event dispatcher (bca) then resumes any scheduled coroutine
@@ -891,7 +945,7 @@ function M.startScheduled(basalt, runtime, frameRecs)
     M.applyEventTop(runtime, frameRecs, "nav")
   end
 
-  -- (a) modem_message router: telemetry -> rx, ack -> sender, health -> hbRx, cfgsync req -> reply.
+  -- (a) modem_message router: telemetry -> rx, ack -> sender, health -> hbRx, cfg/ack -> cfgClient.
   basalt.schedule(function()
     while true do
       local _, _, ch, _replyCh, msg = os.pullEvent("modem_message")
@@ -967,6 +1021,15 @@ function M.startScheduled(basalt, runtime, frameRecs)
         end)
       end
       sleep(2.0)
+    end
+  end)
+
+  -- (h) CFG client tick, 0.25s: retransmit timed-out req/set (2 s x 3) and fail callbacks when
+  -- the FCS stays silent. Replies land via routeModem -> cfgClient:onReply.
+  basalt.schedule(function()
+    while true do
+      pcall(function() runtime.cfgClient:tick(os.epoch("utc")) end)
+      sleep(0.25)
     end
   end)
 
@@ -1079,11 +1142,11 @@ end
 -- handle.apply(state) each frame's OWN current top on its OWN cadence + OWN dirty-gate -- FCS-SAFE:
 -- peripheral polls stay in M.startScheduled's (a)-(d), never on this render path; event-mode
 -- screens are NEVER touched by that periodic gate at all, by design (M.applyNow is their only
--- render path). deps.* mirrors M.buildRuntime's injectable seams (modem/wrap/find/read) plus
+-- render path). deps.* mirrors M.buildRuntime's injectable seams (modem/wrap/find) plus
 -- deps.basaltOpts (-> M.ensureBasalt) and deps.getNames/deps.getType (-> M.discoverMonitors).
 --
--- cfgserver is deliberately NOT auto-started here -- the FCS SYNC sub-menu (ui/basalt/bitconfig/
--- fcssync.lua) starts/stops it on demand.
+-- The FCS is the config source of truth (S2): the BIT/CONFIG menus read/write it live via
+-- runtime.cfgClient over CFG_CH; there is no UI-side config server any more.
 function M.run(deps)
   deps = deps or {}
   local basalt = M.ensureBasalt(deps.basaltOpts)

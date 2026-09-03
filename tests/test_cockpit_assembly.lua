@@ -8,8 +8,8 @@ local t = require("tests.framework")
 local M = require("ui.basalt.app")
 
 -- Mock modem, mirroring tests/test_basalt_app.lua's newMockModem/newRuntime EXACTLY, so this
--- probe's runtime is the SAME real shape M.run() itself builds (real Config/Engine/CfgServer --
--- just modem/wrap/read swapped out so nothing here touches an actual peripheral).
+-- probe's runtime is the SAME real shape M.run() itself builds (real Config/Engine/CfgClient --
+-- just modem/wrap swapped out so nothing here touches an actual peripheral).
 local function newMockModem()
   local sent = {}
   local dev = {
@@ -23,11 +23,23 @@ end
 
 local function newRuntime()
   local modem = newMockModem()
-  return M.buildRuntime({
+  local runtime = M.buildRuntime({
     modem = modem,
     wrap = function() return {} end,  -- no relay/fuel peripherals present in this probe
-    read = function(_p) return nil end,
   })
+  -- Seed the live-cfg cache so BIT/CONFIG menus pass M.showScreen's cfgMenuStatus gate and
+  -- actually construct (the probe asserts frameRec.built[id], not the SYNC placeholder).
+  for _, kind in ipairs({ "tuning", "devbind", "senscal" }) do
+    runtime.cfgCache[kind] = { body = {}, status = "ok" }
+  end
+  -- fcssync.lua still talks to runtime.cfgserver until Task 11 rewrites it as a read-only
+  -- checker. Stub just enough of that surface so the construction probe can build the page.
+  runtime.cfgserver = {
+    start = function() end,
+    stop = function() end,
+    status = function() return { running = false } end,
+  }
+  return runtime
 end
 
 -- ===== M.rootForMonitor: pure =====
