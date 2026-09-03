@@ -20,12 +20,15 @@ t.test("finish resolves current+current+default and commits fused + session over
     if concern == "binding" and src == "current" then return split.devbind end
     if concern == "sensor" and src == "current" then return split.senscal end
     if concern == "tuning" and src == "default" then return tuningdefaults.get() end
+    if concern == "fuelcal" and src == "current" then return cfgspec.defaults("fuelcal") end
     return nil
   end }
   local written = { ["/eh2_tuning.tbl"] = "SEEDED-CURRENT" }
   local function captureWrite(path, body) written[path] = body end
 
-  local ok, assembled = M.finish({ binding = "current", sensor = "current", tuning = "default" }, stub, captureWrite)
+  local ok, assembled = M.finish({
+    binding = "current", sensor = "current", tuning = "default", fuelcal = "current",
+  }, stub, captureWrite)
   t.eq(ok, true)
   t.truthy(assembled and assembled.hw and assembled.tuning, "finish returns the assembled result")
 
@@ -40,8 +43,9 @@ end)
 t.test("finish surfaces loader.resolve failures without writing anything", function()
   local stub = { get = function() return nil end }
   local written = {}
-  local ok, assembled, err = M.finish({ binding = "disk", sensor = "current", tuning = "disk" }, stub,
-    function(path, body) written[path] = body end)
+  local ok, assembled, err = M.finish({
+    binding = "disk", sensor = "current", tuning = "disk", fuelcal = "current",
+  }, stub, function(path, body) written[path] = body end)
   t.eq(ok, false)
   t.truthy(err)
   t.eq(next(written), nil, "no file written on a failed resolve")

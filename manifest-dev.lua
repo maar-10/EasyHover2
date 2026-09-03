@@ -245,9 +245,9 @@
         },
         {
           ["dst"] = "fcs/boot/loader.lua",
-          ["size"] = 1320,
+          ["size"] = 1428,
           ["src"] = "fcs/boot/loader.lua",
-          ["sum"] = "2070db4a",
+          ["sum"] = "70400ca7",
         },
         {
           ["dst"] = "fcs/boot/loaderui.lua",
@@ -1452,5 +1452,5 @@
     ["size"] = 75903,
     ["sum"] = "6452d767",
   },
-  ["version"] = "ffbca1d7",
+  ["version"] = "7f8f2ba0",
 }

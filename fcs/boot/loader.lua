@@ -5,11 +5,12 @@ local M = {
     binding = { "current", "default", "disk" },
     sensor  = { "current", "default", "disk" },
     tuning  = { "current", "default", "disk" },
+    fuelcal = { "current", "default", "disk" },
   },
 }
 
 -- concern name -> cfgspec kind (NOT the same string for binding/sensor)
-local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning" }
+local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning", fuelcal = "fuelcal" }
 
 local function isMember(list, v)
   for _, x in ipairs(list) do if x == v then return true end end
@@ -18,7 +19,7 @@ end
 
 function M.resolve(choices, sources)
   local cfgs = {}
-  for _, concern in ipairs({ "binding", "sensor", "tuning" }) do
+  for _, concern in ipairs({ "binding", "sensor", "tuning", "fuelcal" }) do
     local src = choices[concern]
     if not isMember(M.SOURCES[concern], src) then
       return false, nil, concern .. ": invalid source '" .. tostring(src) .. "'", concern
@@ -37,6 +38,7 @@ function M.resolve(choices, sources)
   local assembled = {
     hw = cfgspec.assembleHw(cfgs.binding, cfgs.sensor),
     tuning = cfgs.tuning,
+    fuelcal = cfgs.fuelcal,
   }
   return true, assembled, nil
 end
