@@ -1,9 +1,10 @@
 -- fcs/boot/loaderui.lua
--- Terminal boot UI: lets the pilot pick a SOURCE per config concern (binding/sensor/tuning),
--- assembles the runtime config via fcs.boot.loader, and writes the files the flight app
--- reads (/eh2_hw_config.tbl plus /eh2_tuning.tbl or /eh2_tuning.session.tbl). Sources are
--- current / default / disk (the FCS boots from its own files, a sibling DEFAULT, or a
--- config disk). DEFAULT for binding/sensor/tuning is a session overlay and does not clobber current.
+-- Terminal boot UI: lets the pilot pick a SOURCE per config concern
+-- (binding/sensor/tuning/fuelcal), assembles the runtime config via fcs.boot.loader,
+-- and writes the files the flight app reads (/eh2_hw_config.tbl plus current or
+-- session overlay for tuning and fuelcal). Sources are current / default / disk
+-- (the FCS boots from its own files, a sibling DEFAULT, or a config disk). DEFAULT
+-- for binding/sensor/tuning/fuelcal is a session overlay and does not clobber current.
 -- Boot UI and the flight app never run concurrently: this program returns (or the launcher
 -- exits) before launchers/flight.lua starts. No Basalt here on purpose -- keeps the FCS
 -- boot path light and dependency-free.
@@ -26,17 +27,19 @@ local TUNING_SESSION_PATH = "/eh2_tuning.session.tbl"
 local LEGACY_CONFIG_PATH = HW_CONFIG_PATH -- same file; legacy read-through source, not the write target
 
 -- concern name -> cfgspec kind (mirrors fcs/boot/loader.lua's KIND table)
-local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning" }
+local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning", fuelcal = "fuelcal" }
 
 local CURRENT_PATH = {
   binding = "/eh2_devbind.tbl",
   sensor  = "/eh2_senscal.tbl",
   tuning  = TUNING_PATH,
+  fuelcal = "/eh2_fuelcal.tbl",
 }
 local SESSION_PATH = {
   binding = "/eh2_devbind.session.tbl",
   sensor  = "/eh2_senscal.session.tbl",
   tuning  = TUNING_SESSION_PATH,
+  fuelcal = "/eh2_fuelcal.session.tbl",
 }
 
 -- =====================================================================================
@@ -45,7 +48,7 @@ local SESSION_PATH = {
 
 local realWrite = fsx.writeAtomic
 
--- Atomically write the assembled hw + tuning tables the flight app reads.
+-- Atomically write the assembled hw + tuning + fuelcal tables the flight app reads.
 -- `write(path, body)` / `delete(path)` are injected for testing; defaults are fsx.
 -- `choices` is optional: 2-arg callers write fused + current tuning as before.
 -- DEFAULT writes the session overlay and does not clobber current splits/tuning.
@@ -60,12 +63,13 @@ function M.commit(assembled, write, choices, delete)
     binding = split.devbind,
     sensor  = split.senscal,
     tuning  = assembled.tuning,
+    fuelcal = assembled.fuelcal,
   }
   if not choices then
     write(TUNING_PATH, textutils.serialise(assembled.tuning))
     return true
   end
-  for _, concern in ipairs({ "binding", "sensor", "tuning" }) do
+  for _, concern in ipairs({ "binding", "sensor", "tuning", "fuelcal" }) do
     local src = choices[concern]
     local body = bodies[concern]
     if src == "default" then
@@ -103,9 +107,10 @@ function M.needsConfirm(src) return src == "disk" end
 
 local realRead = fsx.read
 
--- "current": the local split file (eh2_devbind.tbl / eh2_senscal.tbl); if that file is ABSENT and
--- the legacy combined /eh2_hw_config.tbl exists, seed from splitLegacy read-through (mirrors
--- tools/calibrate.lua's M._loadCal / loadSensors so terminal tool and boot UI agree).
+-- "current": the local split file (eh2_devbind.tbl / eh2_senscal.tbl / eh2_fuelcal.tbl);
+-- if a binding/sensor file is ABSENT and the legacy combined /eh2_hw_config.tbl exists,
+-- seed from splitLegacy read-through (mirrors tools/calibrate.lua's M._loadCal / loadSensors
+-- so terminal tool and boot UI agree). Fuelcal has no fused seed.
 local function ownSource(concern)
   local kind = KIND[concern]
   local cfg, existed, err = cfgspec.load(kind, realRead)
@@ -114,6 +119,8 @@ local function ownSource(concern)
   -- re-pick (the source menu shows "split file CORRUPT" so they know why).
   if err then return nil end
   if existed then return cfg end
+  -- fuelcal has no fused/legacy seed (splitLegacy has no fuelcal).
+  if concern == "fuelcal" then return nil end
   local legacyBody = realRead(LEGACY_CONFIG_PATH)
   if legacyBody == nil then return nil end
   local legacy = textutils.unserialise(legacyBody)
@@ -165,8 +172,8 @@ function M.buildSources()
   }
 end
 
-local CONCERNS = { "binding", "sensor", "tuning" }
-local LABEL = { binding = "BINDING", sensor = "SENSOR", tuning = "TUNING" }
+local CONCERNS = { "binding", "sensor", "tuning", "fuelcal" }
+local LABEL = { binding = "BINDING", sensor = "SENSOR", tuning = "TUNING", fuelcal = "FUELCAL" }
 
 local function diskIndicator()
   local drive = peripheral.find("drive")
@@ -270,7 +277,7 @@ function M.run()
   local sources = M.buildSources()
   print("EH2 BOOT LOADER")
   local choices = {}
-  local toPick = CONCERNS   -- first pass picks all three; later passes re-pick only the failed one
+  local toPick = CONCERNS   -- first pass picks all four; later passes re-pick only the failed one
   while true do
     for _, concern in ipairs(toPick) do
       local src = pickUntilValid(concern)

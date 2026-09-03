@@ -183,3 +183,58 @@ t.test("commit binding disk writes current split and deletes the session overlay
   local current = textutils.unserialise(files["/eh2_devbind.tbl"])
   t.eq(current and current.fuelRelay, "DISK_RELAY")
 end)
+
+-- Break this test would catch: DEFAULT fuelcal writing /eh2_fuelcal.tbl (clobbering current)
+-- instead of the session overlay.
+t.test("commit DEFAULT fuelcal writes session overlay and does not clobber current", function()
+  local files = { ["/eh2_fuelcal.tbl"] = "CURRENT-FUEL" }
+  local write = function(p, b) files[p] = b end
+  local delete = function(p) files[p] = nil end
+  local assembled = {
+    hw = { thrusters = {}, sensors = {}, fuelRelay = nil, bindings = {} },
+    tuning = { gains = {}, caps = {}, feel = {} },
+    fuelcal = { fuel = "Bioethanol" },
+  }
+  M.commit(assembled, write, {
+    binding="current", sensor="current", tuning="current", fuelcal="default",
+  }, delete)
+  t.eq(files["/eh2_fuelcal.tbl"], "CURRENT-FUEL")
+  t.truthy(files["/eh2_fuelcal.session.tbl"])
+  local parsed = textutils.unserialise(files["/eh2_fuelcal.session.tbl"])
+  t.eq(parsed.fuel, "Bioethanol")
+end)
+
+t.test("commit disk fuelcal writes current and deletes the session overlay", function()
+  local files = {
+    ["/eh2_fuelcal.tbl"] = "OLD-CURRENT",
+    ["/eh2_fuelcal.session.tbl"] = "OLD-SESSION",
+  }
+  local write = function(p, b) files[p] = b end
+  local delete = function(p) files[p] = nil end
+  local assembled = {
+    hw = { thrusters = {}, sensors = {}, fuelRelay = nil, bindings = {} },
+    tuning = { gains = {}, caps = {}, feel = {} },
+    fuelcal = { fuel = "Ethanol" },
+  }
+  M.commit(assembled, write, {
+    binding="current", sensor="current", tuning="current", fuelcal="disk",
+  }, delete)
+  t.eq(files["/eh2_fuelcal.session.tbl"], nil, "disk import deletes fuelcal session overlay")
+  local parsed = textutils.unserialise(files["/eh2_fuelcal.tbl"])
+  t.eq(parsed.fuel, "Ethanol")
+end)
+
+t.test("commit with two args still does not invent a fuelcal session", function()
+  local assembled = {
+    hw = { thrusters = {}, sensors = {}, fuelRelay = nil, bindings = {} },
+    tuning = { gains = {}, caps = {}, feel = {} },
+    fuelcal = { fuel = "Bioethanol" },
+  }
+  local files = {}
+  local function captureWrite(path, body) files[path] = body end
+
+  M.commit(assembled, captureWrite)
+
+  t.eq(files["/eh2_fuelcal.session.tbl"], nil)
+  t.eq(files["/eh2_fuelcal.tbl"], nil)
+end)

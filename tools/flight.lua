@@ -101,7 +101,7 @@ end
 local function deleteFile(name)
   fsx.delete("/" .. name)
 end
-local fuelcal = cfgspec.load("fuelcal", readFile)   -- { fuel = "Biodiesel" } by default
+local fuelcal = cfgspec.loadLive("fuelcal", readFile)   -- session overlay wins; else current / default
 local fuelScale0 = fueltable.scaleFor(fuelcal.fuel) or 1.0
 loop:setFuelScale(fuelScale0)
 
