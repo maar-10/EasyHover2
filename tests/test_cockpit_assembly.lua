@@ -29,16 +29,16 @@ local function newRuntime()
   })
   -- Seed the live-cfg cache so BIT/CONFIG menus pass M.showScreen's cfgMenuStatus gate and
   -- actually construct (the probe asserts frameRec.built[id], not the SYNC placeholder).
+  -- fcssync is a read-only cfgClient checker: its build() refreshAll marks kinds "sync" then
+  -- readKind's; without an FCS reply that would leave the gate closed for later menus. Make
+  -- readKind answer immediately so the probe stays headless and the stub cfgserver can go.
   for _, kind in ipairs({ "tuning", "devbind", "senscal" }) do
     runtime.cfgCache[kind] = { body = {}, status = "ok" }
   end
-  -- fcssync.lua still talks to runtime.cfgserver until Task 11 rewrites it as a read-only
-  -- checker. Stub just enough of that surface so the construction probe can build the page.
-  runtime.cfgserver = {
-    start = function() end,
-    stop = function() end,
-    status = function() return { running = false } end,
-  }
+  runtime.cfgClient.readKind = function(self, kind, cb)
+    local body = {}
+    if cb then cb(body) end
+  end
   return runtime
 end
 

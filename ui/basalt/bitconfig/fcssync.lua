@@ -1,64 +1,36 @@
 -- ui/basalt/bitconfig/fcssync.lua
--- FCS SYNC sub-menu (BIT/CONFIG hub, screen id "fcssync"): operator control for the gated
--- config-answer server. Allows starting/stopping the server and displays the current link
--- status (whether the FCS boot client is actively talking to us).
+-- FCS SYNC sub-menu (BIT/CONFIG hub, screen id "fcssync"): a READ-ONLY checker. Post-S2 the FCS is
+-- the config source of truth, so this no longer starts/stops any UI-side server -- it requests each
+-- config kind from the running FCS (via runtime.cfgClient) and reports whether the FCS answered.
+-- NEVER writes.
 --
--- Follows the Task 15/17/21 template (see ui/basalt/bitconfig/tuning.lua's header for the full
--- Basalt API provenance notes): module exports `M.id`, `M.title`, a Basalt-free PURE view-model
--- (M.FRESH_MS / M.linkStatus / M._onButton), and `M.build(basalt, frame, runtime, nav) ->
--- { id, apply(state), elements }`.
---
--- NO peripheral/Basalt access at module LOAD -- everything lives inside M.build/the closures it
--- returns, so `require("ui.basalt.bitconfig.fcssync")` loads clean headless.
-
+-- Exports M.id/M.title, a PURE view-model (M.KINDS / M.checkStatus), and M.build(basalt, frame,
+-- runtime, nav) -> { id, apply(state), elements }. NO peripheral/Basalt access at module LOAD.
 local configkit = require("ui.basalt.configkit")
 
 local M = {}
 M.id = "fcssync"
 M.title = "FCS SYNC"
 
--- Freshness threshold (ms): if lastSeen is older than this, report "WAITING FOR FCS".
-M.FRESH_MS = 3000
+-- The FCS config kinds this checker probes.
+M.KINDS = { "tuning", "devbind", "senscal" }
 
--- ===== M.linkStatus: PURE, Basalt-free view-model of link health =====
-
--- Given a status table from runtime.cfgserver:status() and the current time (os.epoch("utc") ms),
--- returns one of:
---   "STOPPED"        - server is not running
---   "FCS ACTIVE"     - server is running AND lastSeen is recent (within FRESH_MS)
---   "WAITING FOR FCS" - server is running BUT lastSeen is stale or nil
-function M.linkStatus(status, now)
-  if not status.running then
-    return "STOPPED"
+-- ===== M.checkStatus: PURE per-kind status from runtime.cfgCache. =====
+-- "OK" = a body arrived; "NO ANSWER" = the last attempt failed (FCS silent); "SYNC" = in flight or
+-- not yet requested.
+function M.checkStatus(cfgCache, kinds)
+  cfgCache = cfgCache or {}
+  local out = {}
+  for _, kind in ipairs(kinds or M.KINDS) do
+    local c = cfgCache[kind]
+    if c and c.status == "ok" and c.body ~= nil then out[kind] = "OK"
+    elseif c and c.status == "fail" then out[kind] = "NO ANSWER"
+    else out[kind] = "SYNC" end
   end
-  if status.lastSeen and (now - status.lastSeen) <= M.FRESH_MS then
-    return "FCS ACTIVE"
-  end
-  return "WAITING FOR FCS"
+  return out
 end
 
--- ===== M._onButton: PURE, Basalt-free button handler =====
-
--- Handle start/stop button clicks. Testable; no Basalt/peripheral access.
--- id: button id ("start" or "stop")
--- runtime: object with cfgserver (:start(), :stop()) and uiRev (version counter)
--- now: os.epoch("utc") for potential future use
--- Returns: the id acted on, or nil if no action taken.
-function M._onButton(runtime, id, now)
-  if id == "start" then
-    runtime.cfgserver:start()
-    runtime.uiRev = (runtime.uiRev or 0) + 1
-    return id
-  elseif id == "stop" then
-    runtime.cfgserver:stop()
-    runtime.uiRev = (runtime.uiRev or 0) + 1
-    return id
-  end
-  return nil
-end
-
--- ===== M.build: construct the FCS SYNC element tree =====
-
+-- ===== M.build: per-kind status lines + a REFRESH button. =====
 function M.build(basalt, frame, runtime, nav)
   local w, h = frame:getSize()
   local x = 2
@@ -66,66 +38,49 @@ function M.build(basalt, frame, runtime, nav)
 
   local titleLabel = configkit.titleRow(frame, w, M.title)
 
-  local dataTop = 3
-  local serverLbl = frame:addLabel({ x = x, y = dataTop, width = iw, height = 1, autoSize = false, text = "SERVER: --" })
-  local linkLbl   = frame:addLabel({ x = x, y = dataTop + 1, width = iw, height = 1, autoSize = false, text = "LINK: --" })
-
-  local footerY = dataTop + 3
-
-  -- Forward-declare so apply can close over ssRow before actionRow is built.
-  local ssRow
-
-  -- apply(state): read runtime.cfgserver:status() live (a cheap table read, NOT a peripheral
-  -- poll -- safe on the render path), set the SERVER + LINK Labels via M.linkStatus, and
-  -- reflect START disabled when running / STOP disabled when stopped. Idempotent.
-  -- NOTE: server status isn't in the cadence signature, so live-freshness updates ride the
-  -- frequent telemetry-driven repaints -- acceptable; a dedicated refresh could be added at
-  -- assembly if wanted.
-  local function apply(_state)
-    local status = runtime.cfgserver:status()
-    local now = os.epoch("utc")
-
-    -- Update SERVER label: running state
-    local serverText = status.running and "RUNNING" or "STOPPED"
-    serverLbl:setText("SERVER: " .. serverText)
-
-    -- Update LINK label: freshness
-    local linkText = M.linkStatus(status, now)
-    linkLbl:setText("LINK: " .. linkText)
-
-    -- Disable START when running, STOP when stopped
-    ssRow.setState(1, status.running and "disabled" or "off")   -- START
-    ssRow.setState(2, status.running and "off" or "disabled")   -- STOP
+  local rowLabels = {}
+  local y0 = 3
+  for i, kind in ipairs(M.KINDS) do
+    rowLabels[kind] = frame:addLabel({ x = x, y = y0 + (i - 1), width = iw, height = 1,
+      autoSize = false, text = kind:upper() .. ": --" })
   end
 
-  -- configkit chrome (matches the rest of the NAV/BIT-CONFIG tree, e.g. tuning.lua): a compact
-  -- START/STOP actionRow, then a separate actionRow holding just the "< BACK" back item (which
-  -- pins itself to the bottom frame row regardless of the y passed here).
-  -- onClick: mutate via _onButton then paint immediately.
-  ssRow = configkit.actionRow(frame, { x = x, y = footerY, w = iw }, {
-    { label = "START", onClick = function()
-      M._onButton(runtime, "start", os.epoch("utc")); apply()
-    end },
-    { label = "STOP",  onClick = function()
-      M._onButton(runtime, "stop",  os.epoch("utc")); apply()
-    end },
+  -- REFRESH: re-request every kind live (fire-and-forget; replies flip runtime.cfgCache and the
+  -- next apply() repaints). PURE-of-fs: only touches the cfg client + cache.
+  local function refreshAll()
+    for _, kind in ipairs(M.KINDS) do
+      runtime.cfgCache[kind] = { body = nil, status = "sync" }
+      runtime.cfgClient:readKind(kind, function(body)
+        runtime.cfgCache[kind] = { body = body, status = body ~= nil and "ok" or "fail" }
+        runtime.uiRev = (runtime.uiRev or 0) + 1
+      end)
+    end
+    runtime.uiRev = (runtime.uiRev or 0) + 1
+  end
+
+  local footerY = y0 + #M.KINDS + 1
+  local actionRow = configkit.actionRow(frame, { x = x, y = footerY, w = iw }, {
+    { label = "REFRESH", onClick = refreshAll },
   })
   local backRow = configkit.actionRow(frame, { x = x, y = footerY + 1, w = iw }, {
     { id = "back", label = "<", onClick = function() if nav then nav:pop() end end },
   })
 
+  local function apply(_state)
+    local st = M.checkStatus(runtime.cfgCache, M.KINDS)
+    for _, kind in ipairs(M.KINDS) do
+      rowLabels[kind]:setText(kind:upper() .. ": " .. st[kind])
+    end
+  end
+
+  -- Kick a first probe so opening the page immediately queries the FCS.
+  refreshAll()
   apply()
 
   return {
     id = M.id,
     apply = apply,
-    elements = {
-      titleLabel = titleLabel,
-      serverLbl = serverLbl,
-      linkLbl = linkLbl,
-      ssRow = ssRow,
-      backRow = backRow,
-    },
+    elements = { titleLabel = titleLabel, rowLabels = rowLabels, actionRow = actionRow, backRow = backRow },
   }
 end
 
