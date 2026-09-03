@@ -2,9 +2,9 @@ local cfgspec = require("fcs.io.cfgspec")
 
 local M = {
   SOURCES = {
-    binding = { "own", "disk" },
-    sensor = { "own", "disk" },
-    tuning = { "disk", "defaults" },
+    binding = { "current", "default", "disk" },
+    sensor  = { "current", "default", "disk" },
+    tuning  = { "current", "default", "disk" },
   },
 }
 

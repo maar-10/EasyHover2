@@ -13,19 +13,19 @@ local hwconfig = require("fcs.io.hwconfig")
 local cfgspec = require("fcs.io.cfgspec")
 local tuningdefaults = require("fcs.io.tuningdefaults")
 
-t.test("finish resolves own+own+defaults and commits both handoff files, no real fs / read()", function()
+t.test("finish resolves current+current+default and commits both handoff files, no real fs / read()", function()
   local legacy = hwconfig.defaults()
   local split = cfgspec.splitLegacy(legacy)
   local stub = { get = function(concern, src)
-    if concern == "binding" and src == "own" then return split.devbind end
-    if concern == "sensor" and src == "own" then return split.senscal end
-    if concern == "tuning" and src == "defaults" then return tuningdefaults.get() end
+    if concern == "binding" and src == "current" then return split.devbind end
+    if concern == "sensor" and src == "current" then return split.senscal end
+    if concern == "tuning" and src == "default" then return tuningdefaults.get() end
     return nil
   end }
   local written = {}
   local function captureWrite(path, body) written[path] = body end
 
-  local ok, assembled = M.finish({ binding = "own", sensor = "own", tuning = "defaults" }, stub, captureWrite)
+  local ok, assembled = M.finish({ binding = "current", sensor = "current", tuning = "default" }, stub, captureWrite)
   t.eq(ok, true)
   t.truthy(assembled and assembled.hw and assembled.tuning, "finish returns the assembled result")
 
@@ -39,7 +39,7 @@ end)
 t.test("finish surfaces loader.resolve failures without writing anything", function()
   local stub = { get = function() return nil end }
   local written = {}
-  local ok, assembled, err = M.finish({ binding = "disk", sensor = "own", tuning = "disk" }, stub,
+  local ok, assembled, err = M.finish({ binding = "disk", sensor = "current", tuning = "disk" }, stub,
     function(path, body) written[path] = body end)
   t.eq(ok, false)
   t.truthy(err)
