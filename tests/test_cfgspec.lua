@@ -88,6 +88,41 @@ t.test("tryAssemble still returns nil,err on a corrupt split (no silent fused-ov
   t.eq(hw, nil); t.truthy(err)
 end)
 
+t.test("loadLive prefers parseable session overlay over current", function()
+  local files = {
+    ["eh2_tuning.tbl"] = textutils.serialise({ gains = { hoverDuty = 0.1 } }),
+    ["eh2_tuning.session.tbl"] = textutils.serialise({ gains = { hoverDuty = 0.9 } }),
+  }
+  local cfg = C.loadLive("tuning", function(name) return files[name] end)
+  t.eq(cfg.gains.hoverDuty, 0.9, "session overlay wins")
+end)
+
+t.test("loadLive falls through to current when session is unparseable", function()
+  local files = {
+    ["eh2_tuning.tbl"] = textutils.serialise({ gains = { hoverDuty = 0.1 } }),
+    ["eh2_tuning.session.tbl"] = "not a table",
+  }
+  local cfg = C.loadLive("tuning", function(name) return files[name] end)
+  t.eq(cfg.gains.hoverDuty, 0.1, "unparseable session must not hide current")
+end)
+
+t.test("tryAssemble prefers parseable binding session over current splits", function()
+  local files = {
+    ["eh2_devbind.tbl"] = textutils.serialise({
+      thrusters = { FL = "current_fl" }, sensors = { altimeter = "alt" }, fuelRelay = "CUR",
+    }),
+    ["eh2_senscal.tbl"] = textutils.serialise({ signPitch = 1, signHeading = 1 }),
+    ["eh2_devbind.session.tbl"] = textutils.serialise({
+      thrusters = { FL = "default_fl" }, sensors = { altimeter = "alt" }, fuelRelay = "DEF",
+    }),
+  }
+  local hw, err = C.tryAssemble(function(name) return files[name] end)
+  t.eq(err, nil)
+  t.eq(hw.fuelRelay, "DEF", "session binding must win over current split")
+  t.eq(hw.thrusters.FL, "default_fl")
+  t.eq(hw.bindings.signHeading, 1, "sensor still from current split")
+end)
+
 -- L2: the loop steers by signHeading; the PFD tape reads rawHeading*compassSign. A senscal saved
 -- before compassSign existed has signHeading but no compassSign -> merge defaults it to +1, so on a
 -- craft with signHeading=-1 the tape reads mirrored vs the turn. Backfill compassSign := signHeading

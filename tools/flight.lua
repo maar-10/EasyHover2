@@ -98,6 +98,9 @@ end
 local function writeFile(name, body)
   return fsx.writeAtomic("/" .. name, body)
 end
+local function deleteFile(name)
+  fsx.delete("/" .. name)
+end
 local fuelcal = cfgspec.load("fuelcal", readFile)   -- { fuel = "Biodiesel" } by default
 local fuelScale0 = fueltable.scaleFor(fuelcal.fuel) or 1.0
 loop:setFuelScale(fuelScale0)
@@ -383,7 +386,7 @@ end
 -- when the operator opens/saves a menu. Reads/writes go through fcs.io.cfgaccess (pure, tested).
 local function cfgProvider(kind) return cfgaccess.getKind(kind, readFile) end
 local function cfgApplier(kind, body)
-  local ok, err = cfgaccess.setKind(kind, body, readFile, writeFile)
+  local ok, err = cfgaccess.setKind(kind, body, readFile, writeFile, deleteFile)
   -- Apply-timing preserved: the ONLY hot config change is CoM. A tuning set carrying com{} is
   -- pushed to the mixer LIVE via the same setCom path the COM screen uses, so a hand trim takes
   -- effect now; tuning/bindings otherwise need an FCS reload. Idempotent with the COM screen's own

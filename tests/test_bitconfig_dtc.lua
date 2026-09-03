@@ -326,8 +326,8 @@ end)
 
 -- ===== Construction probe: real CraftOS-PC Basalt, no real peripherals/disk =====
 
-t.test("M.build (no disk): 'top' screen constructs; disk summary is 'no disk'; EXPORT/IMPORT "
-  .. "disabled, REFRESH enabled; apply() + one render pass do not error", function()
+t.test("M.build (no disk): 'top' screen constructs; disk summary is 'no disk'; mixed EXPORT/IMPORT "
+  .. "hidden, REFRESH enabled; apply() + one render pass do not error", function()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame()
   local nav = Nav.new("bitconfig")
@@ -356,15 +356,12 @@ t.test("M.build (no disk): 'top' screen constructs; disk summary is 'no disk'; E
   local els = rec.handle.elements
   t.truthy(els.diskLabel ~= nil, "diskLabel present")
 
-  -- Restyle: EXPORT/IMPORT/IMPORT ALL/SCAN/REFRESH are individual bracketSwitches (blue/orange), not
-  -- one actionRow. Their disabled look is a "disabled" STATE (gray), not setEnabled(false).
-  t.truthy(els.exportBtn ~= nil and els.importBtn ~= nil, "EXPORT + IMPORT bracket buttons present")
+  t.eq(els.exportBtn, nil, "mixed EXPORT hidden")
+  t.eq(els.importBtn, nil, "mixed IMPORT hidden")
+  t.eq(els.importAllBtn, nil, "mixed IMPORT ALL hidden")
   t.truthy(els.refreshBtn ~= nil and els.scanBtn ~= nil, "REFRESH + SCAN bracket buttons present")
+  t.truthy(els.fcsBtn and els.uiBtn and els.navBtn, "role screens remain")
   t.truthy(els.backRow ~= nil and #els.backRow.buttons == 1, "backRow (<) present")
-
-  -- No disk detected -> EXPORT/IMPORT/SCAN start in the "disabled" state; REFRESH stays "off".
-  t.eq(els.exportBtn.state, "disabled", "EXPORT disabled: no disk")
-  t.eq(els.importBtn.state, "disabled", "IMPORT disabled: no disk")
   t.eq(els.refreshBtn.state, "off", "REFRESH always available")
 
   t.truthy(els.diskLabel:getText():find("NO DISK", 1, true), "disk summary reads NO DISK")
@@ -378,7 +375,7 @@ t.test("M.build (no disk): 'top' screen constructs; disk summary is 'no disk'; E
   t.truthy(ok3, "basalt.update should not error: " .. tostring(err3))
 end)
 
-t.test("M.build (stub disk present): disk summary shows label + valid count; EXPORT/IMPORT enabled",
+t.test("M.build (stub disk present): disk summary shows DISK FOUND; mixed EXPORT/IMPORT hidden",
 function()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame()
@@ -406,30 +403,31 @@ function()
   -- Disk present -> the summary reads DISK FOUND (a status line, not a valid-count string anymore).
   t.truthy(els.diskLabel:getText():find("DISK FOUND", 1, true), "disk summary reads DISK FOUND")
 
-  -- Disk present -> EXPORT/IMPORT leave the disabled state (their "off" resting state).
-  t.eq(els.exportBtn.state, "off", "EXPORT enabled: disk present")
-  t.eq(els.importBtn.state, "off", "IMPORT enabled: disk present")
+  -- Mixed EXPORT/IMPORT/IMPORT ALL are gone from the top screen; role buttons stay.
+  t.eq(els.exportBtn, nil, "mixed EXPORT hidden")
+  t.eq(els.importBtn, nil, "mixed IMPORT hidden")
+  t.eq(els.importAllBtn, nil, "mixed IMPORT ALL hidden")
+  t.truthy(els.fcsBtn and els.uiBtn and els.navBtn, "role screens remain")
 
   local ok3, err3 = pcall(function() basalt.update("timer", -1) end)
   t.truthy(ok3, "basalt.update should not error: " .. tostring(err3))
 end)
 
-t.test("top screen: EXPORT/IMPORT/SCAN/IMPORT ALL/REFRESH bracket buttons + BACK row", function()
+t.test("top screen: SCAN/REFRESH + FCS/UI/NAV role buttons + BACK; mixed EXPORT/IMPORT gone", function()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame()
   local nav = Nav.new("bitconfig")
   local deps = { find = function() return nil end, exists = function() return false end }
   local h = M.build(basalt, frame, nil, nav, deps)
   local els = h.elements.region.built.top.handle.elements
-  t.eq(els.exportBtn.button:getText(), "EXPORT")
-  t.eq(els.importBtn.button:getText(), "IMPORT")
+  t.eq(els.exportBtn, nil, "mixed EXPORT hidden")
+  t.eq(els.importBtn, nil, "mixed IMPORT hidden")
+  t.eq(els.importAllBtn, nil, "mixed IMPORT ALL hidden")
   t.truthy(els.refreshBtn ~= nil, "REFRESH bracket button present")
-  t.truthy(els.scanBtn ~= nil and els.importAllBtn ~= nil, "SCAN + IMPORT ALL bracket buttons present")
+  t.truthy(els.scanBtn ~= nil, "SCAN present")
+  t.truthy(els.fcsBtn and els.uiBtn and els.navBtn, "role screens remain")
   t.truthy(els.backRow ~= nil and #els.backRow.buttons == 1, "BACK its own row")
   t.eq(els.backRow.buttons[1].button:getText(), "\27", "BACK is CC-native left arrow")
-  -- no disk -> EXPORT/IMPORT disabled state, REFRESH available
-  t.eq(els.exportBtn.state, "disabled", "EXPORT disabled: no disk")
-  t.eq(els.importBtn.state, "disabled", "IMPORT disabled: no disk")
   t.eq(els.refreshBtn.state, "off", "REFRESH always available")
 end)
 
@@ -639,8 +637,30 @@ end)
 
 -- ===== Task B6: IMPORT ALL button + confirm_importall screen =====
 
-t.test("M.build: IMPORT ALL button present; enabled only with a valid importable kind; "
-  .. "CONFIRM imports all valid kinds and pops", function()
+t.test("live fcsSet does not report success before FCS ack; surfaces cfgSaveStatus", function()
+  local cbs = {}
+  local runtime = {
+    cfgClient = {
+      writeKind = function(self, kind, body, cb)
+        cbs[#cbs + 1] = { kind = kind, body = body, cb = cb }
+      end,
+    },
+  }
+  local body = textutils.serialise({ gains = {}, caps = {}, feel = {} })
+  local ok = M._liveFcsSet(runtime, "tuning", body)
+  t.eq(ok, false, "must not claim success before ack")
+  t.eq(runtime.cfgSaveStatus, "saving to FCS...")
+  t.eq(#cbs, 1)
+  t.eq(cbs[1].kind, "tuning")
+  cbs[1].cb(true)
+  t.eq(runtime.cfgSaveStatus, "saved to FCS -- reload to apply")
+  local ok2 = M._liveFcsSet(runtime, "tuning", body)
+  cbs[#cbs].cb(false, "no FCS")
+  t.truthy(runtime.cfgSaveStatus:find("FAILED", 1, true), "ack failure is surfaced")
+  t.eq(ok2, false)
+end)
+
+t.test("M.build: FCS role IMPORT ships valid disk kinds via fcsSet and never writes UI-local FCS", function()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame()
   local nav = Nav.new("bitconfig")
@@ -666,16 +686,16 @@ t.test("M.build: IMPORT ALL button present; enabled only with a valid importable
   local h = M.build(basalt, frame, nil, nav, deps)
   local region = h.elements.region
   local top = region.built.top.handle.elements
-  t.truthy(top.importAllBtn ~= nil, "IMPORT ALL present")
-  t.eq(top.importAllBtn.state, "off", "enabled: one valid disk kind exists")
+  t.eq(top.importAllBtn, nil, "mixed IMPORT ALL hidden from top")
+  t.truthy(top.fcsBtn ~= nil, "FCS role screen is the operator path")
 
-  region:push("confirm_importall"); h.apply({})
-  local cEls = region.built.confirm_importall.handle.elements
-  cEls.confirmRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
+  region:push("role_fcs"); h.apply({})
+  t.eq(region:top(), "role_fcs")
+  local rEls = region.built.role_fcs.handle.elements
+  rEls.importBtn.button:fireEvent("mouse_click", 1, 1, 1)
   h.apply({})
-  t.eq(region:top(), "top", "CONFIRM pops back to top")
-  t.eq(sets.tuning, good, "IMPORT ALL shipped valid tuning via fcsSet")
-  t.eq(files["/eh2_tuning.tbl"], nil, "IMPORT ALL must not write UI-local FCS files")
+  t.eq(sets.tuning, good, "FCS role IMPORT shipped valid tuning via fcsSet")
+  t.eq(files["/eh2_tuning.tbl"], nil, "FCS role IMPORT must not write UI-local FCS files")
 end)
 
 t.test("_exportKind writes fcsGet body to disk, not a UI-local FCS file", function()
@@ -755,8 +775,16 @@ end)
 t.test("_confirmText names the direction and file", function()
   local e = M._confirmText("export", "tuning")
   t.truthy(e:find("disk", 1, true), "export mentions disk")
+  local i = M._confirmText("import", "uicfg")
+  t.truthy(i:find("UI", 1, true) or i:find("local", 1, true), "uicfg import mentions local/UI")
+end)
+
+t.test("_confirmText import of FCS kinds does not claim overwrite on this UI PC", function()
   local i = M._confirmText("import", "tuning")
-  t.truthy(i:find("UI", 1, true) or i:find("local", 1, true), "import mentions local/UI")
+  t.eq(i:find("UI PC", 1, true), nil, "FCS import must not claim this UI PC")
+  t.truthy(i:find("FCS", 1, true), "FCS import names the FCS")
+  local ui = M._confirmText("import", "uicfg")
+  t.truthy(ui:find("UI", 1, true) or ui:find("local", 1, true))
 end)
 
 t.test("_confirmText uses M.FILE (never a hardcoded filename) and covers all four kinds", function()

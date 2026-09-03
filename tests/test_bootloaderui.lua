@@ -127,3 +127,55 @@ t.test("tools/flight.lua prefers eh2_tuning.session.tbl over eh2_tuning.tbl", fu
   t.truthy(currentAt, "flight loadConfig still falls back to current tuning")
   t.truthy(sessionAt < currentAt, "session overlay is preferred before current")
 end)
+
+-- Break this test would catch: DEFAULT binding writing fused hw only, so loadConfig's
+-- tryAssemble of the existing splits ignores the pick and flies CURRENT.
+t.test("commit binding default: loadConfig-equivalent is DEFAULT; current splits byte-identical", function()
+  local currentDb = cfgspec.defaults("devbind"); currentDb.fuelRelay = "CURRENT_RELAY"
+  local currentSc = cfgspec.defaults("senscal"); currentSc.signHeading = 1
+  local defaultDb = cfgspec.defaults("devbind"); defaultDb.fuelRelay = "DEFAULT_RELAY"
+  local dbBody = textutils.serialise(currentDb)
+  local scBody = textutils.serialise(currentSc)
+  local files = {
+    ["/eh2_devbind.tbl"] = dbBody,
+    ["/eh2_senscal.tbl"] = scBody,
+  }
+  local assembled = {
+    hw = cfgspec.assembleHw(defaultDb, currentSc),
+    tuning = tuningdefaults.get(),
+  }
+  local function captureWrite(path, body) files[path] = body end
+  local function captureDelete(path) files[path] = nil end
+
+  M.commit(assembled, captureWrite, {
+    binding = "default", sensor = "current", tuning = "current",
+  }, captureDelete)
+
+  t.eq(files["/eh2_devbind.tbl"], dbBody, "DEFAULT must not clobber current binding split")
+  t.eq(files["/eh2_senscal.tbl"], scBody, "current sensor split untouched")
+  local function readBare(name) return files["/" .. name] end
+  local hw = cfgspec.tryAssemble(readBare)
+  t.eq(hw and hw.fuelRelay, "DEFAULT_RELAY", "loadConfig-equivalent must fly DEFAULT binding")
+  t.eq(hw and hw.bindings and hw.bindings.signHeading, 1, "sensor stays current")
+end)
+
+t.test("commit binding disk writes current split and deletes the session overlay", function()
+  local diskDb = cfgspec.defaults("devbind"); diskDb.fuelRelay = "DISK_RELAY"
+  local sc = cfgspec.defaults("senscal")
+  local files = {
+    ["/eh2_devbind.tbl"] = "OLD-CURRENT",
+    ["/eh2_devbind.session.tbl"] = "OLD-SESSION",
+    ["/eh2_senscal.tbl"] = textutils.serialise(sc),
+  }
+  local assembled = { hw = cfgspec.assembleHw(diskDb, sc), tuning = tuningdefaults.get() }
+  local function captureWrite(path, body) files[path] = body end
+  local function captureDelete(path) files[path] = nil end
+
+  M.commit(assembled, captureWrite, {
+    binding = "disk", sensor = "current", tuning = "current",
+  }, captureDelete)
+
+  t.eq(files["/eh2_devbind.session.tbl"], nil, "disk import deletes binding session overlay")
+  local current = textutils.unserialise(files["/eh2_devbind.tbl"])
+  t.eq(current and current.fuelRelay, "DISK_RELAY")
+end)

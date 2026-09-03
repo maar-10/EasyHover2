@@ -107,7 +107,6 @@ M.CFG_MENU_KINDS = {
   mdb = { "devbind" },
   senscal = { "devbind", "senscal" },
   senssource = { "devbind" },
-  dtc = { "tuning", "devbind", "senscal", "fuelcal" },
 }
 
 -- cfgMenuStatus(runtime, screenId, requestFn) -> "ok" | "sync" | "fail". PURE given the cache: a

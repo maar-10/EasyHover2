@@ -703,7 +703,7 @@ t.test("migrateConfig splits fused into missing splits and never deletes fused",
   }, hwconfig.defaults())
   local fusedBody = textutils.serialise(legacy)
   local files, read, write = fakeCfgFs({ ["eh2_hw_config.tbl"] = fusedBody })
-  local r = Suite.migrateConfig(read, write)
+  local r = Suite.migrateConfig(read, write, "fcs")
   t.eq(r.action, "split")
   t.truthy(files["eh2_devbind.tbl"] ~= nil)
   t.truthy(files["eh2_senscal.tbl"] ~= nil)
@@ -716,6 +716,18 @@ t.test("migrateConfig splits fused into missing splits and never deletes fused",
   t.eq(sc.heightOffset, -94.5)
 end)
 
+t.test("migrateConfig on ui/nav refuses and writes no FCS splits", function()
+  local fusedBody = textutils.serialise(hwconfig.defaults())
+  local files, read, write = fakeCfgFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  local r = Suite.migrateConfig(read, write, "ui")
+  t.eq(r.action, "refuse")
+  t.eq(files["eh2_devbind.tbl"], nil)
+  t.eq(files["eh2_senscal.tbl"], nil)
+  r = Suite.migrateConfig(read, write, "nav")
+  t.eq(r.action, "refuse")
+  t.eq(files["eh2_devbind.tbl"], nil)
+end)
+
 t.test("migrateConfig noops when both splits exist (fused left alone)", function()
   local fused = textutils.serialise(hwconfig.defaults())
   local files, read, write = fakeCfgFs({
@@ -723,7 +735,7 @@ t.test("migrateConfig noops when both splits exist (fused left alone)", function
     ["eh2_senscal.tbl"] = "SC",
     ["eh2_hw_config.tbl"] = fused,
   })
-  local r = Suite.migrateConfig(read, write)
+  local r = Suite.migrateConfig(read, write, "fcs")
   t.eq(r.action, "noop")
   t.eq(files["eh2_devbind.tbl"], "DB")
   t.eq(files["eh2_senscal.tbl"], "SC")

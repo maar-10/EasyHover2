@@ -3,7 +3,7 @@
 -- assembles the runtime config via fcs.boot.loader, and writes the files the flight app
 -- reads (/eh2_hw_config.tbl plus /eh2_tuning.tbl or /eh2_tuning.session.tbl). Sources are
 -- current / default / disk (the FCS boots from its own files, a sibling DEFAULT, or a
--- config disk). DEFAULT tuning is a session overlay and does not clobber current.
+-- config disk). DEFAULT for binding/sensor/tuning is a session overlay and does not clobber current.
 -- Boot UI and the flight app never run concurrently: this program returns (or the launcher
 -- exits) before launchers/flight.lua starts. No Basalt here on purpose -- keeps the FCS
 -- boot path light and dependency-free.
@@ -28,6 +28,17 @@ local LEGACY_CONFIG_PATH = HW_CONFIG_PATH -- same file; legacy read-through sour
 -- concern name -> cfgspec kind (mirrors fcs/boot/loader.lua's KIND table)
 local KIND = { binding = "devbind", sensor = "senscal", tuning = "tuning" }
 
+local CURRENT_PATH = {
+  binding = "/eh2_devbind.tbl",
+  sensor  = "/eh2_senscal.tbl",
+  tuning  = TUNING_PATH,
+}
+local SESSION_PATH = {
+  binding = "/eh2_devbind.session.tbl",
+  sensor  = "/eh2_senscal.session.tbl",
+  tuning  = TUNING_SESSION_PATH,
+}
+
 -- =====================================================================================
 -- Testable seam (headless) -- pure given injected write(); no read()/fs/peripheral here.
 -- =====================================================================================
@@ -37,28 +48,35 @@ local realWrite = fsx.writeAtomic
 -- Atomically write the assembled hw + tuning tables the flight app reads.
 -- `write(path, body)` / `delete(path)` are injected for testing; defaults are fsx.
 -- `choices` is optional: 2-arg callers write fused + current tuning as before.
--- DEFAULT writes the session overlay and does not clobber /eh2_tuning.tbl. Disk import
--- writes current and deletes any leftover session. Current deletes the session overlay
--- and does not rewrite /eh2_tuning.tbl (it already is the source).
+-- DEFAULT writes the session overlay and does not clobber current splits/tuning.
+-- Disk import writes current and deletes any leftover session. Current deletes the
+-- session overlay and does not rewrite current (it already is the source).
 function M.commit(assembled, write, choices, delete)
   write = write or realWrite
   delete = delete or fsx.delete
   write(HW_CONFIG_PATH, textutils.serialise(assembled.hw))
-  local src = choices and choices.tuning
-  if src == "default" then
-    write(TUNING_SESSION_PATH, textutils.serialise(assembled.tuning))
-    return true
-  end
-  if src == "disk" then
+  local split = cfgspec.splitLegacy(assembled.hw)
+  local bodies = {
+    binding = split.devbind,
+    sensor  = split.senscal,
+    tuning  = assembled.tuning,
+  }
+  if not choices then
     write(TUNING_PATH, textutils.serialise(assembled.tuning))
-    delete(TUNING_SESSION_PATH)
     return true
   end
-  if src == "current" then
-    delete(TUNING_SESSION_PATH)
-    return true
+  for _, concern in ipairs({ "binding", "sensor", "tuning" }) do
+    local src = choices[concern]
+    local body = bodies[concern]
+    if src == "default" then
+      write(SESSION_PATH[concern], textutils.serialise(body))
+    elseif src == "disk" then
+      write(CURRENT_PATH[concern], textutils.serialise(body))
+      delete(SESSION_PATH[concern])
+    elseif src == "current" then
+      delete(SESSION_PATH[concern])
+    end
   end
-  write(TUNING_PATH, textutils.serialise(assembled.tuning))
   return true
 end
 

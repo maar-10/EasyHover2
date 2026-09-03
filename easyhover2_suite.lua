@@ -376,11 +376,11 @@ function Suite.flagDefaults(role, read, write)
   return cfgdefault.snapshot(role, read, write)
 end
 
-function Suite.migrateConfig(read, write)
+function Suite.migrateConfig(read, write, role)
   local cfgdefault = require("fcs.io.cfgdefault")
   read = read or Suite.cfgRead
   write = write or Suite.cfgWrite
-  return cfgdefault.migrate(read, write)
+  return cfgdefault.migrate(read, write, role)
 end
 
 --- Local config ops: never install. require() failure is a printed error, not a throw.
@@ -397,7 +397,7 @@ function Suite.runConfigFlags(opts, role, read, write)
   read = read or Suite.cfgRead
   write = write or Suite.cfgWrite
   if opts.migrateConfig then
-    local r = Suite.migrateConfig(read, write)
+    local r = Suite.migrateConfig(read, write, role)
     good(("migrate-config: %s"):format((r and r.action) or "?"))
   end
   if opts.flagDefaults then

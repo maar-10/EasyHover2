@@ -1,11 +1,12 @@
 -- fcs/io/cfgaccess.lua
 -- Pure FCS-side config provider/applier for the live config responder (tools/flight.lua's
 -- configTask). getKind resolves a kind's live cfg EXACTLY as tools/flight.lua's loadConfig does
--- (split file preferred, fused /eh2_hw_config.tbl as a read-only fallback); setKind validates and
--- persists to the FCS's OWN files (never the fused legacy) and materializes the sibling split for
+-- (session overlay > split file > fused /eh2_hw_config.tbl fallback); setKind validates and
+-- persists to the FCS's OWN files (never the fused legacy), drops that kind's session overlay
+-- (explicit save ends DEFAULT-for-this-boot), and materializes the sibling split for
 -- devbind/senscal so cfgspec.tryAssemble (which needs BOTH splits) actually uses the operator's
--- change next boot. read/write are injected (bare filename, matching cfgspec + tools/flight.lua's
--- readFile/writeFile). NO peripherals/os/Basalt.
+-- change next boot. read/write/delete are injected (bare filename, matching cfgspec +
+-- tools/flight.lua's readFile/writeFile). NO peripherals/os/Basalt.
 local cfgspec = require("fcs.io.cfgspec")
 
 local M = {}
@@ -22,16 +23,16 @@ local function fusedSplit(read)
   return cfgspec.splitLegacy(hw)
 end
 
--- getKind(kind, read) -> the FCS's live cfg TABLE. tuning/fuelcal: their own file, merged with
--- defaults. devbind/senscal: the split file if present; else the fused legacy slice, merged
--- (mirrors fcs/boot/loaderui.lua's ownSource); else merged defaults (a fresh FCS stays editable --
--- never a nil the UI would read as "FCS silent").
+-- getKind(kind, read) -> the FCS's live cfg TABLE. Prefers session overlay (DEFAULT-for-this-boot)
+-- over the current file, matching tools/flight.lua loadConfig / loadTuning. tuning/fuelcal: own
+-- file merged with defaults. devbind/senscal: session > split > fused legacy slice > defaults
+-- (a fresh FCS stays editable -- never a nil the UI would read as "FCS silent").
 function M.getKind(kind, read)
   if kind == "tuning" or kind == "fuelcal" then
-    return (cfgspec.load(kind, read))
+    return (cfgspec.loadLive(kind, read))
   end
   if kind == "devbind" or kind == "senscal" then
-    local cfg, existed, err = cfgspec.load(kind, read)
+    local cfg, existed, err = cfgspec.loadLive(kind, read)
     if existed and not err then return cfg end
     local split = fusedSplit(read)
     local seed = split and split[kind]
@@ -41,17 +42,27 @@ function M.getKind(kind, read)
   error("cfgaccess: unknown kind " .. tostring(kind))
 end
 
--- setKind(kind, body, read, write) -> ok, err. Validate then persist. For devbind/senscal also
--- materialize the sibling split when absent (seeded from the fused slice if any, else defaults).
-function M.setKind(kind, body, read, write)
+local function dropSession(kind, delete)
+  if not delete then return end
+  local sf = cfgspec.sessionFile(kind)
+  if sf then delete(sf) end
+end
+
+-- setKind(kind, body, read, write, delete) -> ok, err. Validate then persist. Successful save
+-- deletes that kind's session overlay (explicit save ends DEFAULT-for-this-boot). For
+-- devbind/senscal also materialize the sibling split when absent (seeded from the fused slice
+-- if any, else defaults).
+function M.setKind(kind, body, read, write, delete)
   local ok, err = cfgspec.validate(kind, body)
   if not ok then return false, err end
   if kind == "tuning" or kind == "fuelcal" then
     cfgspec.save(kind, body, write)
+    dropSession(kind, delete)
     return true
   end
   if kind == "devbind" or kind == "senscal" then
     cfgspec.save(kind, body, write)
+    dropSession(kind, delete)
     local sib = SIBLING[kind]
     local _, sibExisted = cfgspec.load(sib, read)
     if not sibExisted then

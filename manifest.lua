@@ -251,9 +251,9 @@
         },
         {
           ["dst"] = "fcs/boot/loaderui.lua",
-          ["size"] = 4442,
+          ["size"] = 4759,
           ["src"] = "dist/fcs/boot/loaderui.lua",
-          ["sum"] = "9a0efa31",
+          ["sum"] = "260da052",
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
@@ -401,15 +401,15 @@
         },
         {
           ["dst"] = "fcs/io/cfgaccess.lua",
-          ["size"] = 953,
+          ["size"] = 1067,
           ["src"] = "dist/fcs/io/cfgaccess.lua",
-          ["sum"] = "fca525ec",
+          ["sum"] = "8921a835",
         },
         {
           ["dst"] = "fcs/io/cfgdefault.lua",
-          ["size"] = 752,
+          ["size"] = 797,
           ["src"] = "dist/fcs/io/cfgdefault.lua",
-          ["sum"] = "5af1c27d",
+          ["sum"] = "b8683cd5",
         },
         {
           ["dst"] = "fcs/io/cfgroles.lua",
@@ -419,9 +419,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
-          ["size"] = 1785,
+          ["size"] = 2111,
           ["src"] = "dist/fcs/io/cfgspec.lua",
-          ["sum"] = "5cf060f9",
+          ["sum"] = "4937850c",
         },
         {
           ["dst"] = "fcs/io/config.lua",
@@ -587,9 +587,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 9609,
+          ["size"] = 9652,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "e32cee25",
+          ["sum"] = "de71f442",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -682,9 +682,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgdefault.lua",
-          ["size"] = 752,
+          ["size"] = 797,
           ["src"] = "dist/fcs/io/cfgdefault.lua",
-          ["sum"] = "5af1c27d",
+          ["sum"] = "b8683cd5",
         },
         {
           ["dst"] = "fcs/io/cfgroles.lua",
@@ -694,9 +694,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
-          ["size"] = 1785,
+          ["size"] = 2111,
           ["src"] = "dist/fcs/io/cfgspec.lua",
-          ["sum"] = "5cf060f9",
+          ["sum"] = "4937850c",
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
@@ -911,9 +911,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgdefault.lua",
-          ["size"] = 752,
+          ["size"] = 797,
           ["src"] = "dist/fcs/io/cfgdefault.lua",
-          ["sum"] = "5af1c27d",
+          ["sum"] = "b8683cd5",
         },
         {
           ["dst"] = "fcs/io/cfgroles.lua",
@@ -923,9 +923,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
-          ["size"] = 1785,
+          ["size"] = 2111,
           ["src"] = "dist/fcs/io/cfgspec.lua",
-          ["sum"] = "5cf060f9",
+          ["sum"] = "4937850c",
         },
         {
           ["dst"] = "fcs/io/config.lua",
@@ -995,15 +995,15 @@
         },
         {
           ["dst"] = "ui/basalt/app.lua",
-          ["size"] = 19042,
+          ["size"] = 18997,
           ["src"] = "dist/ui/basalt/app.lua",
-          ["sum"] = "7366a8dc",
+          ["sum"] = "1f2f4180",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/dtc.lua",
-          ["size"] = 17125,
+          ["size"] = 16795,
           ["src"] = "dist/ui/basalt/bitconfig/dtc.lua",
-          ["sum"] = "d36e76ec",
+          ["sum"] = "3d07b6cd",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/fcssync.lua",
@@ -1358,9 +1358,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
-          ["size"] = 1785,
+          ["size"] = 2111,
           ["src"] = "dist/fcs/io/cfgspec.lua",
-          ["sum"] = "5cf060f9",
+          ["sum"] = "4937850c",
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
@@ -1410,9 +1410,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
-          ["size"] = 1785,
+          ["size"] = 2111,
           ["src"] = "dist/fcs/io/cfgspec.lua",
-          ["sum"] = "5cf060f9",
+          ["sum"] = "4937850c",
         },
         {
           ["dst"] = "fcs/io/fsx.lua",
@@ -1449,8 +1449,8 @@
     },
   },
   ["updater"] = {
-    ["size"] = 75885,
-    ["sum"] = "a971502f",
+    ["size"] = 75903,
+    ["sum"] = "6452d767",
   },
-  ["version"] = "9f4ee50e",
+  ["version"] = "577b7c7b",
 }

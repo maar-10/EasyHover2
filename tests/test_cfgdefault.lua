@@ -84,7 +84,7 @@ t.test("migrate noops when both splits already exist (fused left alone)", functi
     ["eh2_senscal.tbl"] = "SC",
     ["eh2_hw_config.tbl"] = fused,
   })
-  local r = D.migrate(read, write)
+  local r = D.migrate(read, write, "fcs")
   t.eq(r.action, "noop")
   t.eq(files["eh2_devbind.tbl"], "DB")
   t.eq(files["eh2_senscal.tbl"], "SC")
@@ -100,7 +100,7 @@ t.test("migrate splits fused into missing split files and never deletes fused", 
   }, hwconfig.defaults())
   local fusedBody = textutils.serialise(legacy)
   local files, read, write = fakeFs({ ["eh2_hw_config.tbl"] = fusedBody })
-  local r = D.migrate(read, write)
+  local r = D.migrate(read, write, "fcs")
   t.eq(r.action, "split")
   t.truthy(files["eh2_devbind.tbl"] ~= nil)
   t.truthy(files["eh2_senscal.tbl"] ~= nil)
@@ -123,7 +123,7 @@ t.test("migrate saves only the missing split when one already exists", function(
     ["eh2_hw_config.tbl"] = fusedBody,
     ["eh2_devbind.tbl"] = keep,
   })
-  local r = D.migrate(read, write)
+  local r = D.migrate(read, write, "fcs")
   t.eq(r.action, "split")
   t.eq(files["eh2_devbind.tbl"], keep, "existing split untouched")
   t.truthy(files["eh2_senscal.tbl"] ~= nil, "missing senscal materialized")
@@ -133,13 +133,32 @@ end)
 
 t.test("migrate noops when fused is absent or unparseable", function()
   local files, read, write = fakeFs({})
-  t.eq(D.migrate(read, write).action, "noop")
+  t.eq(D.migrate(read, write, "fcs").action, "noop")
   t.eq(files["eh2_devbind.tbl"], nil)
   t.eq(files["eh2_senscal.tbl"], nil)
 
   files, read, write = fakeFs({ ["eh2_hw_config.tbl"] = "not a table" })
-  t.eq(D.migrate(read, write).action, "noop")
+  t.eq(D.migrate(read, write, "fcs").action, "noop")
   t.eq(files["eh2_devbind.tbl"], nil)
   t.eq(files["eh2_senscal.tbl"], nil)
   t.eq(files["eh2_hw_config.tbl"], "not a table")
+end)
+
+t.test("migrate refuses unless role is fcs and does not write FCS splits", function()
+  local fusedBody = textutils.serialise(hwconfig.defaults())
+  local files, read, write = fakeFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  local r = D.migrate(read, write, "ui")
+  t.eq(r.action, "refuse")
+  t.eq(files["eh2_devbind.tbl"], nil, "UI must not get FCS splits")
+  t.eq(files["eh2_senscal.tbl"], nil)
+
+  files, read, write = fakeFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  r = D.migrate(read, write, "nav")
+  t.eq(r.action, "refuse")
+  t.eq(files["eh2_devbind.tbl"], nil)
+
+  files, read, write = fakeFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  r = D.migrate(read, write)
+  t.eq(r.action, "refuse", "missing role is not fcs")
+  t.eq(files["eh2_devbind.tbl"], nil)
 end)

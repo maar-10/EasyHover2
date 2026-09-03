@@ -195,6 +195,15 @@ t.test("cfgMenuStatus reports sync until cached, then ok, and requests missing k
   t.eq(M.cfgMenuStatus(runtime, "emc", requestFn), "ok", "a non-config screen is always ok")
 end)
 
+t.test("cfgMenuStatus dtc is ok even when FCS cache is empty or failed", function()
+  local runtime = { cfgCache = {} }
+  local requested = {}
+  t.eq(M.cfgMenuStatus(runtime, "dtc", function(kind) requested[#requested + 1] = kind end), "ok")
+  t.eq(#requested, 0, "DTC must not prefetch FCS kinds or block the page")
+  runtime.cfgCache.tuning = { body = nil, status = "fail" }
+  t.eq(M.cfgMenuStatus(runtime, "dtc", function() end), "ok", "FCS silent must not gate DTC")
+end)
+
 t.test("buildState assembles the flat cadence keys from telemetry + engine + fuel + uiRev", function()
   local runtime = newRuntime()
   local tx = telemetry.Tx.new()

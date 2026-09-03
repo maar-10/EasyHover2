@@ -43,6 +43,26 @@ function M.load(kind, read)
   return M.merge(kind, saved), true, nil
 end
 
+function M.sessionFile(kind)
+  local f = M.FILES[kind]
+  if not f then return nil end
+  return (f:gsub("%.tbl$", ".session.tbl"))
+end
+
+-- Session overlay (DEFAULT-for-this-boot) wins when present and parseable; unparseable
+-- session falls through to the current split. Same merge contract as M.load.
+function M.loadLive(kind, read)
+  local sf = M.sessionFile(kind)
+  if sf then
+    local body = read(sf)
+    if body ~= nil then
+      local saved = textutils.unserialise(body)
+      if type(saved) == "table" then return M.merge(kind, saved), true, nil end
+    end
+  end
+  return M.load(kind, read)
+end
+
 function M.save(kind, cfg, write)
   return write(M.FILES[kind], textutils.serialise(cfg))
 end
@@ -58,8 +78,8 @@ function M.assembleHw(devbind, senscal)
 end
 
 function M.tryAssemble(read)
-  local db, dbEx, dbErr = M.load("devbind", read)
-  local sc, scEx, scErr = M.load("senscal", read)
+  local db, dbEx, dbErr = M.loadLive("devbind", read)
+  local sc, scEx, scErr = M.loadLive("senscal", read)
   if dbErr or scErr then return nil, dbErr or scErr end
   -- Both splits must exist to assemble. If only one is present, load() filled the other with
   -- IDENTITY defaults; assembling would fly a real craft with an identity sign map (F3). Return

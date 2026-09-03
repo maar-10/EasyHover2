@@ -519,9 +519,30 @@ function M._confirmText(dir, kind)
   if dir == "export" then
     return "Overwrite " .. M.FILE[kind] .. " on the disk?"
   elseif dir == "import" then
+    if isFcsKind(kind) then
+      return "Overwrite " .. M.FILE[kind] .. " on the FCS?"
+    end
     return "Overwrite " .. M.FILE[kind] .. " on this UI PC?"
   end
   return ""
+end
+
+-- Live FCS write: fire-and-forget via cfgClient. Never reports success before the FCS ack;
+-- callers must read runtime.cfgSaveStatus (and the writeKind callback) for the real result.
+function M._liveFcsSet(runtime, kind, body)
+  if type(body) == "string" then
+    body = textutils.unserialise(body)
+  end
+  if type(body) ~= "table" then return false end
+  if not (runtime and runtime.cfgClient and runtime.cfgClient.writeKind) then return false end
+  runtime.cfgSaveStatus = "saving to FCS..."
+  runtime.uiRev = (runtime.uiRev or 0) + 1
+  runtime.cfgClient:writeKind(kind, body, function(ok, err)
+    runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
+      or ("SAVE FAILED: " .. tostring(err or "no FCS"))
+    runtime.uiRev = (runtime.uiRev or 0) + 1
+  end)
+  return false
 end
 
 -- M._fmtRow(row, width): compact per-kind status line, e.g. "tuning  L:OK D:--" -- DISPLAY-ONLY,
@@ -603,14 +624,7 @@ function M.build(basalt, frame, runtime, nav, deps)
       return nil
     end
     deps.fcsSet = deps.fcsSet or function(kind, body)
-      local tbl = textutils.unserialise(body)
-      if type(tbl) ~= "table" then return false end
-      runtime.cfgClient:writeKind(kind, tbl, function(ok, err)
-        runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
-          or ("SAVE FAILED: " .. tostring(err or "no FCS"))
-        runtime.uiRev = (runtime.uiRev or 0) + 1
-      end)
-      return true
+      return M._liveFcsSet(runtime, kind, body)
     end
   end
 
@@ -670,22 +684,16 @@ function M.build(basalt, frame, runtime, nav, deps)
     -- solid filled circle, string.char(7)) when a disk is found.
     local diskLabel = f:addLabel({ x = fx, y = y, width = fiw, height = 1, autoSize = false, text = "" })
 
-    -- 1-row gap, then two columns: REFRESH / SCAN on the LEFT, EXPORT / IMPORT / IMPORT ALL on the RIGHT.
+    -- 1-row gap, then REFRESH / SCAN. Mixed EXPORT/IMPORT/IMPORT ALL live on the FCS/UI/NAV
+    -- role screens, not here -- a mixed top-screen transfer was operator-confusing.
     local topY = y + 2
     local leftX  = fx + 1
-    local rightX = fx + math.floor(fiw / 2) + 1
     local refreshBtn   = configkit.bracketSwitch(f, { x = leftX,  y = topY,     width = 7,  text = "REFRESH",    kind = "function" })
     local scanBtn      = configkit.bracketSwitch(f, { x = leftX,  y = topY + 1, width = 7,  text = "SCAN",       kind = "function" })
-    local exportBtn    = configkit.bracketSwitch(f, { x = rightX, y = topY,     width = 10, text = "EXPORT",     kind = "function" })
-    local importBtn    = configkit.bracketSwitch(f, { x = rightX, y = topY + 1, width = 10, text = "IMPORT",     kind = "function" })
-    local importAllBtn = configkit.bracketSwitch(f, { x = rightX, y = topY + 2, width = 10, text = "IMPORT ALL", kind = "function" })
     refreshBtn.button:onClick(function() doDetect(); region:apply(nil) end)
     scanBtn.button:onClick(function() region:push("scan") end)
-    exportBtn.button:onClick(function() region:push("export") end)
-    importBtn.button:onClick(function() region:push("import") end)
-    importAllBtn.button:onClick(function() region:push("confirm_importall") end)
 
-    local roleY = topY + 3
+    local roleY = topY + 2
     local fcsBtn = configkit.bracketSwitch(f, { x = fx, y = roleY, width = 3, text = "FCS", kind = "menu" })
     local uiBtn  = configkit.bracketSwitch(f, { x = fx + 6, y = roleY, width = 2, text = "UI", kind = "menu" })
     local navBtn = configkit.bracketSwitch(f, { x = fx + 11, y = roleY, width = 3, text = "NAV", kind = "menu" })
@@ -703,13 +711,6 @@ function M.build(basalt, frame, runtime, nav, deps)
       local t = "<DISK STATE: " .. (present and "DISK FOUND" or "NO DISK") .. "> " .. ind
       diskLabel:setWidth(fiw)
       diskLabel:setText(string.rep(" ", math.max(0, math.floor((fiw - #t) / 2))) .. t)
-      exportBtn.set(present and "off" or "disabled")
-      importBtn.set(present and "off" or "disabled")
-      local anyValid = false
-      for _, kind in ipairs(M.KINDS) do
-        if scanKindResults[kind].diskHas and scanKindResults[kind].diskValid then anyValid = true end
-      end
-      importAllBtn.set((present and anyValid) and "off" or "disabled")
       scanBtn.set(present and "off" or "disabled")
       fcsBtn.set("off")
       uiBtn.set("off")
@@ -721,7 +722,7 @@ function M.build(basalt, frame, runtime, nav, deps)
       apply = function(_state) refreshTop() end,
       elements = {
         diskLabel = diskLabel, refreshBtn = refreshBtn, scanBtn = scanBtn,
-        exportBtn = exportBtn, importBtn = importBtn, importAllBtn = importAllBtn, backRow = backRow,
+        backRow = backRow,
         fcsBtn = fcsBtn, uiBtn = uiBtn, navBtn = navBtn,
       },
     }
@@ -953,7 +954,11 @@ function M.build(basalt, frame, runtime, nav, deps)
         local present = drive.present
         exportBtn.set(present and "off" or "disabled")
         importBtn.set(present and "off" or "disabled")
-        statusLabel:setText(clampText((dirStatus.export or "") .. " " .. (dirStatus.import or ""), fiw))
+        local status = (runtime and runtime.cfgSaveStatus) or ""
+        if status == "" then
+          status = ((dirStatus.export or "") .. " " .. (dirStatus.import or ""))
+        end
+        statusLabel:setText(clampText(status, fiw))
         for i, kind in ipairs(kinds) do
           local info = scanKindResults[kind] or {}
           kindLabels[i]:setText(clampText(rowSelectorText(M.row(kind, info)), fiw))

@@ -28,10 +28,12 @@ function M.snapshot(role, read, write)
   return { copied = copied, skipped = skipped }
 end
 
--- migrate(read, write) -> { action = "split"|"noop" }
--- If both split files exist: noop. Else if fused parses: splitLegacy and save each missing
--- split. Never deletes or rewrites the fused file (runtime artifact).
-function M.migrate(read, write)
+-- migrate(read, write, role) -> { action = "split"|"noop"|"refuse" }
+-- FCS-only: writing splits on UI/NAV would plant FCS files on the wrong PC. Missing/other
+-- role refuses without touching files. If both split files exist: noop. Else if fused parses:
+-- splitLegacy and save each missing split. Never deletes or rewrites the fused file.
+function M.migrate(read, write, role)
+  if role ~= "fcs" then return { action = "refuse" } end
   local dbBody = read(cfgspec.FILES.devbind)
   local scBody = read(cfgspec.FILES.senscal)
   if dbBody ~= nil and scBody ~= nil then
