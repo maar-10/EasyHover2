@@ -100,3 +100,33 @@ t.test("withDefaults gives an absent monitorOrder the empty default", function()
   t.eq(type(merged.monitorOrder), "table")
   t.eq(#merged.monitorOrder, 0)
 end)
+
+-- Break this test would catch: load of current ignoring a present session overlay,
+-- so a DEFAULT-for-this-boot UI would still show current.
+t.test("load prefers eh2_ui_config.session.tbl over current when it parses", function()
+  local current = "/eh2_ui_config.tbl"
+  local session = "/eh2_ui_config.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  t.truthy(Config.save(current, { assign = { m = "current" } }))
+  t.truthy(Config.save(session, { assign = { m = "session" } }))
+  local cfg, existed, err = Config.load(current)
+  t.eq(existed, true); t.eq(err, nil)
+  t.eq(cfg.assign.m, "session", "session overlay must win over current")
+  fs.delete(current); fs.delete(session)
+end)
+
+t.test("load falls back to current when session is missing or unparseable", function()
+  local current = "/eh2_ui_config.tbl"
+  local session = "/eh2_ui_config.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  t.truthy(Config.save(current, { assign = { m = "current" } }))
+  local cfg = select(1, Config.load(current))
+  t.eq(cfg.assign.m, "current")
+  local f = fs.open(session, "w"); f.write("not a table"); f.close()
+  local cfg2, existed2, err2 = Config.load(current)
+  t.eq(existed2, true); t.eq(err2, nil)
+  t.eq(cfg2.assign.m, "current", "unparseable session must not hide current")
+  fs.delete(current); fs.delete(session)
+end)

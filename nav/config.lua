@@ -45,8 +45,9 @@ function M.withDefaults(cfg)
   return merge(cfg or {}, M.defaults())
 end
 
-function M.load(path)
-  path = path or M.PATH
+local SESSION_PATH = "/eh2_nav.session.tbl"
+
+local function loadAt(path)
   if not fs.exists(path) or fs.isDir(path) then return nil, false, nil end
   local f = fs.open(path, "r")
   if not f then return nil, true, "could not open" end
@@ -54,6 +55,16 @@ function M.load(path)
   local cfg = textutils.unserialise(raw or "")
   if type(cfg) ~= "table" then return nil, true, "not a table" end
   return cfg, true, nil
+end
+
+-- Loading current prefers a parseable session overlay (DEFAULT-for-this-boot).
+function M.load(path)
+  path = path or M.PATH
+  if path == M.PATH then
+    local cfg = select(1, loadAt(SESSION_PATH))
+    if cfg then return cfg, true, nil end
+  end
+  return loadAt(path)
 end
 
 function M.save(path, cfg)

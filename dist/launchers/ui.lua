@@ -1,1 +1,1 @@
-package.path="/?.lua;/?/init.lua;"..package.path;write("Start UI with logging? (Y/N): ")local a=(read()or""):lower()_G.EH2_UILOG=a=="y"or a=="yes"require("ui.basalt.app").run()
+package.path="/?.lua;/?/init.lua;"..package.path;write("Start UI with logging? (Y/N): ")local a=(read()or""):lower()_G.EH2_UILOG=a=="y"or a=="yes"require("fcs.boot.pick").applyKind("uicfg","UI CONFIG")require("ui.basalt.app").run()

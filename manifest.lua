@@ -611,9 +611,9 @@
         },
         {
           ["dst"] = "ui/config.lua",
-          ["size"] = 1260,
+          ["size"] = 1429,
           ["src"] = "dist/ui/config.lua",
-          ["sum"] = "e00cb053",
+          ["sum"] = "eed13aef",
         },
       },
       ["luaPath"] = "/",
@@ -637,6 +637,12 @@
           ["size"] = 306157,
           ["src"] = "release/basalt-full.lua",
           ["sum"] = "f9a2dafa",
+        },
+        {
+          ["dst"] = "fcs/boot/pick.lua",
+          ["size"] = 1910,
+          ["src"] = "dist/fcs/boot/pick.lua",
+          ["sum"] = "7f27c3ea",
         },
         {
           ["dst"] = "fcs/comms/modem.lua",
@@ -663,6 +669,42 @@
           ["sum"] = "cc6fe1ff",
         },
         {
+          ["dst"] = "fcs/fueltable.lua",
+          ["size"] = 671,
+          ["src"] = "dist/fcs/fueltable.lua",
+          ["sum"] = "a639b7e0",
+        },
+        {
+          ["dst"] = "fcs/io/cfgroles.lua",
+          ["size"] = 737,
+          ["src"] = "dist/fcs/io/cfgroles.lua",
+          ["sum"] = "776c1f88",
+        },
+        {
+          ["dst"] = "fcs/io/cfgspec.lua",
+          ["size"] = 1785,
+          ["src"] = "dist/fcs/io/cfgspec.lua",
+          ["sum"] = "5cf060f9",
+        },
+        {
+          ["dst"] = "fcs/io/fsx.lua",
+          ["size"] = 488,
+          ["src"] = "dist/fcs/io/fsx.lua",
+          ["sum"] = "4cd8ca31",
+        },
+        {
+          ["dst"] = "fcs/io/hwconfig.lua",
+          ["size"] = 870,
+          ["src"] = "dist/fcs/io/hwconfig.lua",
+          ["sum"] = "9fdb83da",
+        },
+        {
+          ["dst"] = "fcs/io/tuningdefaults.lua",
+          ["size"] = 1773,
+          ["src"] = "dist/fcs/io/tuningdefaults.lua",
+          ["sum"] = "346cf641",
+        },
+        {
           ["dst"] = "nav/app.lua",
           ["size"] = 6046,
           ["src"] = "dist/nav/app.lua",
@@ -682,9 +724,9 @@
         },
         {
           ["dst"] = "nav/config.lua",
-          ["size"] = 1077,
+          ["size"] = 1217,
           ["src"] = "dist/nav/config.lua",
-          ["sum"] = "e9805783",
+          ["sum"] = "2205b7c5",
         },
         {
           ["dst"] = "nav/lib/fix.lua",
@@ -730,9 +772,9 @@
         },
         {
           ["dst"] = "nav/waypoints.lua",
-          ["size"] = 4564,
+          ["size"] = 4725,
           ["src"] = "dist/nav/waypoints.lua",
-          ["sum"] = "df82d87c",
+          ["sum"] = "d07b5907",
         },
         {
           ["dst"] = "nav/wptdisk.lua",
@@ -748,9 +790,9 @@
         },
         {
           ["dst"] = "startup.lua",
-          ["size"] = 73,
+          ["size"] = 174,
           ["src"] = "dist/launchers/nav.lua",
-          ["sum"] = "f50fdc82",
+          ["sum"] = "1863aa90",
         },
       },
       ["luaPath"] = "/",
@@ -782,6 +824,12 @@
           ["size"] = 176,
           ["src"] = "dist/launchers/cockpit.lua",
           ["sum"] = "349aecb3",
+        },
+        {
+          ["dst"] = "fcs/boot/pick.lua",
+          ["size"] = 1910,
+          ["src"] = "dist/fcs/boot/pick.lua",
+          ["sum"] = "7f27c3ea",
         },
         {
           ["dst"] = "fcs/bringup/logbuffer.lua",
@@ -899,15 +947,15 @@
         },
         {
           ["dst"] = "nav/waypoints.lua",
-          ["size"] = 4564,
+          ["size"] = 4725,
           ["src"] = "dist/nav/waypoints.lua",
-          ["sum"] = "df82d87c",
+          ["sum"] = "d07b5907",
         },
         {
           ["dst"] = "startup.lua",
-          ["size"] = 176,
+          ["size"] = 231,
           ["src"] = "dist/launchers/ui.lua",
-          ["sum"] = "349aecb3",
+          ["sum"] = "9e8ff2db",
         },
         {
           ["dst"] = "tools/binddevices.lua",
@@ -1181,9 +1229,9 @@
         },
         {
           ["dst"] = "ui/config.lua",
-          ["size"] = 1260,
+          ["size"] = 1429,
           ["src"] = "dist/ui/config.lua",
-          ["sum"] = "e00cb053",
+          ["sum"] = "eed13aef",
         },
         {
           ["dst"] = "ui/detect.lua",
@@ -1386,5 +1434,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "5b014950",
+  ["version"] = "730e0e2f",
 }

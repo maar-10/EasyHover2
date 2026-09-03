@@ -145,4 +145,39 @@ t.test("load of a missing file is absent, not an error", function()
   t.eq(s, nil); t.eq(existed, false)
 end)
 
+-- Break this test would catch: waypoint load of current ignoring a session overlay.
+t.test("load prefers eh2_nav_wpt.session.tbl over current when it parses", function()
+  local current = "/eh2_nav_wpt.tbl"
+  local session = "/eh2_nav_wpt.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  local cur = W.defaults()
+  W.addWpt(cur, { name = "Current", x = 1, y = 1, z = 1, type = "base" })
+  local ses = W.defaults()
+  W.addWpt(ses, { name = "Session", x = 9, y = 9, z = 9, type = "poi" })
+  t.truthy(W.save(current, cur))
+  t.truthy(W.save(session, ses))
+  local loaded, existed = W.load(current)
+  t.eq(existed, true)
+  t.eq(#loaded.waypoints, 1)
+  t.eq(loaded.waypoints[1].name, "Session")
+  fs.delete(current); fs.delete(session)
+end)
+
+t.test("load falls back to current when wpt session is missing or unparseable", function()
+  local current = "/eh2_nav_wpt.tbl"
+  local session = "/eh2_nav_wpt.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  local cur = W.defaults()
+  W.addWpt(cur, { name = "Current", x = 1, y = 1, z = 1, type = "base" })
+  t.truthy(W.save(current, cur))
+  local loaded = select(1, W.load(current))
+  t.eq(loaded.waypoints[1].name, "Current")
+  local f = fs.open(session, "w"); f.write("not a table"); f.close()
+  local loaded2 = select(1, W.load(current))
+  t.eq(loaded2.waypoints[1].name, "Current")
+  fs.delete(current); fs.delete(session)
+end)
+
 return true

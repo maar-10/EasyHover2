@@ -1,1 +1,1 @@
-package.path="/?.lua;/?/init.lua;"..package.path;require("nav.app").run()
+package.path="/?.lua;/?/init.lua;"..package.path;local a=require("fcs.boot.pick")a.applyKind("nav","NAV CONFIG")a.applyKind("nav_wpt","NAV WAYPOINTS")require("nav.app").run()

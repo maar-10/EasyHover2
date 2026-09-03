@@ -5,4 +5,6 @@ package.path = "/?.lua;/?/init.lua;" .. package.path
 write("Start UI with logging? (Y/N): ")
 local ans = (read() or ""):lower()
 _G.EH2_UILOG = (ans == "y" or ans == "yes")
+-- UI CONFIG source: 1 current / 2 DEFAULT (session overlay) / 3 disk (import). Empty -> current.
+require("fcs.boot.pick").applyKind("uicfg", "UI CONFIG")
 require("ui.basalt.app").run()

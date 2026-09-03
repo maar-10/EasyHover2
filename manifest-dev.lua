@@ -611,9 +611,9 @@
         },
         {
           ["dst"] = "ui/config.lua",
-          ["size"] = 3557,
+          ["size"] = 3912,
           ["src"] = "ui/config.lua",
-          ["sum"] = "e7b8b655",
+          ["sum"] = "60159955",
         },
       },
       ["luaPath"] = "/",
@@ -637,6 +637,12 @@
           ["size"] = 306157,
           ["src"] = "release/basalt-full.lua",
           ["sum"] = "f9a2dafa",
+        },
+        {
+          ["dst"] = "fcs/boot/pick.lua",
+          ["size"] = 3411,
+          ["src"] = "fcs/boot/pick.lua",
+          ["sum"] = "050ea8d1",
         },
         {
           ["dst"] = "fcs/comms/modem.lua",
@@ -663,6 +669,42 @@
           ["sum"] = "234d2453",
         },
         {
+          ["dst"] = "fcs/fueltable.lua",
+          ["size"] = 1381,
+          ["src"] = "fcs/fueltable.lua",
+          ["sum"] = "0512c63c",
+        },
+        {
+          ["dst"] = "fcs/io/cfgroles.lua",
+          ["size"] = 1171,
+          ["src"] = "fcs/io/cfgroles.lua",
+          ["sum"] = "d1e6ef16",
+        },
+        {
+          ["dst"] = "fcs/io/cfgspec.lua",
+          ["size"] = 3036,
+          ["src"] = "fcs/io/cfgspec.lua",
+          ["sum"] = "86d8a39b",
+        },
+        {
+          ["dst"] = "fcs/io/fsx.lua",
+          ["size"] = 2047,
+          ["src"] = "fcs/io/fsx.lua",
+          ["sum"] = "e5042a84",
+        },
+        {
+          ["dst"] = "fcs/io/hwconfig.lua",
+          ["size"] = 1106,
+          ["src"] = "fcs/io/hwconfig.lua",
+          ["sum"] = "60c45d53",
+        },
+        {
+          ["dst"] = "fcs/io/tuningdefaults.lua",
+          ["size"] = 4484,
+          ["src"] = "fcs/io/tuningdefaults.lua",
+          ["sum"] = "3105429f",
+        },
+        {
           ["dst"] = "nav/app.lua",
           ["size"] = 14687,
           ["src"] = "nav/app.lua",
@@ -682,9 +724,9 @@
         },
         {
           ["dst"] = "nav/config.lua",
-          ["size"] = 2554,
+          ["size"] = 2855,
           ["src"] = "nav/config.lua",
-          ["sum"] = "ff63fbc9",
+          ["sum"] = "f7aa99a9",
         },
         {
           ["dst"] = "nav/lib/fix.lua",
@@ -730,9 +772,9 @@
         },
         {
           ["dst"] = "nav/waypoints.lua",
-          ["size"] = 9365,
+          ["size"] = 9712,
           ["src"] = "nav/waypoints.lua",
-          ["sum"] = "5bdf66be",
+          ["sum"] = "7181d398",
         },
         {
           ["dst"] = "nav/wptdisk.lua",
@@ -748,9 +790,9 @@
         },
         {
           ["dst"] = "startup.lua",
-          ["size"] = 78,
+          ["size"] = 355,
           ["src"] = "launchers/nav.lua",
-          ["sum"] = "699614ff",
+          ["sum"] = "175877ca",
         },
       },
       ["luaPath"] = "/",
@@ -782,6 +824,12 @@
           ["size"] = 479,
           ["src"] = "launchers/cockpit.lua",
           ["sum"] = "b584b757",
+        },
+        {
+          ["dst"] = "fcs/boot/pick.lua",
+          ["size"] = 3411,
+          ["src"] = "fcs/boot/pick.lua",
+          ["sum"] = "050ea8d1",
         },
         {
           ["dst"] = "fcs/bringup/logbuffer.lua",
@@ -899,15 +947,15 @@
         },
         {
           ["dst"] = "nav/waypoints.lua",
-          ["size"] = 9365,
+          ["size"] = 9712,
           ["src"] = "nav/waypoints.lua",
-          ["sum"] = "5bdf66be",
+          ["sum"] = "7181d398",
         },
         {
           ["dst"] = "startup.lua",
-          ["size"] = 479,
+          ["size"] = 634,
           ["src"] = "launchers/ui.lua",
-          ["sum"] = "b584b757",
+          ["sum"] = "2efbf77f",
         },
         {
           ["dst"] = "tools/binddevices.lua",
@@ -1181,9 +1229,9 @@
         },
         {
           ["dst"] = "ui/config.lua",
-          ["size"] = 3557,
+          ["size"] = 3912,
           ["src"] = "ui/config.lua",
-          ["sum"] = "e7b8b655",
+          ["sum"] = "60159955",
         },
         {
           ["dst"] = "ui/detect.lua",
@@ -1386,5 +1434,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "3dfb8fbd",
+  ["version"] = "55519b4b",
 }

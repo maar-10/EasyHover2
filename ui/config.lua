@@ -59,7 +59,11 @@ end
 
 -- Read + unserialise the SAVED table (pre-merge). Never throws.
 -- Returns cfg|nil, existed, err. existed=true with err set means present-but-unparseable.
-function M.load(path)
+-- Loading current prefers a parseable session overlay (DEFAULT-for-this-boot).
+local CURRENT_PATH = "/eh2_ui_config.tbl"
+local SESSION_PATH = "/eh2_ui_config.session.tbl"
+
+local function loadAt(path)
   if not fs.exists(path) or fs.isDir(path) then return nil, false, nil end
   local f = fs.open(path, "r")
   if not f then return nil, true, "could not open" end
@@ -67,6 +71,14 @@ function M.load(path)
   local cfg = textutils.unserialise(raw or "")
   if type(cfg) ~= "table" then return nil, true, "not a table" end
   return cfg, true, nil
+end
+
+function M.load(path)
+  if path == CURRENT_PATH then
+    local cfg = select(1, loadAt(SESSION_PATH))
+    if cfg then return cfg, true, nil end
+  end
+  return loadAt(path)
 end
 
 -- Atomic write: tmp + move.

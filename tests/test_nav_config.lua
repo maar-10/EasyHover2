@@ -36,3 +36,32 @@ t.test("GPS channel lives in eh2_nav.tbl defaults, not a sidecar file", function
   t.eq(type(C.defaults().channel), "number")
   t.eq(C.PATH, "/eh2_nav.tbl")
 end)
+
+-- Break this test would catch: nav.config.load of current ignoring a session overlay.
+t.test("load prefers eh2_nav.session.tbl over current when it parses", function()
+  local current = C.PATH
+  local session = "/eh2_nav.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  t.truthy(C.save(current, { channel = 111, navtable = { name = "current" } }))
+  t.truthy(C.save(session, { channel = 222, navtable = { name = "session" } }))
+  local cfg, existed, err = C.load(current)
+  t.eq(existed, true); t.eq(err, nil)
+  t.eq(cfg.navtable.name, "session")
+  t.eq(cfg.channel, 222)
+  fs.delete(current); fs.delete(session)
+end)
+
+t.test("load falls back to current when nav session is missing or unparseable", function()
+  local current = C.PATH
+  local session = "/eh2_nav.session.tbl"
+  if fs.exists(current) then fs.delete(current) end
+  if fs.exists(session) then fs.delete(session) end
+  t.truthy(C.save(current, { channel = 111, navtable = { name = "current" } }))
+  local cfg = select(1, C.load(current))
+  t.eq(cfg.navtable.name, "current")
+  local f = fs.open(session, "w"); f.write("not a table"); f.close()
+  local cfg2 = select(1, C.load(current))
+  t.eq(cfg2.navtable.name, "current")
+  fs.delete(current); fs.delete(session)
+end)

@@ -229,8 +229,10 @@ end
 
 -- ---- persistence (atomic tmp+move, pre-merge load -- mirrors ui/config.lua) ----
 
---- load(path) -> store|nil, existed. Never throws.
-function M.load(path)
+local CURRENT_PATH = "/eh2_nav_wpt.tbl"
+local SESSION_PATH = "/eh2_nav_wpt.session.tbl"
+
+local function loadAt(path)
   if not fs.exists(path) or fs.isDir(path) then return nil, false end
   local f = fs.open(path, "r")
   if not f then return nil, true end
@@ -238,6 +240,16 @@ function M.load(path)
   local cfg = textutils.unserialise(raw or "")
   if type(cfg) ~= "table" then return nil, true end
   return M.withDefaults(cfg), true
+end
+
+--- load(path) -> store|nil, existed. Never throws.
+--- Loading current prefers a parseable session overlay (DEFAULT-for-this-boot).
+function M.load(path)
+  if path == CURRENT_PATH then
+    local cfg = select(1, loadAt(SESSION_PATH))
+    if cfg then return cfg, true end
+  end
+  return loadAt(path)
 end
 
 --- save(path, store) -> true|false, err. Atomic tmp write + move.
