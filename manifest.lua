@@ -845,9 +845,9 @@
         },
         {
           ["dst"] = "fcs/io/cfgroles.lua",
-          ["size"] = 511,
+          ["size"] = 737,
           ["src"] = "dist/fcs/io/cfgroles.lua",
-          ["sum"] = "c5b04b28",
+          ["sum"] = "776c1f88",
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
@@ -1380,5 +1380,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "4f88dacd",
+  ["version"] = "2b37361f",
 }

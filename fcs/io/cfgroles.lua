@@ -31,4 +31,15 @@ function M.kinds(role) return KINDS[role] end
 function M.file(kind) return FILES[kind] end
 function M.roleOf(kind) return ROLE_OF[kind] end
 
+function M.defaultFile(kind)
+  local f = M.file(kind)
+  if not f then return nil end
+  return (f:gsub("%.tbl$", ".default.tbl"))
+end
+function M.sessionFile(kind)
+  local f = M.file(kind)
+  if not f then return nil end
+  return (f:gsub("%.tbl$", ".session.tbl"))
+end
+
 return M
