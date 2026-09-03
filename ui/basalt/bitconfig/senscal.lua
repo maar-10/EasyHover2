@@ -1,9 +1,10 @@
 -- ui/basalt/bitconfig/senscal.lua
 -- SENS CAL sub-menu (BIT/CONFIG hub, screen id "senscal"): the native-Basalt guided sensor
--- calibration -- a reskin of the terminal tool tools/calibrate.lua's guided flow. Writes
--- /eh2_senscal.tbl via fcs/io/cfgspec.lua and MUST produce a byte-identical file to the
--- terminal tool for the same samples (enforced by the PARITY test in
--- tests/test_bitconfig_senscal.lua).
+-- calibration -- a reskin of the terminal tool tools/calibrate.lua's guided flow. Reads the
+-- FCS's live devbind (sensor names) + senscal (starting scaffold) via ui.basalt.cfgseam and
+-- SAVE ships a senscal `set` to the running FCS (which persists it and materializes the
+-- devbind sibling). MUST still produce a byte-identical body to the terminal tool for the
+-- same samples (enforced by the PARITY test in tests/test_bitconfig_senscal.lua).
 --
 -- This module REUSES, rather than reimplements:
 --   * fcs/io/calibration.lua's pure cal.classifyGimbalAxis/classifyLateralPair/
@@ -36,10 +37,12 @@
 -- step is captured, computes `step.capture(samples)`, gates on `step.accept(result)`, and shows
 -- OK/X (accept/reject). OK calls `step.apply(cfg, result)` and advances to the next step; X
 -- discards the step's in-progress samples and restarts its phases. SAVE calls
--- `cfgspec.save("senscal", cfg.bindings, write)`. Read/write/sampler are injected (5th/6th/7th
--- M.build args) so tests drive this without real peripherals; the "constants" step needs no
--- sensors at all (operator-entered numbers) and uses a +/- stepper instead of CAPTURE, matching
--- tools/calibrate.lua's stepConstants prompt-for-a-number flow.
+-- `cfgspec.save("senscal", cfg.bindings, write)`. Default read/write come from cfgseam (FCS
+-- cache + cfgClient); CAPTURE sampler stays LOCAL. Read/write/sampler are injected
+-- (5th/6th/7th M.build args) so tests drive this without real peripherals/FCS; the
+-- "constants" step needs no sensors at all (operator-entered numbers) and uses a +/-
+-- stepper instead of CAPTURE, matching tools/calibrate.lua's stepConstants prompt-for-a-number
+-- flow.
 --
 -- ===== UI SHAPE: step-list overview + per-step screens (ui/basalt/region.lua) =====
 -- The old flat build crammed the header/prompt/status/value/minus/plus/CAPTURE/ACCEPT/REJECT/
@@ -75,10 +78,10 @@ local cal       = require("fcs.io.calibration")
 local calibrate = require("tools.calibrate")
 local cfgspec   = require("fcs.io.cfgspec")
 local shim      = require("fcs.io.shim")
-local fsx       = require("fcs.io.fsx")
 local Region    = require("ui.basalt.region")
 local configkit = require("ui.basalt.configkit")
 local switchbtn = require("ui.basalt.switchbtn")
+local cfgseam   = require("ui.basalt.cfgseam")
 
 local M = {}
 M.id = "senscal"
@@ -458,24 +461,21 @@ local function realSampler(stepId, phase, wrapped, cfg)
 end
 M._realSampler = realSampler
 
--- ===== real fs read/write (default injected seams; never called at module load) =====
-
-local function realRead(filename)
-  return fsx.read("/" .. filename)
-end
-
--- Atomic tmp-then-move write, mirrors ui/basalt/bitconfig/tuning.lua's realWrite exactly
--- (delegates to fcs/io/fsx.lua's shared helper).
-local function realWrite(filename, body)
-  return fsx.writeAtomic("/" .. filename, body)
-end
-
 -- ===== M.build: construct the step-list overview + per-step-screen element tree =====
 -- See the header note above ("UI SHAPE") for the full region/screen-naming rationale.
+-- S2b: read the FCS's live devbind (sensor names) + senscal (starting scaffold) from
+-- runtime.cfgCache; SAVE ships a senscal `set` to the FCS (which materializes the devbind
+-- sibling). The CAPTURE sampler stays LOCAL. Tests inject all.
 
 function M.build(basalt, frame, runtime, nav, read, write, sampler)
-  read = read or realRead
-  write = write or realWrite
+  read = read or cfgseam.read(runtime)
+  write = write or cfgseam.write(runtime, function(kind, ok, err)
+    if runtime then
+      runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
+        or ("SAVE FAILED: " .. tostring(err or "no FCS"))
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+    end
+  end)
   sampler = sampler or realSampler
 
   local steps = M.steps()

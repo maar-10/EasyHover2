@@ -956,9 +956,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/senscal.lua",
-          ["size"] = 32405,
+          ["size"] = 32780,
           ["src"] = "ui/basalt/bitconfig/senscal.lua",
-          ["sum"] = "dcef2a5d",
+          ["sum"] = "338e307f",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/senssource.lua",
@@ -1377,5 +1377,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "33500e9f",
+  ["version"] = "3bff449c",
 }
