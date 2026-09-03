@@ -1,12 +1,12 @@
 -- ui/basalt/bitconfig/tuning.lua
 -- FCS TUNING sub-menu (BIT/CONFIG hub, screen id "tuning"): lets the operator edit the FCS
--- tuning cfg (fcs/io/tuningdefaults.lua's shape) on the UI PC. Save writes /eh2_tuning.tbl via
--- fcs/io/cfgspec.lua -- the FCS boot loader later pulls that file when its "ui"/"own"/"disk"
--- source is chosen (fcs/boot/loaderui.lua). This menu NEVER live-pushes tuning to a flying FCS;
--- it only edits the on-disk cfg the boot loader reads next boot. RST (per-mode, Task 8) resets
--- ONLY the active mode's subtree to the committed defaults in fcs/io/tuningdefaults.lua -- see
--- M.resetMode; the OLDER whole-file M._reset/delete flow stays defined (still tested) but is no
--- longer called from M.build.
+-- tuning cfg (fcs/io/tuningdefaults.lua's shape) on the UI PC. Default read/write seams go
+-- through ui.basalt.cfgseam -- SAVE ships a `set` to the running FCS (persisted there; tuning
+-- needs a reload to apply). CoM is the hot-apply exception via the COM screen's pushCom
+-- (command-channel setCom) AND the FCS responder. This menu no longer edits the on-disk cfg
+-- the boot loader reads. RST (per-mode, Task 8) resets ONLY the active mode's subtree to the
+-- committed defaults in fcs/io/tuningdefaults.lua -- see M.resetMode; the OLDER whole-file
+-- M._reset/delete flow stays defined (still tested) but is no longer called from M.build.
 --
 -- Follows the Task 15/17 template EXACTLY (see ui/basalt/pages/emc.lua's header comment for the
 -- full Basalt API provenance notes -- not re-derived here): module exports `M.id`, `M.title`, a
@@ -75,6 +75,7 @@ local Region          = require("ui.basalt.region")
 local configkit       = require("ui.basalt.configkit")
 local switchbtn       = require("ui.basalt.switchbtn")
 local ComAuto         = require("fcs.comauto")
+local cfgseam         = require("ui.basalt.cfgseam")
 
 local M = {}
 M.id = "tuning"
@@ -379,17 +380,9 @@ function M._reset(deleteFn)
   return tuningdefaults.get()
 end
 
--- ===== real fs read/write/delete (default injected seams; never called at module load) =====
-
-local function realRead(filename)
-  return fsx.read("/" .. filename)
-end
-
--- Atomic tmp-then-move write, mirrors fcs/boot/loaderui.lua's realWrite / fcs/io/config.lua's
--- M.save exactly (delegates to fcs/io/fsx.lua's shared helper).
-local function realWrite(filename, body)
-  return fsx.writeAtomic("/" .. filename, body)
-end
+-- ===== real fs delete (default injected seam; never called at module load) =====
+-- Default read/write now come from cfgseam (FCS cache + cfgClient). realDelete stays for
+-- signature/API compat (per-mode RST no longer deletes; M._reset still tested with spies).
 
 local function realDelete(path)
   fsx.delete(path)
@@ -479,12 +472,19 @@ end
 local HELP_IDS = { "modes", "gains", "caps", "feel", "alt", "pitch", "roll", "yaw", "sway", "surge" }
 
 function M.build(basalt, frame, runtime, nav, read, write, delete)
-  read = read or realRead
-  write = write or realWrite
-  delete = delete or realDelete -- kept for signature/API compat; the new per-mode RST (M.resetMode)
-                                 -- no longer deletes the file (see M._reset's own header note --
-                                 -- that whole-file delete/M._reset seam stays defined/tested, just
-                                 -- unused from here on).
+  -- S2: default seams read the FCS's live tuning cfg from runtime.cfgCache and ship SAVE as a `set`
+  -- to the running FCS (persisted there; tuning needs a reload to apply -- CoM is the exception,
+  -- hot-applied via the COM screen's pushCom below AND the FCS responder). Tests still inject
+  -- read/write and never touch cfgseam.
+  read = read or cfgseam.read(runtime)
+  write = write or cfgseam.write(runtime, function(kind, ok, err)
+    if runtime then
+      runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
+        or ("SAVE FAILED: " .. tostring(err or "no FCS"))
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+    end
+  end)
+  delete = delete or realDelete -- kept for signature/API compat (per-mode RST no longer deletes)
 
   local workingCfg = (cfgspec.load("tuning", read))
 

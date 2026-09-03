@@ -968,9 +968,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/tuning.lua",
-          ["size"] = 43461,
+          ["size"] = 43732,
           ["src"] = "ui/basalt/bitconfig/tuning.lua",
-          ["sum"] = "6ef0f966",
+          ["sum"] = "91cba332",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/uical.lua",
@@ -989,6 +989,12 @@
           ["size"] = 3366,
           ["src"] = "ui/basalt/cfgclient.lua",
           ["sum"] = "e3a1c29d",
+        },
+        {
+          ["dst"] = "ui/basalt/cfgseam.lua",
+          ["size"] = 1716,
+          ["src"] = "ui/basalt/cfgseam.lua",
+          ["sum"] = "aabe63b0",
         },
         {
           ["dst"] = "ui/basalt/configkit.lua",
@@ -1371,5 +1377,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "f4c84504",
+  ["version"] = "7ee883e9",
 }
