@@ -13,7 +13,7 @@ M.id = "fcssync"
 M.title = "FCS SYNC"
 
 -- The FCS config kinds this checker probes.
-M.KINDS = { "tuning", "devbind", "senscal" }
+M.KINDS = { "tuning", "devbind", "senscal", "fuelcal" }
 
 -- ===== M.checkStatus: PURE per-kind status from runtime.cfgCache. =====
 -- "OK" = a body arrived; "NO ANSWER" = the last attempt failed (FCS silent); "SYNC" = in flight or

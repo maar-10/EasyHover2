@@ -1007,9 +1007,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/fcssync.lua",
-          ["size"] = 1253,
+          ["size"] = 1263,
           ["src"] = "dist/ui/basalt/bitconfig/fcssync.lua",
-          ["sum"] = "4e6b5c7f",
+          ["sum"] = "1b99e3fb",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/hub.lua",
@@ -1452,5 +1452,5 @@
     ["size"] = 75903,
     ["sum"] = "6452d767",
   },
-  ["version"] = "a4725812",
+  ["version"] = "e487160c",
 }

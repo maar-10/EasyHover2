@@ -19,8 +19,10 @@ t.test("checkStatus treats an absent cache entry as SYNC (not requested yet)", f
   t.eq(st.tuning, "SYNC")
 end)
 
-t.test("M.KINDS lists the FCS config kinds the checker probes", function()
-  t.truthy(#M.KINDS >= 3, "at least tuning/devbind/senscal")
+t.test("M.KINDS includes fuelcal", function()
+  local set = {}
+  for _, k in ipairs(M.KINDS) do set[k] = true end
+  t.truthy(set.tuning and set.devbind and set.senscal and set.fuelcal)
 end)
 
 return t
