@@ -1,0 +1,67 @@
+-- fcs/io/cfgaccess.lua
+-- Pure FCS-side config provider/applier for the live config responder (tools/flight.lua's
+-- configTask). getKind resolves a kind's live cfg EXACTLY as tools/flight.lua's loadConfig does
+-- (split file preferred, fused /eh2_hw_config.tbl as a read-only fallback); setKind validates and
+-- persists to the FCS's OWN files (never the fused legacy) and materializes the sibling split for
+-- devbind/senscal so cfgspec.tryAssemble (which needs BOTH splits) actually uses the operator's
+-- change next boot. read/write are injected (bare filename, matching cfgspec + tools/flight.lua's
+-- readFile/writeFile). NO peripherals/os/Basalt.
+local cfgspec = require("fcs.io.cfgspec")
+
+local M = {}
+M.FUSED = "eh2_hw_config.tbl"   -- read-only legacy fallback (retired in S5); never written here
+
+local SIBLING = { devbind = "senscal", senscal = "devbind" }
+
+-- splitLegacy(fused) | nil (nil = no/unparseable fused file). PURE.
+local function fusedSplit(read)
+  local body = read(M.FUSED)
+  if body == nil then return nil end
+  local hw = textutils.unserialise(body)
+  if type(hw) ~= "table" then return nil end
+  return cfgspec.splitLegacy(hw)
+end
+
+-- getKind(kind, read) -> the FCS's live cfg TABLE. tuning/fuelcal: their own file, merged with
+-- defaults. devbind/senscal: the split file if present; else the fused legacy slice, merged
+-- (mirrors fcs/boot/loaderui.lua's ownSource); else merged defaults (a fresh FCS stays editable --
+-- never a nil the UI would read as "FCS silent").
+function M.getKind(kind, read)
+  if kind == "tuning" or kind == "fuelcal" then
+    return (cfgspec.load(kind, read))
+  end
+  if kind == "devbind" or kind == "senscal" then
+    local cfg, existed, err = cfgspec.load(kind, read)
+    if existed and not err then return cfg end
+    local split = fusedSplit(read)
+    local seed = split and split[kind]
+    if seed ~= nil then return cfgspec.merge(kind, seed) end
+    return cfgspec.merge(kind, {})
+  end
+  error("cfgaccess: unknown kind " .. tostring(kind))
+end
+
+-- setKind(kind, body, read, write) -> ok, err. Validate then persist. For devbind/senscal also
+-- materialize the sibling split when absent (seeded from the fused slice if any, else defaults).
+function M.setKind(kind, body, read, write)
+  local ok, err = cfgspec.validate(kind, body)
+  if not ok then return false, err end
+  if kind == "tuning" or kind == "fuelcal" then
+    cfgspec.save(kind, body, write)
+    return true
+  end
+  if kind == "devbind" or kind == "senscal" then
+    cfgspec.save(kind, body, write)
+    local sib = SIBLING[kind]
+    local _, sibExisted = cfgspec.load(sib, read)
+    if not sibExisted then
+      local split = fusedSplit(read)
+      local seed = split and split[sib]
+      cfgspec.save(sib, cfgspec.merge(sib, seed or {}), write)
+    end
+    return true
+  end
+  return false, "unknown kind"
+end
+
+return M
