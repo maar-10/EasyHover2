@@ -527,6 +527,24 @@ function M._confirmText(dir, kind)
   return ""
 end
 
+-- Live FCS read: cache hit returns the serialised body. Cache miss fires a non-blocking
+-- cfgClient:readKind and returns nil this call (never waits). In-flight / failed entries
+-- are not re-requested here -- showScreen's DTC prefetch and the client's tick cover retry.
+function M._liveFcsGet(runtime, kind)
+  if not runtime then return nil end
+  runtime.cfgCache = runtime.cfgCache or {}
+  local c = runtime.cfgCache[kind]
+  if c and c.body ~= nil then return textutils.serialise(c.body) end
+  if not c and runtime.cfgClient and runtime.cfgClient.readKind then
+    runtime.cfgCache[kind] = { body = nil, status = "sync" }
+    runtime.cfgClient:readKind(kind, function(body)
+      runtime.cfgCache[kind] = { body = body, status = body ~= nil and "ok" or "fail" }
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+    end)
+  end
+  return nil
+end
+
 -- Live FCS write: fire-and-forget via cfgClient. Never reports success before the FCS ack;
 -- callers must read runtime.cfgSaveStatus (and the writeKind callback) for the real result.
 function M._liveFcsSet(runtime, kind, body)
@@ -619,9 +637,7 @@ function M.build(basalt, frame, runtime, nav, deps)
   deps = resolveDeps(deps)
   if runtime and runtime.cfgClient then
     deps.fcsGet = deps.fcsGet or function(kind)
-      local c = runtime.cfgCache and runtime.cfgCache[kind]
-      if c and c.body ~= nil then return textutils.serialise(c.body) end
-      return nil
+      return M._liveFcsGet(runtime, kind)
     end
     deps.fcsSet = deps.fcsSet or function(kind, body)
       return M._liveFcsSet(runtime, kind, body)

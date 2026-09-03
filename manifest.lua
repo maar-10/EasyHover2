@@ -995,15 +995,15 @@
         },
         {
           ["dst"] = "ui/basalt/app.lua",
-          ["size"] = 18997,
+          ["size"] = 19285,
           ["src"] = "dist/ui/basalt/app.lua",
-          ["sum"] = "1f2f4180",
+          ["sum"] = "0ea6f604",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/dtc.lua",
-          ["size"] = 16795,
+          ["size"] = 17115,
           ["src"] = "dist/ui/basalt/bitconfig/dtc.lua",
-          ["sum"] = "3d07b6cd",
+          ["sum"] = "0938fb2b",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/fcssync.lua",
@@ -1452,5 +1452,5 @@
     ["size"] = 75903,
     ["sum"] = "6452d767",
   },
-  ["version"] = "577b7c7b",
+  ["version"] = "b861c85c",
 }

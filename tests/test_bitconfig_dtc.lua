@@ -637,6 +637,29 @@ end)
 
 -- ===== Task B6: IMPORT ALL button + confirm_importall screen =====
 
+t.test("live fcsGet cache miss fires readKind once and returns nil until body arrives", function()
+  local reads = {}
+  local runtime = {
+    cfgCache = {},
+    cfgClient = {
+      readKind = function(self, kind, cb)
+        reads[#reads + 1] = { kind = kind, cb = cb }
+      end,
+    },
+  }
+  t.eq(M._liveFcsGet(runtime, "tuning"), nil, "miss returns nil immediately")
+  t.eq(#reads, 1, "one non-blocking readKind")
+  t.eq(reads[1].kind, "tuning")
+  t.eq(runtime.cfgCache.tuning.status, "sync")
+  t.eq(M._liveFcsGet(runtime, "tuning"), nil, "in-flight miss still nil")
+  t.eq(#reads, 1, "must not re-request while sync")
+  reads[1].cb({ gains = 1 })
+  local body = M._liveFcsGet(runtime, "tuning")
+  t.truthy(body ~= nil, "body available after reply")
+  t.eq(textutils.unserialise(body).gains, 1)
+  t.eq(#reads, 1, "hit does not re-request")
+end)
+
 t.test("live fcsSet does not report success before FCS ack; surfaces cfgSaveStatus", function()
   local cbs = {}
   local runtime = {

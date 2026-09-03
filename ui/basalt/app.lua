@@ -109,6 +109,19 @@ M.CFG_MENU_KINDS = {
   senssource = { "devbind" },
 }
 
+-- DTC is not FCS-gated (UI/NAV disk screens must open with FCS silent), but FCS EXPORT
+-- reads cfgCache via fcsGet, so opening DTC warms these kinds without blocking the page.
+M.DTC_PREFETCH_KINDS = { "tuning", "devbind", "senscal", "fuelcal" }
+
+-- prefetchCfgKinds(runtime, kinds, requestFn): fire requestFn once per kind that has no
+-- cache entry. Does not change the return of cfgMenuStatus / does not gate the page.
+function M.prefetchCfgKinds(runtime, kinds, requestFn)
+  if not (runtime and runtime.cfgCache and kinds and requestFn) then return end
+  for _, kind in ipairs(kinds) do
+    if not runtime.cfgCache[kind] then requestFn(kind) end
+  end
+end
+
 -- cfgMenuStatus(runtime, screenId, requestFn) -> "ok" | "sync" | "fail". PURE given the cache: a
 -- non-config screen is always "ok"; "fail" if any needed kind failed; "sync" if any is missing/in
 -- flight (requestFn(kind) is invoked once per not-yet-requested kind); else "ok".
@@ -374,16 +387,22 @@ function M.showScreen(basalt, runtime, frameRec, screenId)
   -- While syncing / on timeout, show a placeholder instead of the menu -- the menu never sees a
   -- half-fetched cfg. requestFn kicks a client read whose reply flips the cache to "ok" and
   -- repaints (applyNow), rebuilding the real menu here.
-  local cfgStatus = M.cfgMenuStatus(runtime, screenId, function(kind)
+  -- DTC is the exception: prefetch the FCS kinds into cfgCache so EXPORT has bodies, but never
+  -- swap in the SYNCING placeholder -- UI/NAV disk screens stay available immediately.
+  local function requestKind(kind)
     runtime.cfgCache[kind] = { body = nil, status = "sync" }
     runtime.cfgClient:readKind(kind, function(body)
       runtime.cfgCache[kind] = { body = body, status = body ~= nil and "ok" or "fail" }
       runtime.uiRev = (runtime.uiRev or 0) + 1
       pcall(function() M.applyNow(basalt, runtime, frameRec) end)
     end)
-  end)
+  end
+  local cfgStatus = M.cfgMenuStatus(runtime, screenId, requestKind)
   if cfgStatus ~= "ok" then
     return M._cfgPlaceholder(basalt, frameRec, screenId, cfgStatus)
+  end
+  if screenId == "dtc" then
+    M.prefetchCfgKinds(runtime, M.DTC_PREFETCH_KINDS, requestKind)
   end
 
   local entry = frameRec.built[screenId]

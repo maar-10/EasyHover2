@@ -199,9 +199,36 @@ t.test("cfgMenuStatus dtc is ok even when FCS cache is empty or failed", functio
   local runtime = { cfgCache = {} }
   local requested = {}
   t.eq(M.cfgMenuStatus(runtime, "dtc", function(kind) requested[#requested + 1] = kind end), "ok")
-  t.eq(#requested, 0, "DTC must not prefetch FCS kinds or block the page")
+  t.eq(#requested, 0, "cfgMenuStatus must not request (that would gate the page)")
   runtime.cfgCache.tuning = { body = nil, status = "fail" }
   t.eq(M.cfgMenuStatus(runtime, "dtc", function() end), "ok", "FCS silent must not gate DTC")
+end)
+
+t.test("showScreen dtc is ok with empty cache and prefetches FCS kinds without blocking", function()
+  local basalt = M.ensureBasalt()
+  local frame = basalt.createFrame()
+  local frameRec = M.newFrameRec(frame, "dtc")
+  local runtime = newRuntime()
+  runtime.cfgCache = {}
+  local requested = {}
+  runtime.cfgClient.readKind = function(_, kind, _cb)
+    requested[#requested + 1] = kind
+  end
+
+  t.eq(M.cfgMenuStatus(runtime, "dtc", function() end), "ok", "empty cache must not gate DTC")
+
+  local entry = M.showScreen(basalt, runtime, frameRec, "dtc")
+  t.truthy(entry ~= nil, "dtc page built")
+  t.eq(entry.handle.id, "dtc", "real DTC page, not SYNCING placeholder")
+  t.eq(frameRec.built["__cfggate_dtc"], nil, "must not show placeholder")
+
+  local seen = {}
+  for _, kind in ipairs(requested) do seen[kind] = true end
+  t.eq(seen.tuning, true, "prefetch tuning")
+  t.eq(seen.devbind, true, "prefetch devbind")
+  t.eq(seen.senscal, true, "prefetch senscal")
+  t.eq(seen.fuelcal, true, "prefetch fuelcal")
+  t.eq(#requested, 4, "exactly the four FCS kinds, once each")
 end)
 
 t.test("buildState assembles the flat cadence keys from telemetry + engine + fuel + uiRev", function()
