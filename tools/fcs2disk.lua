@@ -1,15 +1,15 @@
 -- tools/fcs2disk.lua
 -- STANDALONE FCS console tool (SuiteX-installed like tools/splitconfig.lua -- NOT a flight-app
--- change): dumps the FCS's 3 local split config files (eh2_devbind/senscal/tuning) onto a shared
--- networked disk so the UI PC's DTC can IMPORT ALL them. PURE core here (plan()); M.run() below
--- resolves the drive + writes and is deps-injected (headless-testable via fakeDeps; the launcher
--- itself is not unit-tested). Filenames NEVER hardcoded -- always cfgspec.FILES[kind].
+-- change): dumps the FCS's 4 local split config files (eh2_devbind/senscal/tuning/fuelcal) onto a
+-- shared networked disk so the UI PC's DTC can IMPORT ALL them. PURE core here (plan()); M.run()
+-- below resolves the drive + writes and is deps-injected (headless-testable via fakeDeps; the
+-- launcher itself is not unit-tested). Filenames NEVER hardcoded -- always cfgspec.FILES[kind].
 local cfgspec = require("fcs.io.cfgspec")
 
 local M = {}
 
 -- FCS kinds this tool dumps, in cfgspec order (uicfg is UI-only and not on the FCS).
-M.KINDS = { "devbind", "senscal", "tuning" }
+M.KINDS = { "devbind", "senscal", "tuning", "fuelcal" }
 
 -- plan(existing) -> { action, kinds, missing, err? }.
 -- existing = { present = {kind=bool}, mount = <string|nil> }.

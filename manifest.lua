@@ -1316,9 +1316,9 @@
         },
         {
           ["dst"] = "tools/fcs2disk.lua",
-          ["size"] = 1360,
+          ["size"] = 1370,
           ["src"] = "dist/tools/fcs2disk.lua",
-          ["sum"] = "715a5f59",
+          ["sum"] = "e4a0ddfd",
         },
       },
       ["title"] = "FCS config dump",
@@ -1380,5 +1380,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "972ab4df",
+  ["version"] = "4f88dacd",
 }

@@ -2,12 +2,20 @@ package.path = "/?.lua;/?/init.lua;" .. package.path
 local t = require("tests.framework")
 local F = require("tools.fcs2disk")
 
-local KINDS = { "devbind", "senscal", "tuning" }
+local KINDS = { "devbind", "senscal", "tuning", "fuelcal" }
 
-t.test("plan: all three present with a mount -> write all three, none missing", function()
-  local r = F.plan({ present = { devbind = true, senscal = true, tuning = true }, mount = "disk" })
+t.test("KINDS: dumps all four FCS kinds including fuelcal", function()
+  t.eq(#F.KINDS, 4)
+  for i, k in ipairs(KINDS) do t.eq(F.KINDS[i], k) end
+end)
+
+t.test("plan: all four present with a mount -> write all four, none missing", function()
+  local r = F.plan({
+    present = { devbind = true, senscal = true, tuning = true, fuelcal = true },
+    mount = "disk",
+  })
   t.eq(r.action, "write")
-  t.eq(#r.kinds, 3); t.eq(#r.missing, 0)
+  t.eq(#r.kinds, 4); t.eq(#r.missing, 0)
   for i, k in ipairs(KINDS) do t.eq(r.kinds[i], k) end
 end)
 
@@ -15,7 +23,7 @@ t.test("plan: some present -> writes present, lists missing (in cfgspec order)",
   local r = F.plan({ present = { devbind = true, tuning = true }, mount = "disk" })
   t.eq(r.action, "write")
   t.eq(#r.kinds, 2); t.eq(r.kinds[1], "devbind"); t.eq(r.kinds[2], "tuning")
-  t.eq(#r.missing, 1); t.eq(r.missing[1], "senscal")
+  t.eq(#r.missing, 2); t.eq(r.missing[1], "senscal"); t.eq(r.missing[2], "fuelcal")
 end)
 
 t.test("plan: no mount -> no-mount action regardless of presence", function()
@@ -45,13 +53,15 @@ end
 
 t.test("run: dumps every present local kind to <mount>/<cfgspec.FILES[kind]>", function()
   local files, deps = fakeDeps({
-    ["/eh2_devbind.tbl"] = "DB", ["/eh2_tuning.tbl"] = "TN",
+    ["/eh2_devbind.tbl"] = "DB", ["/eh2_tuning.tbl"] = "TN", ["/eh2_fuelcal.tbl"] = "FC",
   }, "disk")
   local summary = F.run(deps)
   t.eq(files["/disk/eh2_devbind.tbl"], "DB")
   t.eq(files["/disk/eh2_tuning.tbl"], "TN")
+  t.eq(files["/disk/eh2_fuelcal.tbl"], "FC")
   t.eq(files["/disk/eh2_senscal.tbl"], nil, "senscal absent locally -> not written")
-  t.truthy(summary:find("devbind", 1, true) and summary:find("senscal", 1, true),
+  t.truthy(summary:find("devbind", 1, true) and summary:find("fuelcal", 1, true)
+      and summary:find("senscal", 1, true),
     "summary names dumped + missing kinds: " .. summary)
 end)
 
