@@ -17,6 +17,8 @@
 --   easyhover2_suite.lua --repair     clear and reinstall the role's files
 --   easyhover2_suite.lua --fast       trust the version stamp and skip the checksums
 --   easyhover2_suite.lua --list       list every role
+--   easyhover2_suite.lua --flag-defaults  snapshot current configs as DEFAULT (backup first)
+--   easyhover2_suite.lua --migrate-config split leftover eh2_hw_config.tbl into current files
 --   easyhover2_suite.lua <role>       go straight to a role, no questions -- also switches one
 --
 -- The role's hardware config lives at /eh2_hw_config.tbl.
@@ -74,6 +76,9 @@ local CHANNEL_FILE = "/eh2_channel.txt"
 --- Backups land here: a single-latest folder, one file per path, replaced on each run that needed them.
 local BACKUP_ROOT = "/easyhover2_backup"
 
+--- Snapshot-DEFAULT copies land here, separate from the update-backup.
+local DEFAULTS_BACKUP = "/easyhover2_defaults_backup"
+
 --- Staging suffix. Everything lands here first and is verified before anything moves.
 local STAGE = ".eh2new"
 
@@ -83,6 +88,7 @@ local PROTECTED = {
   "^/eh2_.*%.tbl$",
   "^/eh2_.*%.log$",
   "^/easyhover2_backup",
+  "^/easyhover2_defaults_backup",
   "^/easyhover2_install%.txt$",
   "^/eh2_channel%.txt$",
   "^/easyhover2_suite_src%.txt$",
@@ -90,6 +96,7 @@ local PROTECTED = {
 }
 
 local Suite = {}
+Suite.DEFAULTS_BACKUP = DEFAULTS_BACKUP
 
 --- Output sink. When set to a function(text, colour), say() routes output to it.
 --- When nil (the default), say() prints normally (classic behavior).
@@ -162,6 +169,19 @@ local function writeRaw(path, content)
   f.write(content)
   f.close()
   return true
+end
+
+--- Bare-name fs adapters for cfgdefault (eh2_devbind.tbl <-> /eh2_devbind.tbl).
+function Suite.cfgRead(name)
+  if type(name) ~= "string" or name == "" then return nil end
+  if not name:match("^/") then name = "/" .. name end
+  return readFile(name)
+end
+
+function Suite.cfgWrite(name, body)
+  if type(name) ~= "string" or name == "" then return false end
+  if not name:match("^/") then name = "/" .. name end
+  return writeRaw(name, body)
 end
 
 --- Is this path the operator's rather than the release's?
@@ -305,6 +325,87 @@ function Suite.detectRole(manifest, exists, read)
   end
   if bestScore == 0 then return nil, "none" end
   return best, "unique-files"
+end
+
+-- ---------------------------------------------------------------- DEFAULT snapshot / migrate (S5)
+
+function Suite.parseArgs(args)
+  args = args or {}
+  local o = {
+    wantRole = nil, checkOnly = false, forceRepair = false, listOnly = false,
+    fastPath = false, wantChannel = nil, noUI = false, help = false,
+    flagDefaults = false, migrateConfig = false,
+  }
+  for _, arg in ipairs(args) do
+    local a = tostring(arg):lower()
+    if a == "--check" or a == "-n" then o.checkOnly = true
+    elseif a == "--verify" then o.fastPath = false
+    elseif a == "--fast" then o.fastPath = true
+    elseif a == "--repair" then o.forceRepair = true
+    elseif a == "--list" then o.listOnly = true
+    elseif a == "--dev" then o.wantChannel = "dev"
+    elseif a == "--min" then o.wantChannel = "min"
+    elseif a == "--yes" or a == "--go" then o.noUI = true
+    elseif a == "--help" or a == "-h" then o.help = true; break
+    elseif a == "--flag-defaults" then o.flagDefaults = true
+    elseif a == "--migrate-config" then o.migrateConfig = true
+    elseif a:sub(1, 2) == "--" then
+      die("unknown option: " .. tostring(arg))
+    else
+      o.wantRole = a
+    end
+  end
+  return o
+end
+
+--- Copy each existing current file into DEFAULTS_BACKUP/<filename>, then snapshot to DEFAULT.
+function Suite.flagDefaults(role, read, write)
+  local cfgdefault = require("fcs.io.cfgdefault")
+  local cfgroles = require("fcs.io.cfgroles")
+  read = read or Suite.cfgRead
+  write = write or Suite.cfgWrite
+  for _, kind in ipairs(cfgroles.kinds(role) or {}) do
+    local name = cfgroles.file(kind)
+    if name then
+      local body = read(name)
+      if body then
+        write(Suite.DEFAULTS_BACKUP .. "/" .. name, body)
+      end
+    end
+  end
+  return cfgdefault.snapshot(role, read, write)
+end
+
+function Suite.migrateConfig(read, write)
+  local cfgdefault = require("fcs.io.cfgdefault")
+  read = read or Suite.cfgRead
+  write = write or Suite.cfgWrite
+  return cfgdefault.migrate(read, write)
+end
+
+--- Local config ops: never install. require() failure is a printed error, not a throw.
+function Suite.runConfigFlags(opts, role, read, write)
+  local ok = pcall(require, "fcs.io.cfgdefault")
+  if not ok then
+    bad("fcs.io.cfgdefault is not installed. Install/update this role first.")
+    return false
+  end
+  if not role then
+    bad("no role detected; install a role first or pass one as an argument")
+    return false
+  end
+  read = read or Suite.cfgRead
+  write = write or Suite.cfgWrite
+  if opts.migrateConfig then
+    local r = Suite.migrateConfig(read, write)
+    good(("migrate-config: %s"):format((r and r.action) or "?"))
+  end
+  if opts.flagDefaults then
+    local r = Suite.flagDefaults(role, read, write)
+    good(("flag-defaults %s: copied %d, skipped %d"):format(
+      role, (r and #r.copied) or 0, (r and #r.skipped) or 0))
+  end
+  return true
 end
 
 -- ---------------------------------------------------------------- integrity
@@ -1322,41 +1423,42 @@ end
 
 function Suite.main(args)
   args = args or {}
+  local opts = Suite.parseArgs(args)
   local wantRole, checkOnly, forceRepair, listOnly, fastPath =
-    nil, false, false, false, false
-  local wantChannel = nil
-  local noUI = false   -- --yes/--go: force the non-interactive install even on a colour terminal
+    opts.wantRole, opts.checkOnly, opts.forceRepair, opts.listOnly, opts.fastPath
+  local wantChannel = opts.wantChannel
+  local noUI = opts.noUI   -- --yes/--go: force the non-interactive install even on a colour terminal
 
-  for _, arg in ipairs(args) do
-    local a = tostring(arg):lower()
-    if a == "--check" or a == "-n" then checkOnly = true
-    elseif a == "--verify" then fastPath = false          -- the default; kept for habit
-    elseif a == "--fast" then fastPath = true
-    elseif a == "--repair" then forceRepair = true
-    elseif a == "--list" then listOnly = true
-    elseif a == "--dev" then wantChannel = "dev"
-    elseif a == "--min" then wantChannel = "min"
-    elseif a == "--yes" or a == "--go" then noUI = true
-    elseif a == "--help" or a == "-h" then
-      say("EasyHover 2 Suite", colours.cyan)
-      dim("  easyhover2_suite.lua              install or update, as appropriate")
-      dim("  easyhover2_suite.lua --check      report what would change, write nothing")
-      dim("  easyhover2_suite.lua --repair     clear the role's files and reinstall")
-      dim("  easyhover2_suite.lua --fast       trust the version stamp, skip checksums")
-      dim("  easyhover2_suite.lua --list       list every role")
-      dim("  easyhover2_suite.lua --yes        install non-interactively (no dashboard; for remote/unattended installs)")
-      dim("  easyhover2_suite.lua <role>       install or switch to a role")
-      dim("  easyhover2_suite.lua --dev        install the readable (un-minified) channel")
-      dim("  easyhover2_suite.lua --min        force back to the minified channel (default)")
-      print("")
-      dim("Source override: put a base URL in " .. SOURCE_FILE)
-      dim("Private repo:    put a GitHub token in " .. TOKEN_FILE)
-      dim("Hardware config: /eh2_hw_config.tbl")
-      return true
-    elseif a:sub(1, 2) == "--" then
-      die("unknown option: " .. tostring(arg))
-    else
-      wantRole = a
+  if opts.help then
+    say("EasyHover 2 Suite", colours.cyan)
+    dim("  easyhover2_suite.lua              install or update, as appropriate")
+    dim("  easyhover2_suite.lua --check      report what would change, write nothing")
+    dim("  easyhover2_suite.lua --repair     clear the role's files and reinstall")
+    dim("  easyhover2_suite.lua --fast       trust the version stamp, skip checksums")
+    dim("  easyhover2_suite.lua --list       list every role")
+    dim("  easyhover2_suite.lua --flag-defaults  snapshot current configs as DEFAULT (backup first)")
+    dim("  easyhover2_suite.lua --migrate-config split leftover eh2_hw_config.tbl into current files")
+    dim("  easyhover2_suite.lua --yes        install non-interactively (no dashboard; for remote/unattended installs)")
+    dim("  easyhover2_suite.lua <role>       install or switch to a role")
+    dim("  easyhover2_suite.lua --dev        install the readable (un-minified) channel")
+    dim("  easyhover2_suite.lua --min        force back to the minified channel (default)")
+    print("")
+    dim("Source override: put a base URL in " .. SOURCE_FILE)
+    dim("Private repo:    put a GitHub token in " .. TOKEN_FILE)
+    dim("Hardware config: /eh2_hw_config.tbl")
+    return true
+  end
+
+  -- --flag-defaults / --migrate-config are local ops on an installed computer. --check/--list
+  -- still win (never write, never skip the list). When a role is already known from argv or
+  -- the install record, skip the fetch/install path entirely.
+  local wantConfigOp = (opts.flagDefaults or opts.migrateConfig)
+    and not checkOnly and not listOnly
+  if wantConfigOp then
+    local state = Suite.parseState(readFile(STATE_FILE))
+    local role = wantRole or state.role
+    if role then
+      return Suite.runConfigFlags(opts, role)
     end
   end
 
@@ -1430,6 +1532,10 @@ function Suite.main(args)
   local detected = Suite.detectRole(manifest)
 
   local role = wantRole or state.role or detected
+  if wantConfigOp then
+    -- detectRole filled in a missing install record; still do not install.
+    return Suite.runConfigFlags(opts, role)
+  end
   if role and not manifest.roles[role] then
     die("no such role: " .. tostring(role) .. "  (try --list)")
   end

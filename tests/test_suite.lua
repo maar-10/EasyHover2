@@ -596,3 +596,194 @@ t.test("manifest records the vendored basalt for SuiteX to verify", function()
   t.truthy(manifest.basalt.size and manifest.basalt.size > 0, "basalt size")
   t.eq(type(manifest.basalt.sum), "string")
 end)
+
+-- ---------------------------------------------------------------- S5: --flag-defaults / --migrate-config
+--
+-- Bare-name keyed store, matching cfgdefault/cfgaccess read(name)/write(name, body).
+local hwconfig = require("fcs.io.hwconfig")
+local cfgspec = require("fcs.io.cfgspec")
+
+local function fakeCfgFs(seed)
+  local files = {}
+  for k, v in pairs(seed or {}) do files[k] = v end
+  return files,
+    function(name) return files[name] end,
+    function(name, body) files[name] = body; return true end
+end
+
+local function setOf(list)
+  local s = {}
+  for _, k in ipairs(list or {}) do s[k] = true end
+  return s
+end
+
+t.test("DEFAULTS_BACKUP is a dedicated dir, not the update-backup", function()
+  t.eq(Suite.DEFAULTS_BACKUP, "/easyhover2_defaults_backup")
+  t.eq(Suite.isProtected(Suite.DEFAULTS_BACKUP), true)
+  t.eq(Suite.isProtected(Suite.DEFAULTS_BACKUP .. "/eh2_devbind.tbl"), true)
+  t.eq(Suite.isProtected("/easyhover2_backup/x"), true, "update-backup still protected")
+end)
+
+t.test("flagDefaults copies existing currents into DEFAULTS_BACKUP then snapshots", function()
+  local db, sc, fuel, tuning = "DB-NOW", "SC-NOW", "FUEL-NOW", "TUNING-NOW"
+  local files, read, write = fakeCfgFs({
+    ["eh2_devbind.tbl"] = db,
+    ["eh2_senscal.tbl"] = sc,
+    ["eh2_fuelcal.tbl"] = fuel,
+    ["eh2_tuning.tbl"] = tuning,
+  })
+  local r = Suite.flagDefaults("fcs", read, write)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_devbind.tbl"], db)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_senscal.tbl"], sc)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_fuelcal.tbl"], fuel)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_tuning.tbl"], tuning, "tuning current is backed up")
+  t.eq(files["eh2_devbind.default.tbl"], db)
+  t.eq(files["eh2_senscal.default.tbl"], sc)
+  t.eq(files["eh2_fuelcal.default.tbl"], fuel)
+  t.eq(files["eh2_tuning.default.tbl"], nil, "tuning DEFAULT never written")
+  t.eq(files["eh2_tuning.tbl"], tuning, "current tuning untouched")
+  local copied, skipped = setOf(r.copied), setOf(r.skipped)
+  t.truthy(copied.devbind and copied.senscal and copied.fuelcal)
+  t.eq(copied.tuning, nil)
+  t.truthy(skipped.tuning)
+end)
+
+t.test("flagDefaults writes backups before any DEFAULT sibling", function()
+  local files = { ["eh2_devbind.tbl"] = "DB" }
+  local order = {}
+  local read = function(name) return files[name] end
+  local write = function(name, body)
+    order[#order + 1] = name
+    files[name] = body
+    return true
+  end
+  Suite.flagDefaults("fcs", read, write)
+  local firstBackup, firstDefault
+  for i, name in ipairs(order) do
+    if not firstBackup and name:find("easyhover2_defaults_backup", 1, true) then
+      firstBackup = i
+    end
+    if not firstDefault and name:find("%.default%.tbl$") then
+      firstDefault = i
+    end
+  end
+  t.truthy(firstBackup, "a backup write happened")
+  t.truthy(firstDefault, "a DEFAULT write happened")
+  t.eq(firstBackup < firstDefault, true, "backup precedes snapshot")
+end)
+
+t.test("flagDefaults does not invent backups or DEFAULTs for missing currents", function()
+  local files, read, write = fakeCfgFs({ ["eh2_devbind.tbl"] = "ONLY-DB" })
+  local r = Suite.flagDefaults("fcs", read, write)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_devbind.tbl"], "ONLY-DB")
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_senscal.tbl"], nil)
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_fuelcal.tbl"], nil)
+  t.eq(files["eh2_devbind.default.tbl"], "ONLY-DB")
+  t.eq(files["eh2_senscal.default.tbl"], nil)
+  t.eq(files["eh2_fuelcal.default.tbl"], nil)
+  local copied, skipped = setOf(r.copied), setOf(r.skipped)
+  t.truthy(copied.devbind)
+  t.truthy(skipped.senscal and skipped.fuelcal and skipped.tuning)
+end)
+
+t.test("flagDefaults ui copies uicfg into backup and DEFAULT", function()
+  local files, read, write = fakeCfgFs({ ["eh2_ui_config.tbl"] = "UI-BODY" })
+  local r = Suite.flagDefaults("ui", read, write)
+  t.eq(#r.copied, 1); t.eq(r.copied[1], "uicfg")
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_ui_config.tbl"], "UI-BODY")
+  t.eq(files["eh2_ui_config.default.tbl"], "UI-BODY")
+end)
+
+t.test("migrateConfig splits fused into missing splits and never deletes fused", function()
+  local legacy = hwconfig.merge({
+    thrusters = { FL = "thruster_1" },
+    sensors = { gimbal = "gimbal_0" },
+    fuelRelay = "relay_0",
+    bindings = { signHeading = -1, heightOffset = -94.5, signPitch = -1 },
+  }, hwconfig.defaults())
+  local fusedBody = textutils.serialise(legacy)
+  local files, read, write = fakeCfgFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  local r = Suite.migrateConfig(read, write)
+  t.eq(r.action, "split")
+  t.truthy(files["eh2_devbind.tbl"] ~= nil)
+  t.truthy(files["eh2_senscal.tbl"] ~= nil)
+  t.eq(files["eh2_hw_config.tbl"], fusedBody, "fused never deleted or rewritten")
+  local db = textutils.unserialise(files["eh2_devbind.tbl"])
+  local sc = textutils.unserialise(files["eh2_senscal.tbl"])
+  t.eq(db.thrusters.FL, "thruster_1")
+  t.eq(db.fuelRelay, "relay_0")
+  t.eq(sc.signHeading, -1)
+  t.eq(sc.heightOffset, -94.5)
+end)
+
+t.test("migrateConfig noops when both splits exist (fused left alone)", function()
+  local fused = textutils.serialise(hwconfig.defaults())
+  local files, read, write = fakeCfgFs({
+    ["eh2_devbind.tbl"] = "DB",
+    ["eh2_senscal.tbl"] = "SC",
+    ["eh2_hw_config.tbl"] = fused,
+  })
+  local r = Suite.migrateConfig(read, write)
+  t.eq(r.action, "noop")
+  t.eq(files["eh2_devbind.tbl"], "DB")
+  t.eq(files["eh2_senscal.tbl"], "SC")
+  t.eq(files["eh2_hw_config.tbl"], fused)
+end)
+
+-- CLI: --flag-defaults / --migrate-config run the op and return; they must not install.
+-- Suite.main uses the local fetch(), so tests drive the extracted runner with injected fs.
+t.test("runConfigFlags --flag-defaults writes backup+DEFAULT and does not call performPlan", function()
+  local files, read, write = fakeCfgFs({ ["eh2_devbind.tbl"] = "DB" })
+  local performed = false
+  local saved = Suite.performPlan
+  Suite.performPlan = function() performed = true; return true end
+  local seen = {}
+  Suite.sink = function(text) seen[#seen + 1] = text end
+  local ok = Suite.runConfigFlags({ flagDefaults = true }, "fcs", read, write)
+  Suite.sink = nil
+  Suite.performPlan = saved
+  t.eq(ok, true)
+  t.eq(performed, false, "performPlan must not run")
+  t.eq(files[Suite.DEFAULTS_BACKUP .. "/eh2_devbind.tbl"], "DB")
+  t.eq(files["eh2_devbind.default.tbl"], "DB")
+  local joined = table.concat(seen, "\n")
+  t.truthy(joined:find("flag-defaults", 1, true), "one-line summary mentions flag-defaults")
+end)
+
+t.test("runConfigFlags --migrate-config reports action and does not install", function()
+  local fusedBody = textutils.serialise(hwconfig.defaults())
+  local files, read, write = fakeCfgFs({ ["eh2_hw_config.tbl"] = fusedBody })
+  local performed = false
+  local saved = Suite.performPlan
+  Suite.performPlan = function() performed = true; return true end
+  local seen = {}
+  Suite.sink = function(text) seen[#seen + 1] = text end
+  local ok = Suite.runConfigFlags({ migrateConfig = true }, "fcs", read, write)
+  Suite.sink = nil
+  Suite.performPlan = saved
+  t.eq(ok, true)
+  t.eq(performed, false)
+  t.eq(files["eh2_hw_config.tbl"], fusedBody)
+  t.truthy(files["eh2_devbind.tbl"] ~= nil)
+  local joined = table.concat(seen, "\n")
+  t.truthy(joined:find("migrate-config", 1, true), "one-line summary mentions migrate-config")
+  t.truthy(joined:find("split", 1, true))
+end)
+
+t.test("parseArgs recognizes --flag-defaults and --migrate-config without dropping --check/--list/--dev/--min", function()
+  local a = Suite.parseArgs({ "--flag-defaults" })
+  t.eq(a.flagDefaults, true)
+  t.eq(a.checkOnly, false)
+  t.eq(a.listOnly, false)
+  local b = Suite.parseArgs({ "--migrate-config", "fcs" })
+  t.eq(b.migrateConfig, true)
+  t.eq(b.wantRole, "fcs")
+  local c = Suite.parseArgs({ "--check", "--list", "--dev" })
+  t.eq(c.checkOnly, true)
+  t.eq(c.listOnly, true)
+  t.eq(c.wantChannel, "dev")
+  local d = Suite.parseArgs({ "--min" })
+  t.eq(d.wantChannel, "min")
+  t.eq(d.flagDefaults, false)
+  t.eq(d.migrateConfig, false)
+end)
