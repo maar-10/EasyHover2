@@ -716,7 +716,7 @@ function M.routeModem(runtime, ch, msg)
   -- the reply arrives here and refreshes runtime.wptClient's cached store.
   if runtime.wptClient and runtime.wptClient.link then
     local wf = runtime.wptClient.link:onMessage(ch, msg)
-    if wf and (wf.k == "wpt_store" or wf.k == "wpt_err" or wf.k == "wpt_disk_res") then
+    if wf and (wf.k == "wpt_store" or wf.k == "wpt_err" or wf.k == "wpt_disk_res" or wf.k == "nav_cfg" or wf.k == "nav_cfg_ack") then
       runtime.wptClient:onReply(wf, os.epoch("utc"))
       -- Event-mode NAV is never gate-painted: a uiRev bump would only wake the 1 Hz PARAMS
       -- signature. Callers (startScheduled) wire onWptReply to apply() the visible nav page.

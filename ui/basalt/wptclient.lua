@@ -5,6 +5,7 @@
 -- through this client. If the NAV PC is silent the client goes `online=false` and the menu goes
 -- read-only. NO peripheral/Basalt access at module LOAD; the round-trip is the only in-game part.
 local protocol = require("fcs.comms.protocol")
+local navcfg = require("nav.navcfg")
 
 local M = {}
 M.REQ_CH = 108
@@ -34,8 +35,8 @@ function M.new(opts)
   }, C)
 end
 
---- onReply(frame, now) -> true if it was a store reply (cache refreshed + online). PURE. Called by
---- the UI modem router when a wpt_store/wpt_err arrives on 109 -- NOT a blocking wait (a blocking
+--- onReply(frame, now) -> true if a store or nav_cfg reply refreshed the cache + online. PURE.
+--- Called by the UI modem router when a reply arrives on 109 -- NOT a blocking wait (a blocking
 --- pullEvent inside a Basalt handler would eat the cockpit's own events).
 function C:onReply(frame, now)
   if type(frame) ~= "table" then return false end
@@ -52,6 +53,19 @@ function C:onReply(frame, now)
     return false
   end
   if frame.k == "wpt_err" then self.lastErr = frame.err; return false end
+  if frame.k == "nav_cfg" and type(frame.body) == "table" then
+    self.navCfg = frame.body
+    self.online = true
+    self.lastReplyAt = now
+    if self._navCfgCb then self._navCfgCb(frame.body) end
+    return true
+  end
+  if frame.k == "nav_cfg_ack" then
+    self.online = true
+    self.lastReplyAt = now
+    if self._navAckCb then self._navAckCb(frame.ok, frame.err) end
+    return true
+  end
   return false
 end
 
@@ -90,6 +104,16 @@ end
 function C:diskOp(op)
   if not self:refreshOnline() then return end
   if self.link then self.link:send(M.diskFrame(op)) end
+end
+
+function C:requestNavCfg(cb)
+  self._navCfgCb = cb
+  if self.link then self.link:send(navcfg.getFrame()) end
+end
+
+function C:setNavCfg(body, cb)
+  self._navAckCb = cb
+  if self.link then self.link:send(navcfg.setFrame(body)) end
 end
 
 return M

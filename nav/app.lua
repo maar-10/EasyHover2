@@ -18,6 +18,7 @@ local telemetry  = require("fcs.comms.telemetry")
 local W          = require("nav.waypoints")
 local wptserver  = require("nav.wptserver")
 local wptdisk    = require("nav.wptdisk")
+local navcfg     = require("nav.navcfg")
 
 local M = {}
 M.CONFIG_PATH = navconfig.PATH
@@ -107,10 +108,9 @@ function M.buildRuntime(deps)
            telemetryRx = deps.telemetryRx or telemetry.Rx.new() }
 end
 
--- M.handleWptRequest(runtime, msg) -> reply. Applies a cockpit NAV-menu request (wpt_get/wpt_op) to
--- the store via nav.wptserver, persists on any rev change, and returns the reply frame. Disk ops
--- (wpt_disk) are routed to nav.wptdisk separately (Task 1f). Testable: inject runtime.store +
--- runtime.saveStore.
+-- M.handleWptRequest(runtime, msg) -> reply. nav_cfg_get/set go through nav.navcfg (persist cfg on
+-- successful set). wpt_get/wpt_op go through nav.wptserver (persist store on rev change). Disk ops
+-- (wpt_disk) are routed to nav.wptdisk. Testable: inject runtime.config/save + store/saveStore.
 function M.handleWptRequest(runtime, msg)
   if type(msg) == "table" and msg.k == "paramsWatch" then
     if runtime.nav and runtime.nav.onParamsWatch then
@@ -124,6 +124,16 @@ function M.handleWptRequest(runtime, msg)
     return nil
   end
   if type(msg) == "table" and msg.k == "wpt_disk" then return M.handleDisk(runtime, msg) end
+  if type(msg) == "table" then
+    local reply, newCfg = navcfg.apply(runtime.config, msg)
+    if reply then
+      if msg.k == "nav_cfg_set" and reply.ok then
+        runtime.config = newCfg
+        if runtime.save then pcall(runtime.save, newCfg) end
+      end
+      return reply
+    end
+  end
   local reply, newStore, newRev = wptserver.apply(runtime.store, msg, runtime.wptRev or 0)
   if newRev ~= (runtime.wptRev or 0) then
     runtime.store = newStore
@@ -197,7 +207,7 @@ function M.routeModem(runtime, ch, replyCh, msg, dist)
   if ch == M.WPT_REQ_CH then
     -- A cockpit NAV-menu sync request: apply + persist, reply on 109.
     local ok, f = pcall(protocol.decode, msg)
-    if ok and type(f) == "table" and (f.k == "wpt_get" or f.k == "wpt_op" or f.k == "wpt_disk" or f.k == "paramsWatch") then
+    if ok and type(f) == "table" and (f.k == "wpt_get" or f.k == "wpt_op" or f.k == "wpt_disk" or f.k == "paramsWatch" or f.k == "nav_cfg_get" or f.k == "nav_cfg_set") then
       local reply = M.handleWptRequest(runtime, f)
       if reply and runtime.wptLink then pcall(function() runtime.wptLink:send(reply) end) end
     end

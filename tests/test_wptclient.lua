@@ -90,4 +90,47 @@ t.test("mutate and diskOp do not send when stale; request still does", function(
   t.eq(sent[1].k, "wpt_get")
 end)
 
+t.test("requestNavCfg sends nav_cfg_get", function()
+  local sent = {}
+  local c = Client.new({ link = { send = function(_, f) sent[#sent + 1] = f end } })
+  c:requestNavCfg()
+  t.eq(#sent, 1)
+  t.eq(sent[1].k, "nav_cfg_get")
+end)
+
+t.test("setNavCfg sends nav_cfg_set with the body", function()
+  local sent = {}
+  local c = Client.new({ link = { send = function(_, f) sent[#sent + 1] = f end } })
+  local body = { fuelReserve = 40 }
+  c:setNavCfg(body)
+  t.eq(#sent, 1)
+  t.eq(sent[1].k, "nav_cfg_set")
+  t.eq(sent[1].body, body)
+end)
+
+t.test("onReply(nav_cfg) caches navCfg, marks online, fires callback", function()
+  local c = Client.new({})
+  local got
+  c:requestNavCfg(function(body) got = body end)
+  local body = { fuelReserve = 40, units = "m" }
+  local changed = c:onReply({ k = "nav_cfg", body = body }, 42)
+  t.eq(changed, true)
+  t.eq(c.online, true)
+  t.eq(c.lastReplyAt, 42)
+  t.eq(c.navCfg, body)
+  t.eq(got, body)
+end)
+
+t.test("onReply(nav_cfg_ack) marks online and fires ack callback", function()
+  local c = Client.new({})
+  local okSeen, errSeen
+  c:setNavCfg({ fuelReserve = 1 }, function(ok, err) okSeen = ok; errSeen = err end)
+  local changed = c:onReply({ k = "nav_cfg_ack", ok = false, err = "not a table" }, 7)
+  t.eq(changed, true)
+  t.eq(c.online, true)
+  t.eq(c.lastReplyAt, 7)
+  t.eq(okSeen, false)
+  t.eq(errSeen, "not a table")
+end)
+
 return true

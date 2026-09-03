@@ -305,3 +305,84 @@ t.test("routeModem delivers paramsWatch on the wpt request channel without a rep
   t.eq(runtime.nav.paramsWatch, true)
   t.eq(#replies, 0, "paramsWatch is fire-and-forget -- no reply on 109")
 end)
+
+t.test("handleWptRequest nav_cfg_get replies current cfg and does not persist", function()
+  local persisted
+  local cfg = { fuelReserve = 12, units = "m" }
+  local runtime = { config = cfg, save = function(c) persisted = c end }
+  local reply = App.handleWptRequest(runtime, { k = "nav_cfg_get" })
+  t.eq(reply.k, "nav_cfg")
+  t.eq(reply.body, cfg)
+  t.eq(persisted, nil, "a get never persists")
+  t.eq(runtime.config, cfg)
+end)
+
+t.test("handleWptRequest nav_cfg_set persists new cfg on ok and replies ack", function()
+  local persisted
+  local runtime = { config = { fuelReserve = 12 }, save = function(c) persisted = c end }
+  local body = { fuelReserve = 40, units = "m" }
+  local reply = App.handleWptRequest(runtime, { k = "nav_cfg_set", body = body })
+  t.eq(reply.k, "nav_cfg_ack")
+  t.eq(reply.ok, true)
+  t.eq(runtime.config, body)
+  t.eq(persisted, body)
+end)
+
+t.test("handleWptRequest nav_cfg_set with non-table does not persist", function()
+  local persisted = false
+  local cfg = { fuelReserve = 12 }
+  local runtime = { config = cfg, save = function() persisted = true end }
+  local reply = App.handleWptRequest(runtime, { k = "nav_cfg_set", body = "nope" })
+  t.eq(reply.k, "nav_cfg_ack")
+  t.eq(reply.ok, false)
+  t.eq(reply.err, "not a table")
+  t.eq(runtime.config, cfg)
+  t.eq(persisted, false)
+end)
+
+t.test("handleWptRequest still serves wpt_get when navcfg does not claim the frame", function()
+  local W = require("nav.waypoints")
+  local persisted = false
+  local runtime = { config = { fuelReserve = 1 }, store = W.defaults(), wptRev = 3,
+    save = function() persisted = true end, saveStore = function() persisted = true end }
+  local reply = App.handleWptRequest(runtime, { k = "wpt_get" })
+  t.eq(reply.k, "wpt_store"); t.eq(reply.rev, 3)
+  t.eq(persisted, false)
+end)
+
+t.test("routeModem accepts nav_cfg_get on the wpt request channel and replies nav_cfg", function()
+  local protocol = require("fcs.comms.protocol")
+  local replies = {}
+  local runtime = App.buildRuntime({
+    gpsModem = fakeDev(), wiredModem = fakeDev(),
+    configPath = "/no_such_nav.tbl", now = function() return 0 end,
+  })
+  runtime.wptLink = { send = function(_, f) replies[#replies + 1] = f end }
+  runtime.save = function() error("must not persist") end
+  App.routeModem(runtime, App.WPT_REQ_CH, App.WPT_REPLY_CH,
+    protocol.encode({ k = "nav_cfg_get" }), nil)
+  t.eq(#replies, 1)
+  t.eq(replies[1].k, "nav_cfg")
+  t.eq(replies[1].body, runtime.config)
+end)
+
+t.test("routeModem accepts nav_cfg_set, persists cfg, and replies ack", function()
+  local protocol = require("fcs.comms.protocol")
+  local replies, saved = {}, nil
+  local runtime = App.buildRuntime({
+    gpsModem = fakeDev(), wiredModem = fakeDev(),
+    configPath = "/no_such_nav.tbl", now = function() return 0 end,
+  })
+  runtime.wptLink = { send = function(_, f) replies[#replies + 1] = f end }
+  runtime.save = function(c) saved = c end
+  local body = { channel = 65001, units = "m" }
+  App.routeModem(runtime, App.WPT_REQ_CH, App.WPT_REPLY_CH,
+    protocol.encode({ k = "nav_cfg_set", body = body }), nil)
+  t.eq(#replies, 1)
+  t.eq(replies[1].k, "nav_cfg_ack")
+  t.eq(replies[1].ok, true)
+  t.eq(runtime.config.channel, 65001)
+  t.eq(runtime.config.units, "m")
+  t.eq(saved.channel, 65001)
+  t.eq(saved.units, "m")
+end)

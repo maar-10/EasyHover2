@@ -431,6 +431,15 @@ t.test("routeModem feeds a wpt_store reply (ch 109) into the wptClient cache", f
   t.eq(#runtime.wptClient.store.waypoints, 1)
 end)
 
+t.test("routeModem feeds a nav_cfg reply (ch 109) into the wptClient cache", function()
+  local runtime = newRuntime()
+  local frame = { k = "nav_cfg", body = { fuelReserve = 40, units = "m" } }
+  M.routeModem(runtime, 109, protocol.encode(frame))
+  t.eq(runtime.wptClient.online, true)
+  t.eq(runtime.wptClient.navCfg.fuelReserve, 40)
+  t.eq(runtime.wptClient.navCfg.units, "m")
+end)
+
 t.test("routeModem invokes onWptReply so event-mode NAV can apply the new store", function()
   -- After render-policy, NAV is event-mode: a uiRev bump does not paint it. The async store
   -- reply must fire a dedicated hook so the visible nav page can apply().
