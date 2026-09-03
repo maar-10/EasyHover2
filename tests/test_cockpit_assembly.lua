@@ -32,7 +32,7 @@ local function newRuntime()
   -- fcssync is a read-only cfgClient checker: its build() refreshAll marks kinds "sync" then
   -- readKind's; without an FCS reply that would leave the gate closed for later menus. Make
   -- readKind answer immediately so the probe stays headless and the stub cfgserver can go.
-  for _, kind in ipairs({ "tuning", "devbind", "senscal" }) do
+  for _, kind in ipairs({ "tuning", "devbind", "senscal", "fuelcal" }) do
     runtime.cfgCache[kind] = { body = {}, status = "ok" }
   end
   runtime.cfgClient.readKind = function(self, kind, cb)

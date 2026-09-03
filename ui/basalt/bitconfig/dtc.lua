@@ -25,6 +25,7 @@
 -- returns, so `require("ui.basalt.bitconfig.dtc")` loads clean headless.
 
 local cfgspec = require("fcs.io.cfgspec")
+local cfgroles = require("fcs.io.cfgroles")
 local fsx = require("fcs.io.fsx")
 local configkit = require("ui.basalt.configkit")
 local Region = require("ui.basalt.region")
@@ -38,13 +39,29 @@ M.title = "DTC"
 -- ===== FCS-opaque kind (the UI's own config) transported by this same disk courier. =====
 M.KINDS = { "devbind", "senscal", "tuning", "uicfg" }
 
--- ===== M.FILE: kind -> filename. The 3 FCS kinds MUST equal cfgspec.FILES[kind] byte-for-byte =====
--- ===== (fcs/boot/loaderui.lua's diskSource reads that same path) -- never hardcode those three.
+function M.roleKinds(role)
+  return cfgroles.kinds(role)
+end
+
+local function kindsFor(role)
+  return (role and cfgroles.kinds(role)) or M.KINDS
+end
+
+local function isFcsKind(kind)
+  return cfgroles.roleOf(kind) == "fcs"
+end
+
+-- ===== M.FILE: kind -> filename. FCS kinds MUST equal cfgspec.FILES[kind] byte-for-byte =====
+-- ===== (fcs/boot/loaderui.lua's diskSource reads that same path) -- never hardcode those.
+-- Path helpers resolve via cfgroles.file so fuelcal/nav/nav_wpt cannot drift from the registry.
 M.FILE = {
   devbind = cfgspec.FILES.devbind,
   senscal = cfgspec.FILES.senscal,
   tuning = cfgspec.FILES.tuning,
+  fuelcal = cfgspec.FILES.fuelcal,
   uicfg = "eh2_ui_config.tbl",
+  nav = cfgroles.file("nav"),
+  nav_wpt = cfgroles.file("nav_wpt"),
 }
 
 -- ===== M.LABEL: kind -> human-readable menu label. =====
@@ -52,7 +69,10 @@ M.LABEL = {
   devbind = "Craft bindings",
   senscal = "Sensor cal",
   tuning = "FCS tuning",
+  fuelcal = "Fuel cal",
   uicfg = "UI config",
+  nav = "NAV config",
+  nav_wpt = "NAV waypoints",
 }
 
 -- ===== M.validateKind(kind, t) -> bool. FCS kinds (devbind/senscal/tuning) delegate to =====
@@ -61,11 +81,17 @@ M.LABEL = {
 -- ===== merges it against defaults), so validation is just a table-shape check. nil/non-table t,
 -- ===== or an unknown kind, is always false.
 function M.validateKind(kind, t)
-  if kind == "devbind" or kind == "senscal" or kind == "tuning" then
+  if isFcsKind(kind) then
     return cfgspec.validate(kind, t) == true
   end
   if kind == "uicfg" then
     return type(t) == "table"
+  end
+  if kind == "nav" then
+    return type(t) == "table"
+  end
+  if kind == "nav_wpt" then
+    return type(t) == "table" and type(t.waypoints) == "table"
   end
   return false
 end
@@ -76,18 +102,19 @@ end
 -- { kind, filename, hasLocal, hasDisk, canExport = hasLocal, canImport = hasDisk }, PLUS two
 -- convenience fields on the same table: .exportable = {kinds where hasLocal} and
 -- .importable = {kinds where hasDisk}, both in M.KINDS order.
-function M.plan(present)
+function M.plan(present, role)
   present = present or {}
   local localHas = present.localHas or {}
   local diskHas = present.diskHas or {}
+  local kinds = kindsFor(role)
 
   local rows = { exportable = {}, importable = {} }
-  for i, kind in ipairs(M.KINDS) do
+  for i, kind in ipairs(kinds) do
     local hasLocal = localHas[kind] == true
     local hasDisk = diskHas[kind] == true
     rows[i] = {
       kind = kind,
-      filename = M.FILE[kind],
+      filename = cfgroles.file(kind) or M.FILE[kind],
       hasLocal = hasLocal,
       hasDisk = hasDisk,
       canExport = hasLocal,
@@ -150,11 +177,11 @@ end
 -- ===== cfgspec.FILES[kind]) -- M.FILE[kind] equals cfgspec.FILES[kind] for those three, so this
 -- ===== holds unchanged; "uicfg" resolves the same way but the FCS boot loader never reads it.
 function M.localPath(kind)
-  return "/" .. M.FILE[kind]
+  return "/" .. cfgroles.file(kind)
 end
 
 function M.diskPath(mount, kind)
-  return "/" .. mount .. "/" .. M.FILE[kind]
+  return "/" .. mount .. "/" .. cfgroles.file(kind)
 end
 
 -- ===== real fs/peripheral seams (default injected deps; never called at module load) =====
@@ -223,6 +250,8 @@ local function resolveDeps(deps)
     attributes = deps.attributes or realAttributes,
     backup = deps.backup or realBackup,
     list = deps.list or realList,
+    fcsGet = deps.fcsGet,
+    fcsSet = deps.fcsSet,
   }
 end
 
@@ -252,12 +281,16 @@ end
 -- deps.exists(path) defaults to fs.exists. Returns { localHas = {kind=bool,...},
 -- diskHas = {kind=bool,...} } -- feeds directly into M.plan. With mount == nil (no disk
 -- mounted), diskHas is false for every kind regardless of exists().
-function M._scan(mount, deps)
+function M._scan(mount, deps, role)
   deps = deps or {}
   local exists = deps.exists or realExists
   local localHas, diskHas = {}, {}
-  for _, kind in ipairs(M.KINDS) do
-    localHas[kind] = exists(M.localPath(kind)) and true or false
+  for _, kind in ipairs(kindsFor(role)) do
+    if isFcsKind(kind) and deps.fcsGet then
+      localHas[kind] = deps.fcsGet(kind) ~= nil
+    else
+      localHas[kind] = exists(M.localPath(kind)) and true or false
+    end
     diskHas[kind] = (mount ~= nil) and (exists(M.diskPath(mount, kind)) and true or false) or false
   end
   return { localHas = localHas, diskHas = diskHas }
@@ -320,8 +353,7 @@ end
 -- write to `to..".tmp"`, delete an existing `to` if present, then move the tmp into place --
 -- mirrors fcs/boot/loaderui.lua's realWrite / other bitconfig menus' realWrite exactly, just
 -- generalised to any source/destination pair (local<->disk).
-local function atomicCopy(from, to, deps)
-  local body = deps.read(from)
+local function atomicWrite(to, body, deps)
   if body == nil then return false end
   local tmp = to .. ".tmp"
   deps.write(tmp, body)
@@ -330,30 +362,61 @@ local function atomicCopy(from, to, deps)
   return true
 end
 
--- ===== M._export(mount, deps): local -> disk, ONLY for locally-present kinds. Atomic per file. =====
--- Returns the ordered list of kinds actually exported (M.KINDS order). mount == nil (no disk)
--- exports nothing.
-function M._export(mount, deps)
+local function atomicCopy(from, to, deps)
+  return atomicWrite(to, deps.read(from), deps)
+end
+
+-- FCS kinds on the UI have no local files: live cache via fcsGet/fcsSet. Unscoped calls without
+-- those seams keep the old local-copy path so existing tests stay green; role=="fcs" without the
+-- seams skips rather than recreating /eh2_*.tbl on the UI PC.
+local function exportKind(mount, kind, deps, role)
+  if isFcsKind(kind) then
+    if deps.fcsGet then
+      return atomicWrite(M.diskPath(mount, kind), deps.fcsGet(kind), deps)
+    end
+    if role == "fcs" then return false end
+  end
+  if role == "nav" and not deps.exists(M.localPath(kind)) then return false end
+  return atomicCopy(M.localPath(kind), M.diskPath(mount, kind), deps)
+end
+
+local function importKind(mount, kind, deps, role)
+  if isFcsKind(kind) then
+    if deps.fcsSet then
+      local diskPath = M.diskPath(mount, kind)
+      if not deps.exists(diskPath) then return false end
+      local body = deps.read(diskPath)
+      if body == nil then return false end
+      return deps.fcsSet(kind, body) and true or false
+    end
+    if role == "fcs" then return false end
+  end
+  if role == "nav" and not deps.exists(M.localPath(kind)) then return false end
+  return atomicCopy(M.diskPath(mount, kind), M.localPath(kind), deps)
+end
+
+-- ===== M._export(mount, deps, role): local/live -> disk. role filters kinds (cfgroles). =====
+-- Returns the ordered list of kinds actually exported. mount == nil (no disk) exports nothing.
+function M._export(mount, deps, role)
   if mount == nil then return {} end
   deps = resolveDeps(deps)
   local exported = {}
-  for _, kind in ipairs(M.KINDS) do
-    if atomicCopy(M.localPath(kind), M.diskPath(mount, kind), deps) then
+  for _, kind in ipairs(kindsFor(role)) do
+    if exportKind(mount, kind, deps, role) then
       exported[#exported + 1] = kind
     end
   end
   return exported
 end
 
--- ===== M._import(mount, deps): disk -> local, ONLY for disk-present kinds. Atomic per file. =====
--- Returns the ordered list of kinds actually imported (M.KINDS order). mount == nil (no disk)
--- imports nothing.
-function M._import(mount, deps)
+-- ===== M._import(mount, deps, role): disk -> local/live. role filters kinds (cfgroles). =====
+-- Returns the ordered list of kinds actually imported. mount == nil (no disk) imports nothing.
+function M._import(mount, deps, role)
   if mount == nil then return {} end
   deps = resolveDeps(deps)
   local imported = {}
-  for _, kind in ipairs(M.KINDS) do
-    if atomicCopy(M.diskPath(mount, kind), M.localPath(kind), deps) then
+  for _, kind in ipairs(kindsFor(role)) do
+    if importKind(mount, kind, deps, role) then
       imported[#imported + 1] = kind
     end
   end
@@ -372,11 +435,15 @@ function M._scanKind(mount, kind, deps)
   deps = resolveDeps(deps)
 
   local localPath = M.localPath(kind)
-  local localHas = deps.exists(localPath) and true or false
-  local localMs = nil
-  if localHas then
-    local attrs = deps.attributes(localPath)
-    localMs = attrs and attrs.modified or nil
+  local localHas, localMs = false, nil
+  if isFcsKind(kind) and deps.fcsGet then
+    localHas = deps.fcsGet(kind) ~= nil
+  else
+    localHas = deps.exists(localPath) and true or false
+    if localHas then
+      local attrs = deps.attributes(localPath)
+      localMs = attrs and attrs.modified or nil
+    end
   end
 
   local diskHas, diskMs, diskValid = false, nil, false
@@ -401,7 +468,7 @@ end
 function M._exportKind(mount, kind, deps)
   if mount == nil then return false end
   deps = resolveDeps(deps)
-  return atomicCopy(M.localPath(kind), M.diskPath(mount, kind), deps)
+  return exportKind(mount, kind, deps, nil)
 end
 
 -- ===== M._importKind(mount, kind, deps) -> ok: backs up the local file (deps.backup) FIRST -- =====
@@ -413,6 +480,12 @@ end
 function M._importKind(mount, kind, deps)
   if mount == nil then return false end
   deps = resolveDeps(deps)
+  if isFcsKind(kind) and deps.fcsSet then
+    return importKind(mount, kind, deps, nil)
+  end
+  if cfgroles.roleOf(kind) == "nav" and not deps.exists(M.localPath(kind)) then
+    return false
+  end
   local diskPath = M.diskPath(mount, kind)
   if not deps.exists(diskPath) then return false end
   local localPath = M.localPath(kind)
@@ -524,6 +597,23 @@ end
 -- peripherals on its own (same "UI subordinate to FCS" cadence rule the old flat build followed).
 function M.build(basalt, frame, runtime, nav, deps)
   deps = resolveDeps(deps)
+  if runtime and runtime.cfgClient then
+    deps.fcsGet = deps.fcsGet or function(kind)
+      local c = runtime.cfgCache and runtime.cfgCache[kind]
+      if c and c.body ~= nil then return textutils.serialise(c.body) end
+      return nil
+    end
+    deps.fcsSet = deps.fcsSet or function(kind, body)
+      local tbl = textutils.unserialise(body)
+      if type(tbl) ~= "table" then return false end
+      runtime.cfgClient:writeKind(kind, tbl, function(ok, err)
+        runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
+          or ("SAVE FAILED: " .. tostring(err or "no FCS"))
+        runtime.uiRev = (runtime.uiRev or 0) + 1
+      end)
+      return true
+    end
+  end
 
   local w, h = frame:getSize()
 
@@ -537,9 +627,16 @@ function M.build(basalt, frame, runtime, nav, deps)
   end
 
   -- ===== shared disk-courier state: drive detection + per-kind scan + last CONFIRM's status =====
+  local ALL_KINDS = {}
+  for _, roleName in ipairs(cfgroles.ROLES) do
+    for _, kind in ipairs(cfgroles.kinds(roleName)) do
+      ALL_KINDS[#ALL_KINDS + 1] = kind
+    end
+  end
+
   local drive = { present = false, driveFound = false, mount = nil, label = nil }
   local scanKindResults = {}
-  for _, kind in ipairs(M.KINDS) do
+  for _, kind in ipairs(ALL_KINDS) do
     scanKindResults[kind] = { localHas = false, localMs = nil, diskHas = false, diskMs = nil, diskValid = false }
   end
   local dirStatus = { export = "", import = "" }
@@ -547,7 +644,7 @@ function M.build(basalt, frame, runtime, nav, deps)
   local function doDetect()
     drive = M._detect(deps)
     local sk = {}
-    for _, kind in ipairs(M.KINDS) do
+    for _, kind in ipairs(ALL_KINDS) do
       sk[kind] = M._scanKind(drive.mount, kind, deps)
     end
     scanKindResults = sk
@@ -589,7 +686,15 @@ function M.build(basalt, frame, runtime, nav, deps)
     importBtn.button:onClick(function() region:push("import") end)
     importAllBtn.button:onClick(function() region:push("confirm_importall") end)
 
-    local backRow = configkit.actionRow(f, { x = fx, y = topY + 3, w = fiw }, {
+    local roleY = topY + 3
+    local fcsBtn = configkit.bracketSwitch(f, { x = fx, y = roleY, width = 3, text = "FCS", kind = "menu" })
+    local uiBtn  = configkit.bracketSwitch(f, { x = fx + 6, y = roleY, width = 2, text = "UI", kind = "menu" })
+    local navBtn = configkit.bracketSwitch(f, { x = fx + 11, y = roleY, width = 3, text = "NAV", kind = "menu" })
+    fcsBtn.button:onClick(function() region:push("role_fcs") end)
+    uiBtn.button:onClick(function() region:push("role_ui") end)
+    navBtn.button:onClick(function() region:push("role_nav") end)
+
+    local backRow = configkit.actionRow(f, { x = fx, y = roleY + 1, w = fiw }, {
       { id = "back", label = configkit.GLYPH.BACK, onClick = function() if nav then nav:pop() end end },
     })
 
@@ -607,6 +712,9 @@ function M.build(basalt, frame, runtime, nav, deps)
       end
       importAllBtn.set((present and anyValid) and "off" or "disabled")
       scanBtn.set(present and "off" or "disabled")
+      fcsBtn.set("off")
+      uiBtn.set("off")
+      navBtn.set("off")
     end
     refreshTop()
 
@@ -615,6 +723,7 @@ function M.build(basalt, frame, runtime, nav, deps)
       elements = {
         diskLabel = diskLabel, refreshBtn = refreshBtn, scanBtn = scanBtn,
         exportBtn = exportBtn, importBtn = importBtn, importAllBtn = importAllBtn, backRow = backRow,
+        fcsBtn = fcsBtn, uiBtn = uiBtn, navBtn = navBtn,
       },
     }
   end
@@ -806,6 +915,62 @@ function M.build(basalt, frame, runtime, nav, deps)
       elements = { listLabel = listLabel, confirmRow = confirmRow, backRow = backRow } }
   end
 
+  local function buildRole(role)
+    return function(b, f, region)
+      local fw = ({ f:getSize() })[1]
+      local fx = 2
+      local fiw = math.max(1, fw - 2)
+      local y = 1
+      local kinds = M.roleKinds(role) or {}
+      local titleLabel = f:addLabel({
+        x = fx, y = y, width = fiw, height = 1, autoSize = false,
+        text = clampText(string.upper(role) .. " CONFIG", fiw),
+      })
+      y = y + 1
+      local exportBtn = configkit.bracketSwitch(f, { x = fx, y = y, width = 6, text = "EXPORT", kind = "function" })
+      local importBtn = configkit.bracketSwitch(f, { x = fx + 10, y = y, width = 6, text = "IMPORT", kind = "function" })
+      y = y + 1
+      local statusLabel = f:addLabel({ x = fx, y = y, width = fiw, height = 1, autoSize = false, text = "" })
+      y = y + 1
+      local kindLabels = {}
+      for i, kind in ipairs(kinds) do
+        kindLabels[i] = f:addLabel({ x = fx, y = y, width = fiw, height = 1, autoSize = false, text = "" })
+        y = y + 1
+      end
+      local backRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
+        { id = "back", label = configkit.GLYPH.BACK, onClick = function() region:pop() end },
+      })
+      exportBtn.button:onClick(function()
+        local exported = M._export(drive.mount, deps, role)
+        dirStatus.export = string.upper(role) .. ": exported " .. tostring(#exported)
+        doDetect(); region:apply(nil)
+      end)
+      importBtn.button:onClick(function()
+        local imported = M._import(drive.mount, deps, role)
+        dirStatus.import = string.upper(role) .. ": imported " .. tostring(#imported)
+        doDetect(); region:apply(nil)
+      end)
+      local function refresh()
+        local present = drive.present
+        exportBtn.set(present and "off" or "disabled")
+        importBtn.set(present and "off" or "disabled")
+        statusLabel:setText(clampText((dirStatus.export or "") .. " " .. (dirStatus.import or ""), fiw))
+        for i, kind in ipairs(kinds) do
+          local info = scanKindResults[kind] or {}
+          kindLabels[i]:setText(clampText(rowSelectorText(M.row(kind, info)), fiw))
+        end
+      end
+      refresh()
+      return {
+        apply = function(_s) refresh() end,
+        elements = {
+          titleLabel = titleLabel, exportBtn = exportBtn, importBtn = importBtn,
+          statusLabel = statusLabel, kindLabels = kindLabels, backRow = backRow,
+        },
+      }
+    end
+  end
+
   local screens = { top = buildTop, export = buildKindList("export"), import = buildKindList("import") }
   for _, dir in ipairs({ "export", "import" }) do
     for _, kind in ipairs(M.KINDS) do
@@ -815,6 +980,9 @@ function M.build(basalt, frame, runtime, nav, deps)
   screens.confirm_importall = buildImportAllConfirm
   screens.scan = buildScan
   screens.confirm_clean = buildCleanConfirm
+  screens.role_fcs = buildRole("fcs")
+  screens.role_ui = buildRole("ui")
+  screens.role_nav = buildRole("nav")
 
   local region = Region.new(basalt, frame, {
     x = 1, y = 2, width = w, height = math.max(1, h - 1),

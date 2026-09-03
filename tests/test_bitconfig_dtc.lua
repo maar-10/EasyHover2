@@ -932,4 +932,53 @@ t.test("M.build: export row stays DISABLED for a kind that is valid on disk but 
     "tuning import row enabled: valid on disk")
 end)
 
+-- ===== S3 Task 2: role-scoped DTC transfers (FCS live / NAV no-op on UI) =====
+
+t.test("export fcs role writes disk from fcsGet and never touches UI-local FCS paths", function()
+  local written, localWrites = {}, {}
+  local deps = {
+    exists = function() return false end,
+    read = function() return nil end,
+    write = function(path, body) written[path] = body; return true end,
+    delete = function() end,
+    move = function(from, to) written[to] = written[from]; written[from] = nil end,
+    fcsGet = function(kind) return textutils.serialise({ kind = kind }) end,
+    fcsSet = function() error("import not called") end,
+  }
+  local exported = M._export("disk0", deps, "fcs")
+  t.truthy(#exported >= 3)
+  t.eq(written["/eh2_devbind.tbl"], nil, "no UI-local FCS file created")
+  t.truthy(written["/disk0/eh2_devbind.tbl"] ~= nil)
+end)
+
+t.test("import fcs role calls fcsSet from disk and never writes UI-local FCS paths", function()
+  local sets, localWrites = {}, {}
+  local deps = {
+    exists = function(path) return path:find("^/disk0/") ~= nil end,
+    read = function(path) return path:find("eh2_tuning") and textutils.serialise({ gains = {}, caps = {}, feel = {} }) or textutils.serialise({ ok = true }) end,
+    write = function(path, body) localWrites[path] = body end,
+    delete = function() end,
+    move = function() end,
+    fcsGet = function() return nil end,
+    fcsSet = function(kind, body) sets[kind] = body; return true end,
+  }
+  M._import("disk0", deps, "fcs")
+  t.truthy(sets.tuning ~= nil)
+  t.eq(localWrites["/eh2_tuning.tbl"], nil)
+end)
+
+t.test("nav role export/import is a no-op when local nav files are absent (UI PC)", function()
+  local writes = 0
+  local deps = {
+    exists = function() return false end,
+    read = function() return "X" end,
+    write = function() writes = writes + 1 end,
+    delete = function() end,
+    move = function() end,
+  }
+  t.eq(#(M._export("disk0", deps, "nav")), 0)
+  t.eq(#(M._import("disk0", deps, "nav")), 0)
+  t.eq(writes, 0)
+end)
+
 return true
