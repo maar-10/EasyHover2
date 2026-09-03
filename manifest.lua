@@ -929,9 +929,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/dtc.lua",
-          ["size"] = 17178,
+          ["size"] = 17125,
           ["src"] = "dist/ui/basalt/bitconfig/dtc.lua",
-          ["sum"] = "3b318549",
+          ["sum"] = "d36e76ec",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/fcssync.lua",
@@ -1380,5 +1380,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "b2124abd",
+  ["version"] = "972ab4df",
 }

@@ -184,12 +184,13 @@ local function fakeFsDeps(initialFiles)
   return files, deps, log
 end
 
-t.test("_export: copies ONLY locally-present kinds to the CORRECT diskPath, returns exported kinds", function()
-  local files, deps, log = fakeFsDeps({
-    ["/eh2_devbind.tbl"] = "BODY-DEVBIND",
-    ["/eh2_tuning.tbl"]  = "BODY-TUNING",
-    -- senscal deliberately absent locally
-  })
+t.test("_export: copies ONLY fcsGet-present FCS kinds to the CORRECT diskPath, returns exported kinds", function()
+  local files, deps, log = fakeFsDeps({})
+  deps.fcsGet = function(kind)
+    if kind == "devbind" then return "BODY-DEVBIND" end
+    if kind == "tuning" then return "BODY-TUNING" end
+    return nil
+  end
 
   local exported = M._export("disk", deps)
 
@@ -198,7 +199,9 @@ t.test("_export: copies ONLY locally-present kinds to the CORRECT diskPath, retu
 
   t.eq(files["/disk/eh2_devbind.tbl"], "BODY-DEVBIND")
   t.eq(files["/disk/eh2_tuning.tbl"], "BODY-TUNING")
-  t.eq(files["/disk/eh2_senscal.tbl"], nil, "senscal was never local, so never exported")
+  t.eq(files["/disk/eh2_senscal.tbl"], nil, "senscal had no fcsGet body, so never exported")
+  t.eq(files["/eh2_devbind.tbl"], nil, "no UI-local FCS file created")
+  t.eq(files["/eh2_tuning.tbl"], nil, "no UI-local FCS file created")
 
   -- atomic: wrote to a .tmp path, then moved into place (no direct write to the final path)
   local wroteTmp = false
@@ -215,11 +218,12 @@ end)
 
 t.test("_export: overwriting an existing disk file deletes the old one before moving the new one in", function()
   local files, deps, log = fakeFsDeps({
-    ["/eh2_devbind.tbl"] = "NEW-BODY",
     ["/disk/eh2_devbind.tbl"] = "OLD-BODY",
   })
+  deps.fcsGet = function(kind) return kind == "devbind" and "NEW-BODY" or nil end
   M._export("disk", deps)
   t.eq(files["/disk/eh2_devbind.tbl"], "NEW-BODY")
+  t.eq(files["/eh2_devbind.tbl"], nil, "no UI-local FCS file created")
   local deletedOld = false
   for _, p in ipairs(log.delete) do if p == "/disk/eh2_devbind.tbl" then deletedOld = true end end
   t.truthy(deletedOld, "old disk file deleted before the atomic move")
@@ -231,32 +235,36 @@ t.test("_export: with mount=nil, exports nothing (no disk to export to)", functi
   t.eq(#exported, 0)
 end)
 
-t.test("_import: copies disk->local ONLY for disk-present kinds, to the CORRECT localPath", function()
+t.test("_import: FCS kinds call fcsSet from disk and never write UI-local FCS paths", function()
   local files, deps, log = fakeFsDeps({
     ["/disk/eh2_senscal.tbl"] = "BODY-SENSCAL",
     ["/disk/eh2_tuning.tbl"]  = "BODY-TUNING",
+    ["/disk/eh2_ui_config.tbl"] = "BODY-UI",
     -- devbind deliberately absent on disk
   })
+  local sets = {}
+  deps.fcsSet = function(kind, body) sets[kind] = body; return true end
 
   local imported = M._import("disk", deps)
 
-  t.eq(#imported, 2)
-  t.eq(imported[1], "senscal"); t.eq(imported[2], "tuning")
-
-  t.eq(files["/eh2_senscal.tbl"], "BODY-SENSCAL")
-  t.eq(files["/eh2_tuning.tbl"], "BODY-TUNING")
-  t.eq(files["/eh2_devbind.tbl"], nil)
+  t.eq(#imported, 3)
+  t.eq(imported[1], "senscal"); t.eq(imported[2], "tuning"); t.eq(imported[3], "uicfg")
+  t.eq(sets.senscal, "BODY-SENSCAL")
+  t.eq(sets.tuning, "BODY-TUNING")
+  t.eq(files["/eh2_senscal.tbl"], nil, "no UI-local FCS file created")
+  t.eq(files["/eh2_tuning.tbl"], nil, "no UI-local FCS file created")
+  t.eq(files["/eh2_ui_config.tbl"], "BODY-UI")
 
   local wroteTmp = false
   for _, p in ipairs(log.write) do
-    if p == "/eh2_senscal.tbl.tmp" then wroteTmp = true end
+    if p == "/eh2_ui_config.tbl.tmp" then wroteTmp = true end
   end
-  t.truthy(wroteTmp, "import also writes to a .tmp path before moving")
+  t.truthy(wroteTmp, "uicfg import still writes to a .tmp path before moving")
   local movedIntoPlace = false
   for _, mv in ipairs(log.move) do
-    if mv.from == "/eh2_senscal.tbl.tmp" and mv.to == "/eh2_senscal.tbl" then movedIntoPlace = true end
+    if mv.from == "/eh2_ui_config.tbl.tmp" and mv.to == "/eh2_ui_config.tbl" then movedIntoPlace = true end
   end
-  t.truthy(movedIntoPlace, "moved the tmp file to the final localPath")
+  t.truthy(movedIntoPlace, "moved the tmp file to the final uicfg localPath")
 end)
 
 t.test("_import: with mount=nil, imports nothing", function()
@@ -450,7 +458,7 @@ t.test("M.build: EXPORT drilldown -- devbind row enabled (local present), CONFIR
   local frame = basalt.createFrame()
   local nav = Nav.new("bitconfig")
 
-  local files = { ["/eh2_devbind.tbl"] = "BODY1" }
+  local files = {}
   local fakeDrive = {
     isDiskPresent = function() return true end,
     getMountPath  = function() return "disk" end,
@@ -465,6 +473,7 @@ t.test("M.build: EXPORT drilldown -- devbind row enabled (local present), CONFIR
     move   = function(from, to) files[to] = files[from]; files[from] = nil end,
     attributes = function(p) return files[p] and { modified = 1 } or nil end,
     backup = function(p) end,
+    fcsGet = function(kind) return kind == "devbind" and "BODY1" or nil end,
   }
 
   local h = M.build(basalt, frame, nil, nav, deps)
@@ -476,7 +485,7 @@ t.test("M.build: EXPORT drilldown -- devbind row enabled (local present), CONFIR
 
   local listEls = region.built.export.handle.elements
   t.eq(#listEls.kindRows, 4, "one row per M.KINDS kind")
-  -- devbind is KINDS[1] and exists locally -> row 1 enabled; senscal/tuning/uicfg absent locally.
+  -- devbind is KINDS[1] and fcsGet returns a body -> row 1 enabled; senscal/tuning/uicfg absent.
   t.eq(listEls.kindRows[1].buttons[1].state, "off", "devbind export row enabled")
   t.eq(listEls.kindRows[2].buttons[1].state, "disabled", "senscal export row disabled")
 
@@ -519,7 +528,7 @@ end)
 -- ===== Task 11: per-kind IO (_scanKind/_exportKind/_importKind) + backup-before-import =====
 
 t.test("_importKind backs up the local file before overwriting it", function()
-  local store = { ["/disk/eh2_tuning.tbl"] = "NEW", ["/eh2_tuning.tbl"] = "OLD" }
+  local store = { ["/disk/eh2_ui_config.tbl"] = "NEW", ["/eh2_ui_config.tbl"] = "OLD" }
   local backedUp = {}
   local deps = {
     exists = function(p) return store[p] ~= nil end,
@@ -530,14 +539,14 @@ t.test("_importKind backs up the local file before overwriting it", function()
     attributes = function(p) return store[p] and { modified = 1 } or nil end,
     backup = function(p) backedUp[#backedUp+1] = p end,
   }
-  local ok = M._importKind("disk", "tuning", deps)
+  local ok = M._importKind("disk", "uicfg", deps)
   t.eq(ok, true)
-  t.eq(store["/eh2_tuning.tbl"], "NEW", "local overwritten from disk")
-  t.eq(backedUp[1], "/eh2_tuning.tbl", "local backed up before overwrite")
+  t.eq(store["/eh2_ui_config.tbl"], "NEW", "local overwritten from disk")
+  t.eq(backedUp[1], "/eh2_ui_config.tbl", "local backed up before overwrite")
 end)
 
 t.test("_importKind: local file absent -> no backup call, still imports", function()
-  local store = { ["/disk/eh2_tuning.tbl"] = "NEW" }
+  local store = { ["/disk/eh2_ui_config.tbl"] = "NEW" }
   local backedUp = {}
   local deps = {
     exists = function(p) return store[p] ~= nil end,
@@ -547,10 +556,28 @@ t.test("_importKind: local file absent -> no backup call, still imports", functi
     move = function(a,b) store[b] = store[a]; store[a] = nil end,
     backup = function(p) backedUp[#backedUp+1] = p end,
   }
-  local ok = M._importKind("disk", "tuning", deps)
+  local ok = M._importKind("disk", "uicfg", deps)
   t.eq(ok, true)
   t.eq(#backedUp, 0, "no local file existed, so no backup call")
-  t.eq(store["/eh2_tuning.tbl"], "NEW")
+  t.eq(store["/eh2_ui_config.tbl"], "NEW")
+end)
+
+t.test("_importKind FCS kind calls fcsSet and never writes UI-local FCS paths", function()
+  local store = { ["/disk/eh2_tuning.tbl"] = "NEW", ["/eh2_tuning.tbl"] = "OLD" }
+  local sets, backedUp = {}, {}
+  local deps = {
+    exists = function(p) return store[p] ~= nil end,
+    read = function(p) return store[p] end,
+    write = function(p, b) store[p] = b end,
+    delete = function(p) store[p] = nil end,
+    move = function(a,b) store[b] = store[a]; store[a] = nil end,
+    backup = function(p) backedUp[#backedUp+1] = p end,
+    fcsSet = function(kind, body) sets[kind] = body; return true end,
+  }
+  t.eq(M._importKind("disk", "tuning", deps), true)
+  t.eq(sets.tuning, "NEW")
+  t.eq(store["/eh2_tuning.tbl"], "OLD", "UI-local FCS file not overwritten")
+  t.eq(#backedUp, 0, "no backup of UI-local FCS file")
 end)
 
 t.test("_importKind: disk file absent -> false, no backup, no copy", function()
@@ -576,14 +603,14 @@ end)
 
 -- ===== Task B5: M._importAll(mount, deps) -- one-shot import of all valid disk kinds =====
 
-t.test("_importAll: imports only valid disk kinds, backs up locals, skips the rest", function()
+t.test("_importAll: imports only valid disk kinds via fcsSet, skips the rest, never writes UI-local FCS", function()
   local good = textutils.serialise({ gains = {}, caps = {}, feel = {} })   -- valid tuning
   local store = {
     ["/disk/eh2_tuning.tbl"]  = good,
     ["/disk/eh2_senscal.tbl"] = "corrupt {{{",   -- present but invalid
     ["/eh2_tuning.tbl"]       = "OLD-TUNING",
   }
-  local backedUp = {}
+  local sets, backedUp = {}, {}
   local deps = {
     exists = function(p) return store[p] ~= nil end,
     read   = function(p) return store[p] end,
@@ -592,11 +619,13 @@ t.test("_importAll: imports only valid disk kinds, backs up locals, skips the re
     move   = function(a, b) store[b] = store[a]; store[a] = nil end,
     attributes = function(p) return store[p] and { modified = 1 } or nil end,
     backup = function(p) backedUp[#backedUp + 1] = p end,
+    fcsSet = function(kind, body) sets[kind] = body; return true end,
   }
   local r = M._importAll("disk", deps)
   t.eq(#r.imported, 1); t.eq(r.imported[1], "tuning")
-  t.eq(store["/eh2_tuning.tbl"], good, "valid disk tuning imported over local")
-  t.eq(backedUp[1], "/eh2_tuning.tbl", "local tuning backed up first")
+  t.eq(sets.tuning, good)
+  t.eq(store["/eh2_tuning.tbl"], "OLD-TUNING", "UI-local FCS file not overwritten")
+  t.eq(#backedUp, 0, "no backup of UI-local FCS file")
   -- senscal present-but-invalid, devbind/uicfg absent -> all skipped
   local skippedSet = {}; for _, k in ipairs(r.skipped) do skippedSet[k] = true end
   t.truthy(skippedSet.senscal, "invalid senscal skipped")
@@ -622,6 +651,7 @@ t.test("M.build: IMPORT ALL button present; enabled only with a valid importable
     getMountPath  = function() return "disk" end,
     getDiskLabel  = function() return "CART1" end,
   }
+  local sets = {}
   local deps = {
     find = function(k) return k == "drive" and fakeDrive or nil end,
     exists = function(p) return files[p] ~= nil end,
@@ -631,6 +661,7 @@ t.test("M.build: IMPORT ALL button present; enabled only with a valid importable
     move = function(a, b) files[b] = files[a]; files[a] = nil end,
     attributes = function(p) return files[p] and { modified = 1 } or nil end,
     backup = function(p) end,
+    fcsSet = function(kind, body) sets[kind] = body; return true end,
   }
   local h = M.build(basalt, frame, nil, nav, deps)
   local region = h.elements.region
@@ -643,15 +674,18 @@ t.test("M.build: IMPORT ALL button present; enabled only with a valid importable
   cEls.confirmRow.buttons[1].button:fireEvent("mouse_click", 1, 1, 1)
   h.apply({})
   t.eq(region:top(), "top", "CONFIRM pops back to top")
-  t.eq(files["/eh2_tuning.tbl"], good, "IMPORT ALL brought the valid tuning local")
+  t.eq(sets.tuning, good, "IMPORT ALL shipped valid tuning via fcsSet")
+  t.eq(files["/eh2_tuning.tbl"], nil, "IMPORT ALL must not write UI-local FCS files")
 end)
 
-t.test("_exportKind copies local to disk", function()
-  local store = { ["/eh2_tuning.tbl"] = "L" }
+t.test("_exportKind writes fcsGet body to disk, not a UI-local FCS file", function()
+  local store = {}
   local deps = { exists=function(p) return store[p]~=nil end, read=function(p) return store[p] end,
-    write=function(p,b) store[p]=b end, delete=function(p) store[p]=nil end, move=function(a,b) store[b]=store[a]; store[a]=nil end }
+    write=function(p,b) store[p]=b end, delete=function(p) store[p]=nil end, move=function(a,b) store[b]=store[a]; store[a]=nil end,
+    fcsGet=function(kind) return kind == "tuning" and "L" or nil end }
   t.eq(M._exportKind("disk", "tuning", deps), true)
   t.eq(store["/disk/eh2_tuning.tbl"], "L")
+  t.eq(store["/eh2_tuning.tbl"], nil)
 end)
 
 t.test("_exportKind: local file absent -> false, no copy", function()
@@ -930,6 +964,27 @@ t.test("M.build: export row stays DISABLED for a kind that is valid on disk but 
   -- regress the already-correct import branch.
   t.eq(importEls.kindRows[3].buttons[1].button:getEnabled(), true,
     "tuning import row enabled: valid on disk")
+end)
+
+-- ===== S3 Task 2 fix: unscoped FCS I/O without seams must skip, not recreate UI-local files =====
+
+t.test("unscoped export/import skips FCS kinds when fcsGet/fcsSet absent (no UI-local FCS files)", function()
+  local files, deps = fakeFsDeps({
+    ["/eh2_tuning.tbl"] = "LOCAL",
+    ["/disk/eh2_tuning.tbl"] = "DISK",
+    ["/eh2_ui_config.tbl"] = "UI-LOCAL",
+  })
+  local imported = M._import("disk", deps)
+  t.eq(#imported, 0)
+  t.eq(files["/eh2_tuning.tbl"], "LOCAL", "unscoped import must not overwrite UI-local FCS files")
+  local exported = M._export("disk", deps)
+  t.eq(#exported, 1)
+  t.eq(exported[1], "uicfg")
+  t.eq(files["/disk/eh2_tuning.tbl"], "DISK", "unscoped export must not copy UI-local FCS files to disk")
+  t.eq(files["/disk/eh2_ui_config.tbl"], "UI-LOCAL")
+  t.eq(M._exportKind("disk", "tuning", deps), false)
+  t.eq(M._importKind("disk", "tuning", deps), false)
+  t.eq(files["/eh2_tuning.tbl"], "LOCAL")
 end)
 
 -- ===== S3 Task 2: role-scoped DTC transfers (FCS live / NAV no-op on UI) =====

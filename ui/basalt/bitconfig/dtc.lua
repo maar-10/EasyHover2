@@ -366,15 +366,14 @@ local function atomicCopy(from, to, deps)
   return atomicWrite(to, deps.read(from), deps)
 end
 
--- FCS kinds on the UI have no local files: live cache via fcsGet/fcsSet. Unscoped calls without
--- those seams keep the old local-copy path so existing tests stay green; role=="fcs" without the
--- seams skips rather than recreating /eh2_*.tbl on the UI PC.
+-- FCS kinds on the UI have no local files: live cache via fcsGet/fcsSet. Without those seams,
+-- skip (do not atomicCopy to/from /eh2_devbind.tbl /eh2_senscal.tbl /eh2_tuning.tbl /eh2_fuelcal.tbl).
 local function exportKind(mount, kind, deps, role)
   if isFcsKind(kind) then
     if deps.fcsGet then
       return atomicWrite(M.diskPath(mount, kind), deps.fcsGet(kind), deps)
     end
-    if role == "fcs" then return false end
+    return false
   end
   if role == "nav" and not deps.exists(M.localPath(kind)) then return false end
   return atomicCopy(M.localPath(kind), M.diskPath(mount, kind), deps)
@@ -389,7 +388,7 @@ local function importKind(mount, kind, deps, role)
       if body == nil then return false end
       return deps.fcsSet(kind, body) and true or false
     end
-    if role == "fcs" then return false end
+    return false
   end
   if role == "nav" and not deps.exists(M.localPath(kind)) then return false end
   return atomicCopy(M.diskPath(mount, kind), M.localPath(kind), deps)
@@ -480,7 +479,7 @@ end
 function M._importKind(mount, kind, deps)
   if mount == nil then return false end
   deps = resolveDeps(deps)
-  if isFcsKind(kind) and deps.fcsSet then
+  if isFcsKind(kind) then
     return importKind(mount, kind, deps, nil)
   end
   if cfgroles.roleOf(kind) == "nav" and not deps.exists(M.localPath(kind)) then
