@@ -1,10 +1,11 @@
 -- ui/basalt/bitconfig/mdb.lua
 -- MDB-CONF sub-menu (BIT/CONFIG hub, screen id "mdb"): the native-Basalt manual device-binding
--- menu. Binds the FCS thruster/sensor slots + fuel relay to actual peripheral names and Saves
--- /eh2_devbind.tbl via fcs/io/cfgspec.lua. This is a reskin of the bare terminal tool
--- tools/binddevices.lua (Task 6) -- it REUSES that module's pure M.assign/M.candidates rather
--- than reimplementing them, and a parity test enforces that this menu writes a BYTE-IDENTICAL
--- file to the bare tool for the same assignments.
+-- menu. Binds the FCS thruster/sensor slots + fuel relay to peripheral names visible on THIS
+-- PC's wired network and saves via ui.basalt.cfgseam -- SAVE ships a `set` to the running FCS
+-- (which persists the devbind and materializes the senscal sibling). This is a reskin of the
+-- bare terminal tool tools/binddevices.lua (Task 6) -- it REUSES that module's pure
+-- M.assign/M.candidates rather than reimplementing them, and a parity test enforces that this
+-- menu writes a BYTE-IDENTICAL body to the bare tool for the same assignments.
 --
 -- Each of the 19 slots is bound via a DROPDOWN (ui/basalt/picker.lua), not a click-to-cycle
 -- button -- cycling through abbreviated peripheral names to find the right one in-game proved
@@ -20,11 +21,11 @@
 
 local cfgspec      = require("fcs.io.cfgspec")
 local binddevices   = require("tools.binddevices")
-local fsx           = require("fcs.io.fsx")
 local Picker        = require("ui.basalt.picker")
 local configkit      = require("ui.basalt.configkit")
 local switchbtn      = require("ui.basalt.switchbtn")
 local Region         = require("ui.basalt.region")
+local cfgseam        = require("ui.basalt.cfgseam")
 
 local M = {}
 M.id = "mdb"
@@ -174,18 +175,9 @@ function M._save(cfg, write)
   return cfgspec.save("devbind", cfg, write)
 end
 
--- ===== real fs read/write + live peripheral scan (default injected seams; never called at =====
--- ===== module load). =====
-
-local function realRead(filename)
-  return fsx.read("/" .. filename)
-end
-
--- Atomic tmp-then-move write, mirrors ui/basalt/bitconfig/tuning.lua's realWrite exactly
--- (delegates to fcs/io/fsx.lua's shared helper).
-local function realWrite(filename, body)
-  return fsx.writeAtomic("/" .. filename, body)
-end
+-- ===== live peripheral scan (default injected seam; never called at module load). =====
+-- Default read/write now come from cfgseam (FCS cache + cfgClient). scan stays LOCAL -- the
+-- operator binds names visible on THIS PC's wired network.
 
 -- Live descriptor scan, {name=, type=} shape -- matches tools/binddevices.lua's buildDescriptors
 -- and ui/main.lua's scanDescriptors conventions (methods= is not needed by binddevices.candidates
@@ -207,8 +199,17 @@ end
 -- overlay always has headroom (fixes the old paged-list's open-dropdown-past-bottom clip).
 
 function M.build(basalt, frame, runtime, nav, read, write, scan)
-  read = read or realRead
-  write = write or realWrite
+  -- S2b: read the FCS's live devbind from runtime.cfgCache; SAVE ships a devbind `set` to the FCS
+  -- (which persists it and materializes the senscal sibling). scan() stays a LOCAL peripheral scan
+  -- -- the operator binds names visible on THIS PC's wired network. Tests inject read/write/scan.
+  read = read or cfgseam.read(runtime)
+  write = write or cfgseam.write(runtime, function(kind, ok, err)
+    if runtime then
+      runtime.cfgSaveStatus = ok and "saved to FCS -- reload to apply"
+        or ("SAVE FAILED: " .. tostring(err or "no FCS"))
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+    end
+  end)
   scan = scan or realScan
 
   local descriptors = scan()

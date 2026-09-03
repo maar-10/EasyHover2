@@ -944,9 +944,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/mdb.lua",
-          ["size"] = 4799,
+          ["size"] = 4873,
           ["src"] = "dist/ui/basalt/bitconfig/mdb.lua",
-          ["sum"] = "20ff00f8",
+          ["sum"] = "b668312c",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/pfd.lua",
@@ -1377,5 +1377,5 @@
     ["size"] = 71874,
     ["sum"] = "4f7c615b",
   },
-  ["version"] = "8a611efc",
+  ["version"] = "bdb5aac2",
 }
