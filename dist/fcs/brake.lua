@@ -1,0 +1,1 @@
+local a={}function a.angle(b,c,d)b=b or 0;local e=d and c.buttonMax or c.maxAngle;if b<c.engageSpeed then return 0 end;if b>=c.satSpeed then return e end;local f=(b-c.engageSpeed)/(c.satSpeed-c.engageSpeed)return c.minAngle+f*(e-c.minAngle)end;function a.vector(g,h,i)h=h or 0;i=i or 0;local b=math.sqrt(h*h+i*i)if g<=0 or b<1e-6 then return 0,0 end;return g*h/b,-g*i/b end;return a

@@ -1,6 +1,7 @@
 -- fcs/input/pilot.lua
 local leash = require("fcs.leash")
 local angle = require("fcs.angle")
+local brake = require("fcs.brake")
 
 local Pilot = {}
 Pilot.__index = Pilot
@@ -45,6 +46,25 @@ function Pilot:setMaster(driftArrest) self.driftArrest = driftArrest ~= false en
 
 local function dirOf(held, neg, pos)
   return (held[pos] and 1 or 0) - (held[neg] and 1 or 0)
+end
+
+-- Tilt-brake setpoint (fix #3): a speed-scaled pitch/roll tilt opposing the horizontal drift, held
+-- as an attitude setpoint the leveling loop maintains. Engages when this craft is arresting (CRU at
+-- throttle 0 / MAN|DRN hands-off) under CPL, above the engage speed, in a tiltBrake-enabled mode.
+-- held.brake overrides the master mode in any mode and uses the steeper button curve; where tilt is
+-- disabled (PRE/LDG) the button still forces a lateral hold but injects no tilt (returns 0,0).
+function Pilot:_brakeSetpoint(held, meas, tilting)
+  local tb = self.cfg.tiltBrake
+  local btn = held.brake and true or false
+  local autoArrest
+  if self.policy.surge == "throttle" then autoArrest = (self.throttle or 0) <= 0
+  elseif self.policy.tilt then autoArrest = not tilting
+  else autoArrest = true end
+  local engaged = btn or (autoArrest and self.driftArrest)
+  if not engaged or not (tb and tb.enabled) then return 0, 0 end
+  local sv, wv = meas.surgeVel or 0, meas.swayVel or 0
+  local s = math.sqrt(sv * sv + wv * wv)
+  return brake.vector(brake.angle(s, tb, btn), sv, wv)
 end
 
 function Pilot:update(dt, held, meas)
@@ -149,7 +169,7 @@ function Pilot:update(dt, held, meas)
     self.tilt.roll  = toward(self.tilt.roll,  dirOf(held, "rollLeft",  "rollRight"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     sp.pitch, sp.roll = self.tilt.pitch, self.tilt.roll
   else
-    sp.pitch, sp.roll = 0, 0
+    sp.pitch, sp.roll = self:_brakeSetpoint(held, meas, false)   -- 0,0 unless braking
   end
   if self.policy.surge == "throttle" then
     local d = dirOf(held, "surgeBack", "surgeFwd")

@@ -144,3 +144,59 @@ t.test("CRUISE throttle policy leashes surgePos (holds station, doesn't re-pin) 
   t.near(sp.surgePos, meas.surgePos - FEEL.surgeLead, 1e-9,
     "leash clamps to at most surgeLead behind the new measured position, holding station")
 end)
+
+-- Task 5 (fix #3): non-tilt-mode auto tilt-brake. CRU arrests (throttle<=0) under CPL, above
+-- engageSpeed, in a tiltBrake-enabled mode -> pitch/roll setpoint opposing horizontal drift.
+local function measv(o) o = o or {}
+  return { altitude=o.altitude or 10, heading=o.heading or 0, swayPos=o.swayPos or 0,
+           surgePos=o.surgePos or 0, surgeVel=o.surgeVel or 0, swayVel=o.swayVel or 0,
+           pitch=o.pitch or 0, roll=o.roll or 0, yawRate=o.yawRate or 0 }
+end
+local TB = { enabled=true, engageSpeed=30, satSpeed=100, minAngle=0.2618, maxAngle=0.5236, buttonMax=0.7854 }
+local CRU_FEEL = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                   swaySpeed=5, swayLead=10, cruiseThrottleRate=1, cruiseThrottleMax=1, tiltBrake=TB }
+
+t.test("CRU auto tilt-brake: throttle 0, fast forward drift, CPL -> nose-up pitch setpoint", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })   -- throttle 0, 80 blk/s forward
+  t.truthy(sp.pitch > 0.2, "aerobrake nose-up engaged")
+  t.near(sp.roll, 0, 1e-9, "no lateral drift -> no roll brake")
+end)
+
+t.test("CRU: forward throttle (throttle>0) does NOT auto tilt-brake", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })  -- ramp throttle up
+  local sp = p:update(0.05, { surgeFwd=true }, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "cruising forward stays level")
+end)
+
+t.test("CRU auto tilt-brake suppressed under DCPL (drift allowed)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(false); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "DCPL coasts, no auto brake")
+end)
+
+t.test("CRU below engage speed -> no tilt (thrusters only)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=20 })
+  t.near(sp.pitch, 0, 1e-9, "20 blk/s < 30 engage")
+end)
+
+t.test("PRE (tiltBrake disabled) never auto tilt-brakes even fast", function()
+  local Pilot = require("fcs.input.pilot")
+  local feel = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                 swaySpeed=5, swayLead=10, tiltBrake={ enabled=false, engageSpeed=30, satSpeed=100,
+                 minAngle=0.2618, maxAngle=0.5236, buttonMax=0.7854 } }
+  local p = Pilot.new(feel)
+  p:setMode({ tilt=false, surge="position" }, feel); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "PRE stays level")
+end)

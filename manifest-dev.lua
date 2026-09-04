@@ -256,6 +256,12 @@
           ["sum"] = "bbbd6f6a",
         },
         {
+          ["dst"] = "fcs/brake.lua",
+          ["size"] = 1317,
+          ["src"] = "fcs/brake.lua",
+          ["sum"] = "17da0ddb",
+        },
+        {
           ["dst"] = "fcs/bringup/instrument.lua",
           ["size"] = 13972,
           ["src"] = "fcs/bringup/instrument.lua",
@@ -395,9 +401,9 @@
         },
         {
           ["dst"] = "fcs/input/pilot.lua",
-          ["size"] = 9414,
+          ["size"] = 10595,
           ["src"] = "fcs/input/pilot.lua",
-          ["sum"] = "7bf93479",
+          ["sum"] = "6ed3e1eb",
         },
         {
           ["dst"] = "fcs/io/backend.lua",
@@ -1476,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "0f93b434",
+  ["version"] = "f6705e49",
 }
