@@ -74,16 +74,13 @@ function Loop:cycle(rawDt, m)
   -- Previous-cycle envelope saturation (same one-tick-delayed anti-windup pattern as the
   -- heave band's _heaveSat): a demand railed by its cap must stop integrating into that rail.
   local demands = self.scheme:update(self.sp, m, dt, grounded, self._sat)
-  -- Forward trim (master-mode feedforward): the craft pitches nose-up under forward thrust because
-  -- its CoM is not vertically centered. Bias the pitch DEMAND (realized as a lift-thruster
-  -- differential by the mixer -- never the forward thrusters) proportional to the forward thrust
-  -- demand, so the craft holds its intended pitch during acceleration. Applied before the DAMPED
-  -- block so a genuine oscillation trip still zeroes it.
-  -- BOUNDED (flip-guard, spec 2026-09-04): the raw feedforward can exceed caps.pitch and rail the
-  -- whole pitch demand nose-down, starving the stabilizer -> forward somersault (observed in CRU).
-  -- (a) attitude fade: full trim below trimFadeStart, ramp to 0 by trimFade, so it eases off as the
-  -- craft departs level; (b) authority floor: never use more than trimAuthority of the pitch cap,
-  -- reserving (1 - trimAuthority) for the stabilizer to recover with.
+  -- FORWARD-ACCEL LEAN (fix #3, PRESERVED / DISABLED): the trim is now an attitude SETPOINT computed
+  -- in fcs/input/pilot.lua (brake + optional accel lean), which the #1 leveling loop holds. This old
+  -- output feed-forward oversteered but kept the craft out of a loop under hard acceleration; kept
+  -- for possible re-enable. luamin strips comments, so this is zero bytes in dist/. To re-enable:
+  -- uncomment this block AND ensure pilot.lua is NOT also injecting a forward-accel setpoint (or the
+  -- two double). Reads self.trimDir/trimGain/trimAuthority/trimFade* (setTrim, still plumbed).
+  --[[
   local ffRaw = (self.trimDir or 0) * (self.trimGain or 0) * (demands.surge or 0)
   local mag = math.abs(m.pitch or 0)
   local fs, fe = self.trimFadeStart or 0, self.trimFade or math.huge
@@ -94,11 +91,6 @@ function Loop:cycle(rawDt, m)
   local ff = ffRaw * fade
   local ffCap = ((self.caps and self.caps.pitch) or math.huge) * (self.trimAuthority or 1)
   if ff > ffCap then ff = ffCap elseif ff < -ffCap then ff = -ffCap end
-  -- Forward-only trim (brakeTrim off): the trim's brake-direction (opposite trimDir -- nose-up for
-  -- the default -1) cancels the pitch loop's level-hold during hard braking, letting a physical
-  -- brake reaction pitch the nose way up (log 2026-09-04: +28deg). Where brakeTrim is off
-  -- (PRE/MAN/LDG) block that half so braking stays level (frontal thrusters brake); CRU/DRN keep the
-  -- full symmetric lean.
   if not self.brakeTrim then
     local dir = self.trimDir or 0
     if dir < 0 then if ff > 0 then ff = 0 end
@@ -106,6 +98,8 @@ function Loop:cycle(rawDt, m)
   end
   self._ffPitch = ff
   demands.pitch = (demands.pitch or 0) + ff
+  --]]
+  self._ffPitch = 0   -- lean disabled; diag/fcslog read this
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).

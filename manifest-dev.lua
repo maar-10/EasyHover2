@@ -515,9 +515,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 7198,
+          ["size"] = 6543,
           ["src"] = "fcs/runtime/loop.lua",
-          ["sum"] = "ac67f6c7",
+          ["sum"] = "d6809558",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "61e3844f",
+  ["version"] = "81f246b0",
 }
