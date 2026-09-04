@@ -13,11 +13,14 @@ local DEFAULTS = {
   gains = {
     hoverDuty = 0.26,
     -- iBand: conditional-integration anti-windup. The vertical leash lets the setpoint lead the craft
-    -- by up to leadCapVert(8) blocks during a climb, so err_alt is large the whole climb WITHOUT heave
+    -- by up to leadCapVert(10) blocks during a climb, so err_alt is large the whole climb WITHOUT heave
     -- railing -- the integrator used to wind to iMax and then float the craft past the target (a long,
     -- oscillatory drop after climb). Integrate only within 3 blocks of the setpoint: P/D drive the
     -- climb, I only trims the steady-state hover residual near the target.
-    alt   = { kp = 0.02, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
+    -- Vertical authority (2026-09-04): steady climb v ~= kp*leadCapVert/kd. Base kp raised 0.02->0.035
+    -- (+leadCapVert 8->10) for ~2.3 blk/s in PRE/MAN/DRN; the log showed ~55% unused heave. CRUISE
+    -- overrides these harder below; LDG pins them back to stay a gentle landing mode.
+    alt   = { kp = 0.035, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
     pitch = { kp = 0.10, ki = 0, kd = 0.22, tauD = 0.2 },
     roll  = { kp = 0.10, ki = 0, kd = 0.22, tauD = 0.2 },
     yaw   = { kp = 0.95, ki = 0, kd = 1.8 },   -- kd 1.0->1.8: damp the heavy craft's release ring
@@ -42,8 +45,8 @@ local DEFAULTS = {
     leadCapHeading = 0.45,   -- 0.70->0.35 killed the overshoot; nudged to 0.45 for a bit more turn speed
     yawStopLead    = 0.15,   -- s of yaw-rate led into the release capture; LOWER = harder stop
 
-    climbRate      = 4.5,
-    leadCapVert    = 8.0,
+    climbRate      = 5.0,
+    leadCapVert    = 10.0,
     surgeSpeed     = 10.0,
     surgeLead      = 20.0,
     swaySpeed      = 5.0,
@@ -80,6 +83,13 @@ DEFAULTS.modes.MAN.feel.tiltCap  = 0.40
 -- Surge-throttle feel (CRUISE): W ramps up, release holds, S ramps down; 0..1 of MAIN.
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleRate = 1.0
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleMax  = 1.0
+-- Fast cruise climb/descend (log 2026-09-04: vertical was authority-limited ~1 blk/s with masses of
+-- unused heave). v ~= kp*leadCapVert/kd; peak heave ~= hover + kp*leadCapVert. ~6-7 blk/s here
+-- (peak heave ~0.80, brief rail on accel; lower kd = livelier, more overshoot on level-off).
+DEFAULTS.modes.CRUISE.gains.alt.kp     = 0.045
+DEFAULTS.modes.CRUISE.gains.alt.kd     = 0.08
+DEFAULTS.modes.CRUISE.feel.leadCapVert = 12.0
+DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
 
 DEFAULTS.modes.LDG = {
   gains = deep(DEFAULTS.gains),
@@ -92,6 +102,11 @@ DEFAULTS.modes.LDG.feel.surgeLead  = 6.0
 DEFAULTS.modes.LDG.feel.swaySpeed  = 2.0
 DEFAULTS.modes.LDG.feel.swayLead   = 4.0
 DEFAULTS.modes.LDG.feel.climbRate  = 2.5
+-- LDG stays a GENTLE landing mode: pin vertical authority to the pre-2026-09-04 base so the raised
+-- base kp/leadCapVert don't apply here (LDG only wants the slow climbRate slew above).
+DEFAULTS.modes.LDG.gains.alt.kp     = 0.02
+DEFAULTS.modes.LDG.gains.alt.kd     = 0.15
+DEFAULTS.modes.LDG.feel.leadCapVert = 8.0
 
 DEFAULTS.modes.DRN = {
   gains = deep(DEFAULTS.gains),
