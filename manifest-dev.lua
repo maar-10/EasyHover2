@@ -251,9 +251,9 @@
         },
         {
           ["dst"] = "fcs/boot/loaderui.lua",
-          ["size"] = 13505,
+          ["size"] = 13922,
           ["src"] = "fcs/boot/loaderui.lua",
-          ["sum"] = "c861b0ca",
+          ["sum"] = "bbbd6f6a",
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
@@ -718,9 +718,9 @@
         },
         {
           ["dst"] = "nav/app.lua",
-          ["size"] = 15052,
+          ["size"] = 15213,
           ["src"] = "nav/app.lua",
-          ["sum"] = "203ae2b6",
+          ["sum"] = "4a212372",
         },
         {
           ["dst"] = "nav/comms/gpsproto.lua",
@@ -1464,5 +1464,5 @@
     ["size"] = 75903,
     ["sum"] = "6452d767",
   },
-  ["version"] = "dfc9793f",
+  ["version"] = "2ee21587",
 }

@@ -100,9 +100,8 @@ end
 function M.needsConfirm(src) return src == "disk" end
 
 -- =====================================================================================
--- In-game only from here down: real fs/peripheral/disk/read() access. NOT headless-tested
--- (no disk in the CraftOS-PC harness); kept coherent by reading, mirrored against the
--- design doc's "current / disk / DEFAULT" flow.
+-- In-game disk/peripheral access lives in diskSource/run(). buildSources/ownIndicator
+-- accept an injected read() so CURRENT/DEFAULT (including fuelcal defaults) self-test.
 -- =====================================================================================
 
 local realRead = fsx.read
@@ -110,18 +109,20 @@ local realRead = fsx.read
 -- "current": the local split file (eh2_devbind.tbl / eh2_senscal.tbl / eh2_fuelcal.tbl);
 -- if a binding/sensor file is ABSENT and the legacy combined /eh2_hw_config.tbl exists,
 -- seed from splitLegacy read-through (mirrors tools/calibrate.lua's M._loadCal / loadSensors
--- so terminal tool and boot UI agree). Fuelcal has no fused seed.
-local function ownSource(concern)
+-- so terminal tool and boot UI agree). Fuelcal CURRENT with no file uses cfgspec.load's
+-- merged defaults (Biodiesel); unparseable is still unavailable. Fuelcal has no fused seed.
+local function ownSource(concern, read)
+  read = read or realRead
   local kind = KIND[concern]
-  local cfg, existed, err = cfgspec.load(kind, realRead)
+  local cfg, existed, err = cfgspec.load(kind, read)
   -- Present-but-unparseable local file: treat as UNAVAILABLE (nil) rather than silently
   -- flying with cfgspec's defaults. resolve then fails on this concern so the pilot must
   -- re-pick (the source menu shows "split file CORRUPT" so they know why).
   if err then return nil end
   if existed then return cfg end
-  -- fuelcal has no fused/legacy seed (splitLegacy has no fuelcal).
-  if concern == "fuelcal" then return nil end
-  local legacyBody = realRead(LEGACY_CONFIG_PATH)
+  -- fuelcal CURRENT, file absent: cfgspec.load already merged Biodiesel defaults.
+  if concern == "fuelcal" then return cfg end
+  local legacyBody = read(LEGACY_CONFIG_PATH)
   if legacyBody == nil then return nil end
   local legacy = textutils.unserialise(legacyBody)
   if type(legacy) ~= "table" then return nil end
@@ -147,11 +148,12 @@ end
 
 -- "default": sibling DEFAULT file (eh2_<name>.default.tbl). Tuning with no sibling falls
 -- back to the immutable code baseline. Present-but-unparseable is unavailable (except
--- tuning, which still has the code baseline).
-local function defaultSource(concern)
+-- tuning, which still has the code baseline). Fuelcal DEFAULT is sibling-only.
+local function defaultSource(concern, read)
+  read = read or realRead
   local kind = KIND[concern]
   local name = cfgroles.defaultFile(kind)
-  local body = name and realRead("/" .. name)
+  local body = name and read("/" .. name)
   if body then
     local saved = textutils.unserialise(body)
     if type(saved) == "table" then return cfgspec.merge(kind, saved) end
@@ -161,12 +163,14 @@ local function defaultSource(concern)
 end
 
 -- Real sources table: get(concern, src) -> cfgTable | nil.
-function M.buildSources()
+-- `read` is injected for tests; defaults to fsx.read. Disk still uses real peripherals.
+function M.buildSources(read)
+  read = read or realRead
   return {
     get = function(concern, src)
-      if src == "current" then return ownSource(concern) end
+      if src == "current" then return ownSource(concern, read) end
       if src == "disk" then return diskSource(concern) end
-      if src == "default" then return defaultSource(concern) end
+      if src == "default" then return defaultSource(concern, read) end
       return nil
     end,
   }
@@ -183,15 +187,17 @@ local function diskIndicator()
   return "disk: " .. tostring(label)
 end
 
-local function ownIndicator(concern)
+-- Fuelcal has no fused seed, so never report "legacy read-through" for it.
+function M.ownIndicator(concern, read)
+  read = read or realRead
   local kind = KIND[concern]
-  local body = realRead("/" .. cfgspec.FILES[kind])
+  local body = read("/" .. cfgspec.FILES[kind])
   if body then
     local okp, parsed = pcall(textutils.unserialise, body)
     if okp and type(parsed) == "table" then return "split file present" end
     return "split file CORRUPT"
   end
-  if realRead(LEGACY_CONFIG_PATH) then return "legacy read-through" end
+  if concern ~= "fuelcal" and read(LEGACY_CONFIG_PATH) then return "legacy read-through" end
   return "none available"
 end
 
@@ -202,7 +208,7 @@ local function pickSource(concern)
   print(("== %s source ==  (%s)"):format(LABEL[concern], diskIndicator()))
   local opts = loader.SOURCES[concern]
   for i, s in ipairs(opts) do
-    local extra = (s == "current") and ("  [" .. ownIndicator(concern) .. "]") or ""
+    local extra = (s == "current") and ("  [" .. M.ownIndicator(concern) .. "]") or ""
     print(("  %d) %s%s"):format(i, s, extra))
   end
   write("choice (q aborts): ")

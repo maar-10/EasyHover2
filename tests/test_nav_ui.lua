@@ -324,8 +324,23 @@ t.test("handleWptRequest nav_cfg_set persists new cfg on ok and replies ack", fu
   local reply = App.handleWptRequest(runtime, { k = "nav_cfg_set", body = body })
   t.eq(reply.k, "nav_cfg_ack")
   t.eq(reply.ok, true)
-  t.eq(runtime.config, body)
-  t.eq(persisted, body)
+  t.eq(runtime.config.fuelReserve, 40)
+  t.eq(runtime.config.units, "m")
+  t.eq(persisted.fuelReserve, 40)
+  t.eq(persisted.units, "m")
+end)
+
+-- Break this test would catch: persisting the raw partial body so {channel=7} wipes relay.
+t.test("handleWptRequest nav_cfg_set {channel=7} keeps relay.channel default", function()
+  local persisted
+  local runtime = { config = navconfig.defaults(), save = function(c) persisted = c end }
+  local reply = App.handleWptRequest(runtime, { k = "nav_cfg_set", body = { channel = 7 } })
+  t.eq(reply.k, "nav_cfg_ack")
+  t.eq(reply.ok, true)
+  t.eq(runtime.config.channel, 7)
+  t.eq(runtime.config.relay.channel, 107)
+  t.eq(persisted.channel, 7)
+  t.eq(persisted.relay.channel, 107)
 end)
 
 t.test("handleWptRequest nav_cfg_set with non-table does not persist", function()

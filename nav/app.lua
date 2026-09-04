@@ -128,8 +128,12 @@ function M.handleWptRequest(runtime, msg)
     local reply, newCfg = navcfg.apply(runtime.config, msg)
     if reply then
       if msg.k == "nav_cfg_set" and reply.ok then
-        runtime.config = newCfg
-        if runtime.save then pcall(runtime.save, newCfg) end
+        if type(newCfg) ~= "table" then
+          return navcfg.ackFrame(false, "not a table")
+        end
+        local merged = navconfig.withDefaults(newCfg)
+        runtime.config = merged
+        if runtime.save then pcall(runtime.save, merged) end
       end
       return reply
     end

@@ -238,3 +238,27 @@ t.test("commit with two args still does not invent a fuelcal session", function(
   t.eq(files["/eh2_fuelcal.session.tbl"], nil)
   t.eq(files["/eh2_fuelcal.tbl"], nil)
 end)
+
+-- Break this test would catch: missing eh2_fuelcal.tbl returning nil from ownSource so
+-- CURRENT fuelcal fails the picker on crafts that never used CAL FUEL.
+t.test("ownSource/current with no fuelcal file still resolves Biodiesel defaults", function()
+  local sources = M.buildSources(function() return nil end)
+  local cfg = sources.get("fuelcal", "current")
+  t.eq(cfg and cfg.fuel, "Biodiesel")
+end)
+
+t.test("ownSource/current unparseable fuelcal is unavailable", function()
+  local files = { ["eh2_fuelcal.tbl"] = "not a table" }
+  local sources = M.buildSources(function(p) return files[p] end)
+  t.eq(sources.get("fuelcal", "current"), nil)
+end)
+
+t.test("DEFAULT fuelcal with no sibling is unavailable (no code baseline)", function()
+  local sources = M.buildSources(function() return nil end)
+  t.eq(sources.get("fuelcal", "default"), nil)
+end)
+
+t.test("ownIndicator fuelcal skips fused/legacy even when hw_config exists", function()
+  local files = { ["/eh2_hw_config.tbl"] = "{}" }
+  t.eq(M.ownIndicator("fuelcal", function(p) return files[p] end), "none available")
+end)
