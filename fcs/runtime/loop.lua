@@ -14,7 +14,12 @@ function Loop.new(cfg)
 end
 function Loop:setpoints(t) self.sp = t end
 function Loop:arm(b) self.armed = b and true or false end
-function Loop:setTrim(dir, gain) self.trimDir = dir or 0; self.trimGain = gain or 0 end
+function Loop:setTrim(dir, gain, authority, fadeStart, fade)
+  self.trimDir = dir or 0; self.trimGain = gain or 0
+  self.trimAuthority = authority or 1        -- fraction of caps.pitch the feedforward may use
+  self.trimFadeStart = fadeStart or 0        -- |pitch| (rad) below which trim is full strength
+  self.trimFade = fade or math.huge          -- |pitch| (rad) at which trim is fully faded out
+end
 function Loop:setActive(d)
   self.scheme, self.mixer, self.caps = d.scheme, d.mixer, d.caps or self.caps
   self.scheme:reset()
@@ -70,7 +75,23 @@ function Loop:cycle(rawDt, m)
   -- differential by the mixer -- never the forward thrusters) proportional to the forward thrust
   -- demand, so the craft holds its intended pitch during acceleration. Applied before the DAMPED
   -- block so a genuine oscillation trip still zeroes it.
-  demands.pitch = (demands.pitch or 0) + (self.trimDir or 0) * (self.trimGain or 0) * (demands.surge or 0)
+  -- BOUNDED (flip-guard, spec 2026-09-04): the raw feedforward can exceed caps.pitch and rail the
+  -- whole pitch demand nose-down, starving the stabilizer -> forward somersault (observed in CRU).
+  -- (a) attitude fade: full trim below trimFadeStart, ramp to 0 by trimFade, so it eases off as the
+  -- craft departs level; (b) authority floor: never use more than trimAuthority of the pitch cap,
+  -- reserving (1 - trimAuthority) for the stabilizer to recover with.
+  local ffRaw = (self.trimDir or 0) * (self.trimGain or 0) * (demands.surge or 0)
+  local mag = math.abs(m.pitch or 0)
+  local fs, fe = self.trimFadeStart or 0, self.trimFade or math.huge
+  local fade
+  if mag <= fs then fade = 1
+  elseif mag >= fe then fade = 0
+  else fade = 1 - (mag - fs) / (fe - fs) end
+  local ff = ffRaw * fade
+  local ffCap = ((self.caps and self.caps.pitch) or math.huge) * (self.trimAuthority or 1)
+  if ff > ffCap then ff = ffCap elseif ff < -ffCap then ff = -ffCap end
+  self._ffPitch = ff
+  demands.pitch = (demands.pitch or 0) + ff
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).
@@ -99,6 +120,7 @@ function Loop:diag(sp, m)
     heaveBanded = (level and level._heaveSat) or false,
     trimDir = self.trimDir or 0,
     trimGain = self.trimGain or 0,
+    ffPitch = self._ffPitch or 0,
   }
 end
 return Loop
