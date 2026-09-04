@@ -202,7 +202,7 @@ local function logCycleBody(dt, m)
     -- PID split / saturation (new columns 3-4): STORED, from Loop:diag (pure read above).
     terms = d.terms, sat = d.sat, heaveBanded = d.heaveBanded,
     -- Trim feedforward (new column 5): the exact bias Loop:cycle adds to demands.pitch.
-    ff_pitch = (d.trimDir or 0) * (d.trimGain or 0) * ((dem.surge) or 0),
+    ff_pitch = d.ffPitch or ((d.trimDir or 0) * (d.trimGain or 0) * ((dem.surge) or 0)),
     -- Context (new column 6): plain fields already published on the Flight instance
     -- (fcs/runtime/flight.lua Flight.new / :snapshot) -- no new peripheral read.
     master = flight.masterMode, noFuel = flight.noFuel or false,
