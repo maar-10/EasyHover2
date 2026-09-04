@@ -109,12 +109,32 @@ end)
 
 -- A1: CRUISE drives surge via throttle, not the position leash. Leaving CRUISE under CPL with a
 -- leashed-ahead surgePos rails reverse after detent; keep sp.surgePos on measured while throttle.
+-- (self.throttle is checked at the START of update(), so the first tick after reset -- where the
+-- accumulator is still 0 -- takes the arrest/leash branch, not the pin; a priming tick establishes
+-- throttle>0 before we assert the pin, per the one-tick-lag note in fix #3 task 4.)
 t.test("CRUISE throttle policy does not advance surgePos off measured", function()
   local p = Pilot.new(FEEL)
   p:setMode({ tilt = false, surge = "throttle" }, FEEL)
   p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 100 })
   local meas = { altitude = 0, heading = 0, swayPos = 0, surgePos = 50, yawRate = 0 }
+  p:update(0.2, { surgeFwd = true }, meas)         -- priming tick: throttle ramps 0 -> >0
   local sp = p:update(0.2, { surgeFwd = true }, meas)
   t.near(sp.surgePos, 50, 1e-9, "surgePos stays on measured, not leashed ahead")
   t.truthy((sp.surgeThrottle or 0) > 0, "throttle still ramps under CRUISE")
+end)
+
+-- Task 4 (fix #3): at throttle 0 the pilot LEASHES surgePos (holds current, no forward lead) instead
+-- of continuing to pin it to measured, so the CRUISE arrest (cruise.lua) has a station to hold rather
+-- than chasing a coasting measured position.
+t.test("CRUISE throttle policy leashes surgePos (holds station) once throttle returns to 0", function()
+  local p = Pilot.new(FEEL)
+  p:setMode({ tilt = false, surge = "throttle" }, FEEL)
+  p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  local meas = { altitude = 0, heading = 0, swayPos = 0, surgePos = 0, yawRate = 0 }
+  p:update(0.2, { surgeFwd = true }, meas)          -- ramp throttle up
+  meas.surgePos = 10                                -- craft has moved forward while throttling
+  p:update(0.2, {}, meas)                           -- release: throttle holds, still >0, pins to meas
+  p:update(0.5, { surgeBack = true }, meas)          -- ramp throttle back down to 0
+  local sp = p:update(0.1, {}, meas)                -- throttle now 0 at entry: leash branch holds
+  t.near(sp.surgePos, meas.surgePos, 1e-9, "surgePos held at current station, not re-pinned each tick")
 end)

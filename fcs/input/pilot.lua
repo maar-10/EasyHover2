@@ -107,7 +107,16 @@ function Pilot:update(dt, held, meas)
       local utarget = (sud ~= 0) and (meas.surgePos + surgeLead * sud) or sp.surgePos
       sp.surgePos = leash.step(sp.surgePos, utarget, meas.surgePos, dt, surgeSpeed, surgeLead)
     else
-      sp.surgePos = meas.surgePos or sp.surgePos
+      -- CRUISE throttle mode. While pushing forward (throttle>0) surge = throttle and we track meas
+      -- so the arrest, when throttle reaches 0, holds the CURRENT position. At throttle 0 we stop
+      -- pinning and leash surgePos toward current (like the position modes) so the surge loop arrests
+      -- and holds station instead of coasting.
+      if (self.throttle or 0) > 0 then
+        sp.surgePos = meas.surgePos or sp.surgePos
+      else
+        local surgeSpeed, surgeLead = c.surgeSpeed or c.cruiseSpeed, c.surgeLead or c.maxLead
+        sp.surgePos = leash.step(sp.surgePos, sp.surgePos, meas.surgePos, dt, surgeSpeed, surgeLead)
+      end
     end
   end
 

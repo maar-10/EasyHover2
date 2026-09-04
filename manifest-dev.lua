@@ -395,9 +395,9 @@
         },
         {
           ["dst"] = "fcs/input/pilot.lua",
-          ["size"] = 8806,
+          ["size"] = 9414,
           ["src"] = "fcs/input/pilot.lua",
-          ["sum"] = "627be437",
+          ["sum"] = "7bf93479",
         },
         {
           ["dst"] = "fcs/io/backend.lua",
@@ -521,9 +521,9 @@
         },
         {
           ["dst"] = "fcs/schemes/cruise.lua",
-          ["size"] = 629,
+          ["size"] = 668,
           ["src"] = "fcs/schemes/cruise.lua",
-          ["sum"] = "a7a8a386",
+          ["sum"] = "6c9cc99b",
         },
         {
           ["dst"] = "fcs/schemes/drone.lua",
@@ -1476,5 +1476,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "bcd3dfdf",
+  ["version"] = "0f93b434",
 }
