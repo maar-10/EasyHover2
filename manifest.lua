@@ -509,9 +509,9 @@
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
-          ["size"] = 2862,
+          ["size"] = 2878,
           ["src"] = "dist/fcs/runtime/loop.lua",
-          ["sum"] = "ad69eaf2",
+          ["sum"] = "1107dc2d",
         },
         {
           ["dst"] = "fcs/safety/oscillation.lua",
@@ -599,9 +599,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 13406,
+          ["size"] = 13452,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "bc8f4e08",
+          ["sum"] = "acbf05de",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -1476,5 +1476,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "3bd83b1d",
+  ["version"] = "db48358d",
 }

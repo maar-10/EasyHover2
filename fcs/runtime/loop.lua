@@ -64,6 +64,7 @@ function Loop:cycle(rawDt, m)
     for _, id in ipairs(frame.MAIN) do zeros[id] = 0 end
     for _, id in ipairs(frame.FRONTAL) do zeros[id] = 0 end
     self:apply(zeros, dt)
+    self._ffPitch = 0
     return { mode = self.mode, m = m, demands = nil, duties = nil }
   end
   local grounded = m.onGround == true

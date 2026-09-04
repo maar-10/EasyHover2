@@ -86,3 +86,14 @@ t.test("loop trim: DAMPED trip zeroes pitch even with trim active", function()
   t.eq(r.mode, "DAMPED")
   t.near(r.demands.pitch, 0, 1e-9, "osc trip zeroes pitch despite trim (order preserved)")
 end)
+
+t.test("loop diag: ffPitch resets to 0 when disarmed", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)
+  lp:arm(true)
+  lp:cycle(0.05, { onGround = false, pitch = 0 })   -- arms a nonzero _ffPitch
+  lp:arm(false)
+  lp:cycle(0.05, { onGround = false, pitch = 0 })   -- disarmed cycle
+  t.near(lp:diag({}, { pitch = 0 }).ffPitch, 0, 1e-9, "ffPitch honest (0) while disarmed")
+end)

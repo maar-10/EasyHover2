@@ -132,7 +132,7 @@ local flight = Flight.new({ loop = loop, pilot = pilot, registry = registry, con
 
 -- Seed the loop trim once at boot from the flight object's own defaults (trimDir/trimGain come
 -- from the default flight mode's feel -- see fcs/runtime/flight.lua defaultTrimDir/Flight.new).
-loop:setTrim(flight.trimDir, flight.trimGain)
+loop:setTrim(flight.trimDir, flight.trimGain, flight.trimAuthority, flight.trimFadeStart, flight.trimFade)
 
 -- Apply the boot default descriptor's flags so ground-sense matches the starting mode (LDG).
 do

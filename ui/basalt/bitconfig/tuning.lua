@@ -248,8 +248,8 @@ local MODE_OWN_EXTRA_ROWS = {
 }
 
 -- MODE_EXTRA_ROWS(mode) = that mode's own extras (if any) + SHARED_FEEL_EXTRA_ROWS -- built once
--- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 3 shared
--- rows and MAN/CRUISE/DRN get their own extras PLUS the 3 shared rows.
+-- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 6 shared
+-- rows and MAN/CRUISE/DRN get their own extras PLUS the 6 shared rows.
 local MODE_EXTRA_ROWS = {}
 for _, mode in ipairs(M.MODES) do
   local extra = {}
