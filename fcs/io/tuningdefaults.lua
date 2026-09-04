@@ -52,6 +52,11 @@ local DEFAULTS = {
     climbRampTime  = 1.0,   -- lift ramp: hold time to reach full climbBoost (rampable climb, all modes)
     climbBoost     = 2.0,   -- sustained-hold climb rate multiplier (tap = 1x, hold ramps to 1+boost)
     trimGain       = 0.35,  -- forward-trim feedforward gain: demands.pitch += trimDir*trimGain*demands.surge
+    -- Flip-guard bounds (spec 2026-09-04): fade the trim out as the craft departs level, and cap the
+    -- feedforward at a fraction of caps.pitch so it can never starve the pitch stabilizer.
+    trimFadeStart  = 0.25,  -- rad: full trim below this |pitch| (normal accel tilt stays fully assisted)
+    trimFade       = 0.6,   -- rad: trim fully faded to 0 by this |pitch| (== attLimit)
+    trimAuthority  = 0.4,   -- max fraction of caps.pitch the feedforward may consume
   },
 }
 

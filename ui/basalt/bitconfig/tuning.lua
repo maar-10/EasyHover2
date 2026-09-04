@@ -37,16 +37,17 @@
 --     FEEL chooser, mirroring the GAINS axis/BASE split above), which fans out to
 --     "edit_<mode>_FEEL_base" (the 8 base rows shared by every mode, filtered via FEEL_BASE_IDS)
 --     and "edit_<mode>_FEEL_extra" (that mode's own extras, if any -- 2 for MAN/CRUISE/DRN, none
---     for PRECISION/LDG -- PLUS the 3 rows Task 14 made shared by ALL flight modes now that
---     forward-trim/rampable-climb apply everywhere: feel.trimGain/feel.climbRampTime/
---     feel.climbBoost, see SHARED_FEEL_EXTRA_ROWS below). BASE FEEL is always exactly 8 rows
---     (title+8+footer=10, the ~12-row monitor's region budget EXACTLY); MODE FEEL is 3 rows for
---     PRECISION/LDG or 5 rows for MAN/CRUISE/DRN (title+5+footer=7) -- both comfortably inside
---     budget. PRECISION used to skip this menu entirely (its FEEL was flat, 8 rows fit alone on
---     one screen) -- Task 14 folded the 3 shared trim/ramp rows into EVERY mode's extras, so
---     PRECISION's FEEL is 11 rows total now too (title+11+footer=13, overflow) and needs the SAME
---     split, closing that exception -- every mode, including PRECISION, now routes through
---     feel_menu_<mode>.
+--     for PRECISION/LDG -- PLUS the 6 rows Task 14/trim-flip-guard-Task-5 made shared by ALL
+--     flight modes now that forward-trim/rampable-climb/flip-guard apply everywhere:
+--     feel.trimGain/feel.climbRampTime/feel.climbBoost/feel.trimAuthority/feel.trimFadeStart/
+--     feel.trimFade, see SHARED_FEEL_EXTRA_ROWS below). BASE FEEL is always exactly 8 rows
+--     (title+8+footer=10, the ~12-row monitor's region budget EXACTLY); MODE FEEL is 6 rows for
+--     PRECISION/LDG (title+6+footer=8) or 8 rows for MAN/CRUISE/DRN (title+8+footer=10) -- both
+--     fit inside the same budget (MAN/CRUISE/DRN now lands EXACTLY on it). PRECISION used to skip
+--     this menu entirely (its FEEL was flat, 8 rows fit alone on one screen) -- Task 14 folded the
+--     shared trim/ramp rows into EVERY mode's extras, so PRECISION's FEEL no longer fits one flat
+--     screen and needs the SAME split, closing that exception -- every mode, including PRECISION,
+--     now routes through feel_menu_<mode>.
 --   * "edit_<mode>_<GROUP>[_<axis>]"/"edit_<mode>_FEEL_base"/"edit_<mode>_FEEL_extra": the actual
 --     +/- stepper rows -- built by one shared factory (buildEditScreen) parameterised by a pure
 --     filter over M.rows(workingCfg, mode), so a screen's row SET (ids) is fixed at build time
@@ -208,14 +209,21 @@ end
 -- (Task 14 -- these were moved into the shared DEFAULTS.feel, tuningdefaults.lua, in an earlier
 -- task of this SDD, once CPL/DCPL stopped being the only place trim/ramp lived). Kept OUT of the
 -- 8 base FEEL rows (ROW_SPEC) on purpose: adding them there would push PRECISION's flat 8-row
--- FEEL screen (which already fit the ~12-row budget EXACTLY, title+8+footer=10) to 11 rows --
--- title+11+footer=13, overflow. Routing them through the SAME base/extra FEEL split MAN/CRUISE
--- already used (see feel_menu_<mode> below) keeps every mode's BASE FEEL screen a flat 8 (10
--- total) and every mode's MODE FEEL screen at 3-5 rows (5-7 total) -- comfortably inside budget.
+-- FEEL screen (which already fit the ~12-row budget EXACTLY, title+8+footer=10) well past it.
+-- Routing them through the SAME base/extra FEEL split MAN/CRUISE already used (see
+-- feel_menu_<mode> below) keeps every mode's BASE FEEL screen a flat 8 (10 total) and every mode's
+-- MODE FEEL screen at 6-8 rows (8-10 total) -- still inside budget. trim-flip-guard-Task-5 added
+-- feel.trimAuthority/feel.trimFadeStart/feel.trimFade here (3 -> 6 shared rows): MAN/CRUISE/DRN's
+-- MODE FEEL screen (their 2 own extras + these 6) now lands EXACTLY on the 10-row budget
+-- (title+8+footer=10) -- verified by the REGRESSION construction probe in
+-- tests/test_bitconfig_tuning.lua, not by hand -- any further shared row needs a new split.
 local SHARED_FEEL_EXTRA_ROWS = {
   { id = "feel.climbRampTime", label = "CLIMB RAMP TIME", group = "FEEL", step = 0.1,  min = 0.1, max = 5.0 },
   { id = "feel.climbBoost",    label = "CLIMB BOOST",     group = "FEEL", step = 0.1,  min = 0.5, max = 5.0 },
   { id = "feel.trimGain",      label = "TRIM GAIN",       group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
+  { id = "feel.trimAuthority", label = "TRIM AUTH",       group = "FEEL", step = 0.05, min = 0,   max = 1.0 },
+  { id = "feel.trimFadeStart", label = "TRIM FADE LO",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
+  { id = "feel.trimFade",      label = "TRIM FADE HI",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
 }
 
 -- MODE_OWN_EXTRA_ROWS: each flight mode's OWN extra feel rows, on top of the 8 base ROW_SPEC rows
@@ -240,8 +248,8 @@ local MODE_OWN_EXTRA_ROWS = {
 }
 
 -- MODE_EXTRA_ROWS(mode) = that mode's own extras (if any) + SHARED_FEEL_EXTRA_ROWS -- built once
--- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 3 shared
--- rows and MAN/CRUISE/DRN get their own extras PLUS the 3 shared rows.
+-- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 6 shared
+-- rows and MAN/CRUISE/DRN get their own extras PLUS the 6 shared rows.
 local MODE_EXTRA_ROWS = {}
 for _, mode in ipairs(M.MODES) do
   local extra = {}
@@ -438,8 +446,9 @@ end
 local capsFilter = groupFilter("CAPS")
 
 -- FEEL_BASE_IDS: the 8 base feel.* ids from M.ROW_SPEC (shared by every mode). Every mode's own
--- extra FEEL rows (feel.tiltRate/tiltCap, feel.cruiseThrottleRate/cruiseThrottleMax, and the 3
--- rows shared by ALL modes -- feel.trimGain/feel.climbRampTime/feel.climbBoost, Task 14) are NOT
+-- extra FEEL rows (feel.tiltRate/tiltCap, feel.cruiseThrottleRate/cruiseThrottleMax, and the 6
+-- rows shared by ALL modes -- feel.trimGain/feel.climbRampTime/feel.climbBoost/feel.trimAuthority/
+-- feel.trimFadeStart/feel.trimFade, Task 14 + trim-flip-guard Task 5) are NOT
 -- in this set -- M.rows(cfg,mode) appends them after the 8 base ones, with the same "FEEL" group,
 -- so filtering on "group==FEEL and not in FEEL_BASE_IDS" cleanly isolates just the per-mode
 -- extras. title(1) + 8 base rows + footer(1) = 10 == the ~12-row monitor's region budget (h-2)
@@ -614,10 +623,11 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
 
   -- ===== feel_menu_<mode> (EVERY mode, Task 14): BASE FEEL / MODE FEEL -- FEEL's own axis-less =====
   -- ===== split (mirrors gains_axis_<mode>'s ALT/../BASE split). Every mode's FEEL is now at    =====
-  -- ===== least 11 rows (8 base + the 3 rows shared by all modes -- trim/ramp) and MAN/CRUISE/  =====
-  -- ===== DRN's is 13 (8 base + 2 own + 3 shared) -- none of that fits ONE ~10-row screen budget=====
-  -- ===== (title+11(or 13)+footer overflows it), so this menu fans out to two screens that each =====
-  -- ===== fit on their own (8 base -> 10 rows; extras -> 3 or 5 rows -> 5 or 7 total).           =====
+  -- ===== least 14 rows (8 base + the 6 rows shared by all modes -- trim/ramp/flip-guard) and   =====
+  -- ===== MAN/CRUISE/DRN's is 16 (8 base + 2 own + 6 shared) -- none of that fits ONE ~10-row   =====
+  -- ===== screen budget (title+14(or 16)+footer overflows it), so this menu fans out to two     =====
+  -- ===== screens that each fit on their own (8 base -> 10 rows; extras -> 6 or 8 rows -> 8 or  =====
+  -- ===== 10 total -- MAN/CRUISE/DRN's extra screen lands exactly on the 10-row budget).         =====
   local function buildFeelMenuScreen(mode)
     return function(b, f, region)
       local fw = ({ f:getSize() })[1]

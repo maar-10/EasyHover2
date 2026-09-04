@@ -93,3 +93,18 @@ t.test("tuning: trim/ramp feel is shared on the base feel (all flight modes inhe
   t.truthy(D.modes.DRN.caps.sway > 0, "DRN sway cap off zero")
   t.truthy(D.modes.DRN.caps.surge > 0, "DRN surge cap off zero")
 end)
+
+t.test("trim flip-guard: fade/floor feel defaults present and inherited by every mode", function()
+  local base = tuning.forMode("PRECISION").feel
+  t.near(base.trimAuthority, 0.4,  1e-9, "PRECISION trimAuthority default")
+  t.near(base.trimFadeStart, 0.25, 1e-9, "PRECISION trimFadeStart default")
+  t.near(base.trimFade, 0.6,       1e-9, "PRECISION trimFade default")
+  for _, mode in ipairs({ "MAN", "CRUISE" }) do
+    local f = tuning.forMode(mode).feel
+    t.near(f.trimAuthority, 0.4, 1e-9, mode.." inherits trimAuthority")
+    t.near(f.trimFade, 0.6,      1e-9, mode.." inherits trimFade")
+  end
+  local d = tuningdefaults.get()
+  t.near(d.modes.LDG.feel.trimAuthority, 0.4, 1e-9, "LDG inherits")
+  t.near(d.modes.DRN.feel.trimFade, 0.6,      1e-9, "DRN inherits")
+end)
