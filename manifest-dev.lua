@@ -995,9 +995,9 @@
         },
         {
           ["dst"] = "startup.lua",
-          ["size"] = 634,
+          ["size"] = 1386,
           ["src"] = "launchers/ui.lua",
-          ["sum"] = "2efbf77f",
+          ["sum"] = "d8060f11",
         },
         {
           ["dst"] = "tools/binddevices.lua",
@@ -1476,5 +1476,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "94837254",
+  ["version"] = "a75d45ce",
 }
