@@ -384,10 +384,24 @@ function Suite.migrateConfig(read, write, role)
 end
 
 --- Local config ops: never install. require() failure is a printed error, not a throw.
+---
+--- The config modules live at absolute /fcs/io/... . CC's require resolves RELATIVE package.path
+--- patterns ("?.lua") against the RUNNING PROGRAM's directory -- so a suite launched off a floppy
+--- or any non-root folder searches <progdir>/fcs/io/... and misses the installed /fcs/io/... (it
+--- only works when launched from /). Prepend the absolute "/?.lua" patterns, once, so resolution
+--- works wherever we launch from -- the same augmentation the install path (extendConfig) and the
+--- FCS runtime startup already do. The prefix check keeps it idempotent across repeated ops.
 function Suite.runConfigFlags(opts, role, read, write)
-  local ok = pcall(require, "fcs.io.cfgdefault")
+  local ROOT_PATH = "/?.lua;/?/init.lua;"
+  if package.path:sub(1, #ROOT_PATH) ~= ROOT_PATH then
+    package.path = ROOT_PATH .. package.path
+  end
+  local ok, mod = pcall(require, "fcs.io.cfgdefault")
   if not ok then
-    bad("fcs.io.cfgdefault is not installed. Install/update this role first.")
+    -- Surface the real reason (module-not-found vs a load error) instead of always blaming the
+    -- install -- "not found" means the role's config files really are missing here.
+    bad("could not load fcs.io.cfgdefault: " .. tostring(mod))
+    bad("If this persists, Update or Repair this role -- its config files may be missing.")
     return false
   end
   if not role then
