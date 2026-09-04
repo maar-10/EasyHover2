@@ -164,9 +164,9 @@ t.test("tuning editor: no CPL/DCPL extra rows; trim/ramp are shared base FEEL ro
   t.truthy(T.specFor("MAN", "feel.climbRampTime"), "climbRampTime tunable on a flight mode")
 end)
 
-t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 3 rows shared by every flight mode (trim/ramp), no own extras", function()
+t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 6 rows shared by every flight mode (trim/ramp/flip-guard), no own extras", function()
   local rows = M.rows(tuningdefaults.get(), "LDG")
-  t.eq(#rows, 37, "34 base + 3 shared trim/ramp rows")
+  t.eq(#rows, 40, "34 base + 6 shared trim/ramp/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
@@ -177,9 +177,9 @@ t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 3 rows shared by every
   end
 end)
 
-t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + the 3 shared trim/ramp rows", function()
+t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows", function()
   local rows = M.rows(tuningdefaults.get(), "DRN")
-  t.eq(#rows, 39, "34 base + 2 DRN tilt extras + 3 shared trim/ramp rows")
+  t.eq(#rows, 42, "34 base + 2 DRN tilt extras + 6 shared trim/ramp/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
@@ -235,7 +235,7 @@ t.test("REGRESSION: M.rows(cfg) with no mode arg == M.rows(cfg,'PRECISION')", fu
     t.eq(a[i].id, b[i].id)
     t.eq(a[i].value, b[i].value)
   end
-  t.eq(#a, 37, "34 base rows + the 3 rows shared by every flight mode (trim/ramp)")
+  t.eq(#a, 40, "34 base rows + the 6 rows shared by every flight mode (trim/ramp/flip-guard)")
 end)
 
 t.test("REGRESSION: M.apply(cfg,rowId,delta) with no mode arg == M.apply(cfg,'PRECISION',rowId,delta)", function()
@@ -260,9 +260,9 @@ t.test("M.rows(cfg,'MAN') reads from modes.MAN subtree, not top-level", function
   t.eq(pFound.value, tuningdefaults.get().gains.pitch.kp)
 end)
 
-t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + the 3 shared trim/ramp rows (FEEL group)", function()
+t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "MAN")
-  t.eq(#rows, 39, "34 base + 2 MAN tilt extras + 3 shared trim/ramp rows")
+  t.eq(#rows, 42, "34 base + 2 MAN tilt extras + 6 shared trim/ramp/flip-guard rows")
   local tiltRate, tiltCap
   for _, r in ipairs(rows) do
     if r.id == "feel.tiltRate" then tiltRate = r end
@@ -276,9 +276,9 @@ t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + the 3 s
   t.eq(tiltCap.value, tuningdefaults.get().modes.MAN.feel.tiltCap)
 end)
 
-t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + the 3 shared trim/ramp rows (FEEL group)", function()
+t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "CRUISE")
-  t.eq(#rows, 39, "34 base + 2 CRUISE throttle extras + 3 shared trim/ramp rows")
+  t.eq(#rows, 42, "34 base + 2 CRUISE throttle extras + 6 shared trim/ramp/flip-guard rows")
   local rate, max
   for _, r in ipairs(rows) do
     if r.id == "feel.cruiseThrottleRate" then rate = r end
@@ -292,9 +292,9 @@ t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max 
   t.eq(max.value, tuningdefaults.get().modes.CRUISE.feel.cruiseThrottleMax)
 end)
 
-t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 3 shared trim/ramp rows (37 rows)", function()
+t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 6 shared trim/ramp/flip-guard rows (40 rows)", function()
   local rows = M.rows(tuningdefaults.get(), "PRECISION")
-  t.eq(#rows, 37, "34 base + 3 shared trim/ramp rows")
+  t.eq(#rows, 40, "34 base + 6 shared trim/ramp/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do
     ids[r.id] = r
@@ -306,6 +306,21 @@ t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES hav
     t.truthy(ids[id], "PRECISION row present: " .. id)
     t.eq(ids[id].group, "FEEL")
   end
+end)
+
+t.test("rows: trim flip-guard feel rows present with ranges (shared across modes)", function()
+  local rows = M.rows(tuningdefaults.get())
+  local byId = {}
+  for _, r in ipairs(rows) do byId[r.id] = r end
+  for _, id in ipairs({ "feel.trimAuthority", "feel.trimFadeStart", "feel.trimFade" }) do
+    t.truthy(byId[id], id.." row present")
+    t.eq(byId[id].group, "FEEL", id.." is a FEEL row")
+  end
+  t.near(byId["feel.trimAuthority"].value, 0.4, 1e-9, "value from defaults")
+  -- M.rows() rows carry {id,label,group,value,step}, not min/max -- range checks go through
+  -- M.specFor, the same pure accessor the CPL/DCPL specFor test above already uses.
+  t.eq(M.specFor("PRECISION", "feel.trimAuthority").max, 1.0, "authority max 1.0")
+  t.eq(M.specFor("PRECISION", "feel.trimFade").max, 1.5, "fade max 1.5")
 end)
 
 t.test("ISOLATION: M.apply(cfg,'MAN',rowId,delta) changes ONLY modes.MAN -- top-level (PRECISION) and modes.CRUISE byte-unchanged", function()
@@ -559,9 +574,9 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.eq(#region.built.edit_PRECISION_CAPS.handle.elements.rowSlots, 5, "5 CAPS rows")
 
   region:pop(); h.apply({})
-  -- PRECISION's FEEL is now 11 rows (8 base + 3 shared trim/ramp) -- too many for one flat
-  -- screen (title+11+footer=13 > budget 10) -- so it now ALSO routes through feel_menu, same as
-  -- every other mode.
+  -- PRECISION's FEEL is now 14 rows (8 base + 6 shared trim/ramp/flip-guard) -- too many for one
+  -- flat screen (title+14+footer=16 > budget 10) -- so it now ALSO routes through feel_menu, same
+  -- as every other mode.
   region:push("feel_menu_PRECISION"); h.apply({})
   t.eq(region:top(), "feel_menu_PRECISION")
   local precFeelMenu = region.built.feel_menu_PRECISION.handle
@@ -574,12 +589,15 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   region:pop(); h.apply({})
   region:push("edit_PRECISION_FEEL_extra"); h.apply({})
   local precFeelExtra = region.built.edit_PRECISION_FEEL_extra.handle.elements.rowSlots
-  t.eq(#precFeelExtra, 3, "PRECISION MODE FEEL has exactly the 3 shared trim/ramp rows (no own extras)")
+  t.eq(#precFeelExtra, 6, "PRECISION MODE FEEL has exactly the 6 shared trim/ramp/flip-guard rows (no own extras)")
   local precExtraIds = {}
   for _, slot in ipairs(precFeelExtra) do precExtraIds[slot.id] = true end
   t.truthy(precExtraIds["feel.trimGain"], "PRECISION MODE FEEL includes feel.trimGain")
   t.truthy(precExtraIds["feel.climbRampTime"], "PRECISION MODE FEEL includes feel.climbRampTime")
   t.truthy(precExtraIds["feel.climbBoost"], "PRECISION MODE FEEL includes feel.climbBoost")
+  t.truthy(precExtraIds["feel.trimAuthority"], "PRECISION MODE FEEL includes feel.trimAuthority")
+  t.truthy(precExtraIds["feel.trimFadeStart"], "PRECISION MODE FEEL includes feel.trimFadeStart")
+  t.truthy(precExtraIds["feel.trimFade"], "PRECISION MODE FEEL includes feel.trimFade")
 
   region:pop(); region:pop(); region:pop() -- back to modes
   region:push("cat_MAN"); h.apply({})
@@ -605,7 +623,7 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   region:pop(); h.apply({})
   region:push("edit_MAN_FEEL_extra"); h.apply({})
   local manFeelExtra = region.built.edit_MAN_FEEL_extra.handle.elements.rowSlots
-  t.eq(#manFeelExtra, 5, "MODE FEEL has MAN's 2 own extras + the 3 rows shared by every flight mode")
+  t.eq(#manFeelExtra, 8, "MODE FEEL has MAN's 2 own extras + the 6 rows shared by every flight mode")
   local extraIds = {}
   for _, slot in ipairs(manFeelExtra) do extraIds[slot.id] = true end
   t.truthy(extraIds["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
@@ -613,9 +631,12 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.truthy(extraIds["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
   t.truthy(extraIds["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
   t.truthy(extraIds["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
+  t.truthy(extraIds["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
+  t.truthy(extraIds["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
+  t.truthy(extraIds["feel.trimFade"], "MODE FEEL includes shared feel.trimFade")
 end)
 
-t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own throttle extras + the 3 shared trim/ramp rows", function()
+t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own throttle extras + the 6 shared trim/ramp/flip-guard rows", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -624,7 +645,7 @@ t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own 
   region:push("feel_menu_CRUISE"); h.apply({})
   region:push("edit_CRUISE_FEEL_extra"); h.apply({})
   local extra = region.built.edit_CRUISE_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 5, "MODE FEEL has CRUISE's 2 own extras + the 3 rows shared by every flight mode")
+  t.eq(#extra, 8, "MODE FEEL has CRUISE's 2 own extras + the 6 rows shared by every flight mode")
   local ids = {}
   for _, slot in ipairs(extra) do ids[slot.id] = true end
   t.truthy(ids["feel.cruiseThrottleRate"], "MODE FEEL includes feel.cruiseThrottleRate")
@@ -632,9 +653,12 @@ t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own 
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
   t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
   t.truthy(ids["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
+  t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
+  t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
+  t.truthy(ids["feel.trimFade"], "MODE FEEL includes shared feel.trimFade")
 end)
 
-t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 3 rows shared by every flight mode (no own extras)", function()
+t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 6 rows shared by every flight mode (no own extras)", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -643,12 +667,15 @@ t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 3 rows share
   region:push("feel_menu_LDG"); h.apply({})
   region:push("edit_LDG_FEEL_extra"); h.apply({})
   local extra = region.built.edit_LDG_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 3, "MODE FEEL has exactly the 3 rows shared by every flight mode")
+  t.eq(#extra, 6, "MODE FEEL has exactly the 6 rows shared by every flight mode")
   local ids = {}
   for _, slot in ipairs(extra) do ids[slot.id] = true end
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes feel.trimGain")
   t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes feel.climbRampTime")
   t.truthy(ids["feel.climbBoost"], "MODE FEEL includes feel.climbBoost")
+  t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes feel.trimAuthority")
+  t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes feel.trimFadeStart")
+  t.truthy(ids["feel.trimFade"], "MODE FEEL includes feel.trimFade")
 
   region:pop(); h.apply({})
   region:push("edit_LDG_FEEL_base"); h.apply({})
@@ -659,7 +686,7 @@ t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 3 rows share
   end
 end)
 
-t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + the 3 shared trim/ramp rows", function()
+t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -668,12 +695,15 @@ t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/ti
   region:push("feel_menu_DRN"); h.apply({})
   region:push("edit_DRN_FEEL_extra"); h.apply({})
   local extra = region.built.edit_DRN_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 5, "MODE FEEL has DRN's 2 own tilt extras + the 3 rows shared by every flight mode")
+  t.eq(#extra, 8, "MODE FEEL has DRN's 2 own tilt extras + the 6 rows shared by every flight mode")
   local ids = {}
   for _, slot in ipairs(extra) do ids[slot.id] = true end
   t.truthy(ids["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
   t.truthy(ids["feel.tiltCap"], "MODE FEEL includes feel.tiltCap")
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
+  t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
+  t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
+  t.truthy(ids["feel.trimFade"], "MODE FEEL includes shared feel.trimFade")
 end)
 
 t.test("M.build: '?' opens a help screen with real glossary content (help_alt, help_modes)", function()
@@ -803,8 +833,8 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
   -- Sanity floor: modes(1) + cat*5 + gains_axis*5 + edit GAINS axis(30) + GAINS base*5 + CAPS*5 +
   -- (feel_menu*5 + FEEL base*5 + FEEL extra*5) = 1+5+5+30+5+5+15 = 66
   -- (5 modes: PRECISION, MAN, CRUISE, LDG, DRN -- Task 14: EVERY mode now splits FEEL into
-  -- BASE/MODE, including PRECISION, since the 3 rows shared by every flight mode -- trim/ramp --
-  -- push its FEEL past the flat-screen budget too).
+  -- BASE/MODE, including PRECISION, since the 6 rows shared by every flight mode -- trim/ramp/
+  -- flip-guard -- push its FEEL past the flat-screen budget too).
   t.truthy(checked >= 66, "walked all non-help screens across every mode, got " .. checked)
 end)
 
