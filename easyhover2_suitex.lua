@@ -379,8 +379,11 @@ local function applyTheme(ctx)
   ui.advancedLabel:setForeground(pal.dim)
   ui.devCheck:setBackground(pal.bg); ui.devCheck:setForeground(pal.text)
   ui.toolLabel:setForeground(pal.dim)
-  ui.splitCfgCheck:setBackground(pal.bg); ui.splitCfgCheck:setForeground(pal.text)
-  ui.fcs2diskCheck:setBackground(pal.bg); ui.fcs2diskCheck:setForeground(pal.text)
+  -- Legacy optional tools stay dimmed (they're flagged [OUTDATED]).
+  ui.splitCfgCheck:setBackground(pal.bg); ui.splitCfgCheck:setForeground(pal.dim)
+  ui.fcs2diskCheck:setBackground(pal.bg); ui.fcs2diskCheck:setForeground(pal.dim)
+  ui.advOpLabel:setForeground(pal.dim)
+  ui.advOpStatus:setForeground(pal.dim)
   paintTabButtons(ctx)
   refreshStatus(ctx)
   -- Repaint the palette even mid-op, but don't let a theme toggle re-enable the action buttons
@@ -559,17 +562,32 @@ end
 ---
 --- persistChannel (default true): Go/Repair persist /eh2_channel.txt after a real install.
 --- FLAG DEFAULTS / MIGRATE CONFIG pass false -- they are local config ops, not an install.
-local function runEngineOp(ctx, fn, persistChannel)
+---
+--- statusLabel (optional): a Label to mirror the op's outcome onto, IN ADDITION to the log
+--- panel. The log lives on the Main tab's frame, so an op launched from the Advanced tab (the
+--- FLAG DEFAULTS / MIGRATE CONFIG buttons) would otherwise write only into a hidden frame -- the
+--- operator sees the buttons grey out and re-enable but no result. This label sits beside those
+--- buttons on the Advanced tab: it shows "Working..." at launch, then the LAST engine line (the
+--- summary good()/bad() line, e.g. "flag-defaults FCS: copied 6, skipped 0"), or the failure.
+local function runEngineOp(ctx, fn, persistChannel, statusLabel)
   ctx.opInFlight = true
   setButtonsEnabled(ctx, false)
   ctx.ui.log:clear()
+  if statusLabel then
+    statusLabel:setText("Working..."); statusLabel:setForeground(ctx.pal.dim)
+  end
   ctx.basalt.schedule(function()
-    ctx.Suite.sink = function(text, c) logLine(ctx, text, c) end
+    ctx.Suite.sink = function(text, c)
+      logLine(ctx, text, c)
+      -- Mirror onto the inline label too; the final line left standing is the op's summary.
+      if statusLabel then statusLabel:setText(tostring(text)); statusLabel:setForeground(c or ctx.pal.text) end
+    end
     local ok, err = pcall(fn)
     ctx.Suite.sink = nil
     ctx.opInFlight = false
     if not ok then
       logLine(ctx, "action failed: " .. tostring(err), ctx.pal.error)
+      if statusLabel then statusLabel:setText("failed: " .. tostring(err)); statusLabel:setForeground(ctx.pal.error) end
     elseif persistChannel ~= false then
       -- Persist the channel actually installed so a later bare classic run stays on it (mirrors
       -- the classic suite writing /eh2_channel.txt on a real --dev/--min install). PROTECTED gates
@@ -747,29 +765,36 @@ local function buildUI(ctx)
   -- a successful install/update also lays down `splitconfig` (+ its closure) so this PC can split
   -- a legacy fused config into the new per-role files. Just a flag here; installToolIfRequested
   -- does the work after the role install, in the same engine op.
-  ui.toolLabel = ui.frameAdv:addLabel({ x = 2, y = 5, text = "Optional tools", foreground = pal.dim })
-  local splitOff, splitOn = SuiteX.checkboxLabels("Split config (split legacy FCS config)")
+  -- These two optional tools belong to the OLD fused-config world (splitconfig / fcs2disk). The
+  -- config overhaul superseded them; they stay installable for now but are flagged [OUTDATED] and
+  -- dimmed so the operator reaches for the "Config setup" ops below instead. Slated for removal.
+  ui.toolLabel = ui.frameAdv:addLabel({ x = 2, y = 5, text = "Optional tools (legacy)", foreground = pal.dim })
+  local splitOff, splitOn = SuiteX.checkboxLabels("Split config (split legacy config)  [OUTDATED]")
   ui.splitCfgCheck = ui.frameAdv:addCheckBox({ x = 2, y = 6, checked = (ctx.installSplitConfig == true),
-    text = splitOff, checkedText = splitOn, background = pal.bg, foreground = pal.text })
+    text = splitOff, checkedText = splitOn, background = pal.bg, foreground = pal.dim })
   ui.splitCfgCheck:onChange("checked", function(_, checked) ctx.installSplitConfig = checked end)
 
   -- Advanced tab: optionally install the standalone FCS config-dump tool alongside the role. Ticked,
   -- a successful install/update also lays down `fcs2disk` (+ its closure) so this PC can dump its
   -- FCS configs to the shared disk. Same flag-then-installToolIfRequested flow as the checkbox above.
-  local fcs2diskOff, fcs2diskOn = SuiteX.checkboxLabels("FCS config dump (dump FCS configs to disk)")
+  local fcs2diskOff, fcs2diskOn = SuiteX.checkboxLabels("FCS config dump (dump FCS configs)  [OUTDATED]")
   ui.fcs2diskCheck = ui.frameAdv:addCheckBox({ x = 2, y = 7, checked = (ctx.installFcs2Disk == true),
-    text = fcs2diskOff, checkedText = fcs2diskOn, background = pal.bg, foreground = pal.text })
+    text = fcs2diskOff, checkedText = fcs2diskOn, background = pal.bg, foreground = pal.dim })
   ui.fcs2diskCheck:onChange("checked", function(_, checked) ctx.installFcs2Disk = checked end)
 
-  -- Advanced tab: FLAG DEFAULTS / MIGRATE CONFIG -- same local ops as classic
-  -- --flag-defaults / --migrate-config. Below the optional-tool checkboxes. Lua 5.1
-  -- reuses the loop variable, so capture op.id in a fresh local for the onClick closure.
+  -- Advanced tab: FLAG DEFAULTS / MIGRATE CONFIG -- same local ops as classic --flag-defaults /
+  -- --migrate-config, the current single-source config setup. STACKED one per row (they used to
+  -- sit side-by-side with a 1-cell gap and, being grey-on-grey against the grey panel, read as a
+  -- single line "FLAG DEFAULTS MIGRATE CONFIG"). Each op mirrors its result onto ui.advOpStatus
+  -- below -- the log panel is on the Main frame and invisible here, so without this the ops gave
+  -- no feedback. Lua 5.1 reuses the loop variable, so capture op.id in a fresh local per closure.
+  ui.advOpLabel = ui.frameAdv:addLabel({ x = 2, y = 9, text = "Config setup", foreground = pal.dim })
   ui.advOpButtons = {}
-  local opX = 2
+  local opW = 16
+  local opY = 10
   for _, op in ipairs(SuiteX.advancedOps()) do
-    local w = #op.label
     local btn = ui.frameAdv:addButton({
-      x = opX, y = 9, width = w, height = 1, text = op.label,
+      x = 2, y = opY, width = opW, height = 1, text = op.label,
       background = pal.btn, foreground = pal.btnText,
     })
     local opId = op.id
@@ -777,11 +802,14 @@ local function buildUI(ctx)
       if ctx.opInFlight then return end
       runEngineOp(ctx, function()
         ctx.Suite.runConfigFlags({ [opId] = true }, ctx.role)
-      end, false)
+      end, false, ui.advOpStatus)
     end)
     ui.advOpButtons[#ui.advOpButtons + 1] = btn
-    opX = opX + w + 1
+    opY = opY + 1
   end
+  -- Inline result line for the two ops above (the log panel lives on the hidden Main frame).
+  ui.advOpStatus = ui.frameAdv:addLabel({ x = 2, y = opY + 1, text = "", foreground = pal.dim,
+    autoSize = false, width = math.max(10, W - 2) })
 
   ui.buttons.go:onClick(function()
     -- Defense in depth: setButtonsEnabled()/ctx.opInFlight already keep this disabled during an
