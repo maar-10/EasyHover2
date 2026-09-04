@@ -137,3 +137,36 @@ t.test("brakeTrim: symmetric (tilt-to-brake) only in CRU/DRN, forward-only elsew
   t.eq(tuning.forMode("MAN").feel.brakeTrim,    false, "MAN forward-only")
   t.eq(tuning.forMode("LDG").feel.brakeTrim,    false, "LDG forward-only")
 end)
+
+t.test("attitude leveling integral resolves per mode (fix #1)", function()
+  for _, m in ipairs({ "PRECISION", "CRUISE", "LDG" }) do
+    for _, ax in ipairs({ "pitch", "roll" }) do
+      local g = tuning.forMode(m).gains[ax]
+      t.near(g.ki, 0.05, 1e-9, m.." "..ax.." ki (aggressive leveling)")
+      t.near(g.iBand, 0.35, 1e-9, m.." "..ax.." iBand")
+      t.near(g.iMax, 0.10, 1e-9, m.." "..ax.." iMax")
+      t.near(g.iMin, -0.10, 1e-9, m.." "..ax.." iMin")
+    end
+  end
+  t.near(tuning.forMode("MAN").gains.pitch.ki, 0, 1e-9, "MAN pitch ki off (pilot-flown)")
+  t.near(tuning.forMode("MAN").gains.roll.ki,  0, 1e-9, "MAN roll ki off")
+  t.near(tuning.forMode("DRN").gains.pitch.ki, 0, 1e-9, "DRN pitch ki off")
+  t.near(tuning.forMode("DRN").gains.roll.ki,  0, 1e-9, "DRN roll ki off")
+end)
+
+t.test("attitude leveling: level-hold roll gains integrate a standing bank; MAN does not", function()
+  local Pid = require("fcs.control.pid")
+  -- level-hold (CRU): a sustained bank within iBand (sp=0, meas=+0.1 rad ~6deg) -> integral accumulates,
+  -- so the corrective demand GROWS over time (drives the standing bank toward level).
+  local lvl = Pid.new(tuning.forMode("CRUISE").gains.roll)
+  local first = lvl:update(0, 0.1, 0.1)                     -- err=-0.1: P + one tick of I
+  for _ = 1, 20 do lvl:update(0, 0.1, 0.1) end              -- integral builds
+  local later = lvl:update(0, 0.1, 0.0)                     -- dt=0: output = kp*err + accumulated i
+  t.truthy(math.abs(later) > math.abs(first) + 1e-6, "level-hold roll integral grows to cancel the bank")
+  -- MAN (ki=0): pure P, output constant -> would hold the bank (today's behavior, kept for pilot control).
+  local man = Pid.new(tuning.forMode("MAN").gains.roll)
+  local m1 = man:update(0, 0.1, 0.1)
+  for _ = 1, 20 do man:update(0, 0.1, 0.1) end
+  local m2 = man:update(0, 0.1, 0.0)
+  t.near(m2, m1, 1e-9, "MAN roll ki=0 -> P-only, no integral growth")
+end)

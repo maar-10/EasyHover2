@@ -7,9 +7,11 @@ t.test("tuning exposes the flight-tuned gains", function()
   t.near(T.gains.alt.tauD, 0.35, 1e-9)    -- Flight #9: filter the coarse vSpeed derivative
   t.near(T.gains.yaw.kd, 1.8, 1e-9)   -- raised to damp the heavy craft's yaw-release ring
 end)
-t.test("attitude softened after the firm-up grew the oscillation (ki off, CoM centered)", function()
-  t.near(T.gains.pitch.kp, 0.10, 1e-9); t.near(T.gains.pitch.kd, 0.22, 1e-9); t.eq(T.gains.pitch.ki, 0)
-  t.near(T.gains.roll.kp, 0.10, 1e-9); t.eq(T.gains.roll.ki, 0)
+t.test("attitude has a leveling integral (fix #1): kp/kd held, ki+iBand added to cancel standing banks", function()
+  -- ki was 0 (P+D only) which held 5-24deg standing banks; ki+iBand added 2026-09-04 to level them.
+  t.near(T.gains.pitch.kp, 0.10, 1e-9); t.near(T.gains.pitch.kd, 0.22, 1e-9)
+  t.near(T.gains.pitch.ki, 0.05, 1e-9); t.near(T.gains.pitch.iBand, 0.35, 1e-9)
+  t.near(T.gains.roll.kp, 0.10, 1e-9); t.near(T.gains.roll.ki, 0.05, 1e-9); t.near(T.gains.roll.iBand, 0.35, 1e-9)
 end)
 t.test("heave authority band keeps lift off the rails", function()
   t.near(T.gains.heaveMin, 0.05, 1e-9); t.near(T.gains.heaveMax, 0.85, 1e-9)
