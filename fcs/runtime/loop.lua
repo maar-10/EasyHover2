@@ -14,11 +14,14 @@ function Loop.new(cfg)
 end
 function Loop:setpoints(t) self.sp = t end
 function Loop:arm(b) self.armed = b and true or false end
-function Loop:setTrim(dir, gain, authority, fadeStart, fade)
+function Loop:setTrim(dir, gain, authority, fadeStart, fade, brakeTrim)
   self.trimDir = dir or 0; self.trimGain = gain or 0
   self.trimAuthority = authority or 1        -- fraction of caps.pitch the feedforward may use
   self.trimFadeStart = fadeStart or 0        -- |pitch| (rad) below which trim is full strength
   self.trimFade = fade or math.huge          -- |pitch| (rad) at which trim is fully faded out
+  -- brakeTrim: true = symmetric trim (forward + brake lean); false = forward-only (brake half
+  -- blocked). Boolean, so an explicit nil check -- nil defaults true (legacy symmetric behavior).
+  if brakeTrim == nil then self.brakeTrim = true else self.brakeTrim = brakeTrim end
 end
 function Loop:setActive(d)
   self.scheme, self.mixer, self.caps = d.scheme, d.mixer, d.caps or self.caps
@@ -91,6 +94,16 @@ function Loop:cycle(rawDt, m)
   local ff = ffRaw * fade
   local ffCap = ((self.caps and self.caps.pitch) or math.huge) * (self.trimAuthority or 1)
   if ff > ffCap then ff = ffCap elseif ff < -ffCap then ff = -ffCap end
+  -- Forward-only trim (brakeTrim off): the trim's brake-direction (opposite trimDir -- nose-up for
+  -- the default -1) cancels the pitch loop's level-hold during hard braking, letting a physical
+  -- brake reaction pitch the nose way up (log 2026-09-04: +28deg). Where brakeTrim is off
+  -- (PRE/MAN/LDG) block that half so braking stays level (frontal thrusters brake); CRU/DRN keep the
+  -- full symmetric lean.
+  if not self.brakeTrim then
+    local dir = self.trimDir or 0
+    if dir < 0 then if ff > 0 then ff = 0 end
+    elseif dir > 0 then if ff < 0 then ff = 0 end end
+  end
   self._ffPitch = ff
   demands.pitch = (demands.pitch or 0) + ff
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:

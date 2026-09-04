@@ -97,3 +97,43 @@ t.test("loop diag: ffPitch resets to 0 when disarmed", function()
   lp:cycle(0.05, { onGround = false, pitch = 0 })   -- disarmed cycle
   t.near(lp:diag({}, { pitch = 0 }).ffPitch, 0, 1e-9, "ffPitch honest (0) while disarmed")
 end)
+
+-- Forward-only trim (brakeTrim): brake-direction (nose-up for trimDir=-1) blocked when off.
+-- surge<0 => raw ff = -1*0.35*(-1) = +0.35 (nose-up, brake) -> floored to +0.08.
+-- surge>0 => raw ff = -1*0.35*(+1) = -0.35 (nose-down, forward) -> floored to -0.08.
+t.test("loop trim forward-only (brakeTrim=false): brake-direction nose-up is blocked", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, false)
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
+  t.near(r.demands.pitch, 0, 1e-9, "brake-direction (nose-up) trim clamped to 0")
+  t.near(lp:diag({}, { pitch = 0 }).ffPitch, 0, 1e-9, "ffPitch reflects the block")
+end)
+
+t.test("loop trim forward-only (brakeTrim=false): forward-lean is kept", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, false)
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
+  t.near(r.demands.pitch, -0.08, 1e-9, "forward-lean (nose-down) trim kept at the floor")
+end)
+
+t.test("loop trim symmetric (brakeTrim=true): brake nose-up kept (CRU/DRN)", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, true)
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
+  t.near(r.demands.pitch, 0.08, 1e-9, "brake nose-up kept when brakeTrim true")
+end)
+
+t.test("loop trim: 5-arg setTrim keeps legacy symmetric behavior (brakeTrim nil->true)", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)   -- no brakeTrim arg -> symmetric
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
+  t.near(r.demands.pitch, 0.08, 1e-9, "5-arg call keeps brake nose-up (legacy)")
+end)

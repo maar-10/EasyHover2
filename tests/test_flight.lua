@@ -543,8 +543,9 @@ end)
 
 local function trimFakeLoop()
   local L = fakeLoop()
-  function L:setTrim(dir, gain, authority, fadeStart, fade)
+  function L:setTrim(dir, gain, authority, fadeStart, fade, brakeTrim)
     self.trimArgs = { dir, gain, authority, fadeStart, fade }
+    self.brakeTrimArg = brakeTrim
   end
   return L
 end
@@ -568,4 +569,25 @@ t.test("flight seeds + threads trim fade/floor feel into loop:setTrim", function
   t.eq(L.trimArgs[3], 0.4,  "authority threaded")
   t.eq(L.trimArgs[4], 0.25, "fadeStart threaded")
   t.eq(L.trimArgs[5], 0.6,  "fade threaded")
+end)
+
+t.test("flight threads brakeTrim into loop:setTrim (6th arg), boolean-safe", function()
+  -- CRUISE descriptor with brakeTrim=true -> threaded true; a descriptor without brakeTrim -> seeded true (legacy).
+  local L = trimFakeLoop()
+  local feel = { trimDir = -1, trimGain = 0.35, trimAuthority = 0.4, trimFadeStart = 0.25, trimFade = 0.6, brakeTrim = true }
+  local desc = { feel = feel, policy = {}, canPark = false, groundSense = false, scheme = { reset = function() end } }
+  local reg = { default = "CRUISE", byId = { CRUISE = desc } }
+  local f = Flight.new({ loop = L, pilot = trimFakePilot(), registry = reg })
+  t.eq(f.brakeTrim, true, "seeded brakeTrim=true from descriptor")
+  f:handleCommand({ k = "flightMode", id = "CRUISE" })
+  t.eq(L.brakeTrimArg, true, "brakeTrim threaded as 6th setTrim arg")
+
+  -- forward-only mode: brakeTrim=false must thread false (NOT be lost by an `or`-style default)
+  local L2 = trimFakeLoop()
+  local reg2 = { default = "PRE", byId = { PRE = { feel = { trimDir = -1, trimGain = 0.35, brakeTrim = false },
+    policy = {}, scheme = { reset = function() end } } } }
+  local f2 = Flight.new({ loop = L2, pilot = trimFakePilot(), registry = reg2 })
+  t.eq(f2.brakeTrim, false, "seeded brakeTrim=false (boolean-safe, not defaulted to true)")
+  f2:handleCommand({ k = "flightMode", id = "PRE" })
+  t.eq(L2.brakeTrimArg, false, "brakeTrim=false threaded")
 end)
