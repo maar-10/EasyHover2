@@ -108,3 +108,24 @@ t.test("trim flip-guard: fade/floor feel defaults present and inherited by every
   t.near(d.modes.LDG.feel.trimAuthority, 0.4, 1e-9, "LDG inherits")
   t.near(d.modes.DRN.feel.trimFade, 0.6,      1e-9, "DRN inherits")
 end)
+
+t.test("faster climb/descend: per-mode vertical authority (kp/leadCapVert/kd/climbRate)", function()
+  -- steady climb v ~= kp*leadCapVert/kd. PRE(base)+MAN/DRN moderate; CRUISE aggressive; LDG pinned gentle.
+  for _, mode in ipairs({ "PRECISION", "MAN", "DRN" }) do
+    local m = tuning.forMode(mode)
+    t.near(m.gains.alt.kp, 0.035, 1e-9, mode.." alt kp raised (0.02->0.035)")
+    t.near(m.gains.alt.kd, 0.15,  1e-9, mode.." alt kd unchanged")
+    t.near(m.feel.leadCapVert, 10.0, 1e-9, mode.." leadCapVert raised (8->10)")
+    t.near(m.feel.climbRate,   5.0,  1e-9, mode.." climbRate raised (4.5->5)")
+  end
+  local cru = tuning.forMode("CRUISE")
+  t.near(cru.gains.alt.kp, 0.045, 1e-9, "CRU alt kp aggressive")
+  t.near(cru.gains.alt.kd, 0.08,  1e-9, "CRU alt kd lowered (livelier)")
+  t.near(cru.feel.leadCapVert, 12.0, 1e-9, "CRU leadCapVert")
+  t.near(cru.feel.climbRate,   12.0, 1e-9, "CRU climbRate keeps setpoint ahead")
+  local ldg = tuning.forMode("LDG")
+  t.near(ldg.gains.alt.kp, 0.02, 1e-9, "LDG alt kp pinned gentle (not the raised base)")
+  t.near(ldg.gains.alt.kd, 0.15, 1e-9, "LDG alt kd pinned")
+  t.near(ldg.feel.leadCapVert, 8.0, 1e-9, "LDG leadCapVert pinned to 8")
+  t.near(ldg.feel.climbRate,   2.5, 1e-9, "LDG climbRate stays gentle")
+end)
