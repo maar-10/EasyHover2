@@ -167,7 +167,8 @@ function Pilot:update(dt, held, meas)
     end
     self.tilt.pitch = toward(self.tilt.pitch, dirOf(held, "pitchDown", "pitchUp"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     self.tilt.roll  = toward(self.tilt.roll,  dirOf(held, "rollLeft",  "rollRight"), c.tiltRate or 0.8, c.tiltCap or 0.4)
-    sp.pitch, sp.roll = self.tilt.pitch, self.tilt.roll
+    local bp, br = self:_brakeSetpoint(held, meas, tilting)   -- 0,0 while tilting
+    sp.pitch, sp.roll = self.tilt.pitch + bp, self.tilt.roll + br
   else
     sp.pitch, sp.roll = self:_brakeSetpoint(held, meas, false)   -- 0,0 unless braking
   end

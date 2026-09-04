@@ -215,3 +215,30 @@ t.test("PRE (tiltBrake disabled) never auto tilt-brakes even fast", function()
   local sp = p:update(0.05, {}, measv{ surgeVel=80 })
   t.near(sp.pitch, 0, 1e-9, "PRE stays level")
 end)
+
+-- Task 6 (fix #3): tilt-mode brake (MAN/DRN hands-off) + DRN hands-off arrest.
+local DRN_FEEL = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                   swaySpeed=5, swayLead=10, tiltRate=0.8, tiltCap=0.5, tiltBrake=TB }
+
+t.test("MAN hands-off at speed brakes; while tilting it does not", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(DRN_FEEL)
+  p:setMode({ tilt=true, surge="position" }, DRN_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })              -- hands off, fast forward
+  t.truthy(sp.pitch > 0.2, "hands-off -> aerobrake")
+  -- actively tilting (pilot owns attitude): brake stands down
+  local p2 = Pilot.new(DRN_FEEL)
+  p2:setMode({ tilt=true, surge="position" }, DRN_FEEL); p2:setMaster(true); p2:reset(measv())
+  local sp2 = p2:update(0.05, { pitchUp=true }, measv{ surgeVel=80 })
+  t.truthy(sp2.pitch < 0.2, "tilting -> pilot tilt only, brake suppressed")
+end)
+
+t.test("DRN hands-off + CPL holds surgePos (arrest), not frozen coast", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(DRN_FEEL)
+  p:setMode({ tilt=true, surge="position", translate=false }, DRN_FEEL)
+  p:setMaster(true); p:reset(measv{ surgePos=0 })
+  local sp = p:update(0.05, {}, measv{ surgePos=5, surgeVel=8 })   -- drifted to +5
+  -- arrest holds the reset position (0), producing a corrective error vs meas(5)
+  t.near(sp.surgePos, 0, 0.5, "surgePos held near reset (arrest), not tracking meas")
+end)
