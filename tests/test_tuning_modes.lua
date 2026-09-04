@@ -129,3 +129,11 @@ t.test("faster climb/descend: per-mode vertical authority (kp/leadCapVert/kd/cli
   t.near(ldg.feel.leadCapVert, 8.0, 1e-9, "LDG leadCapVert pinned to 8")
   t.near(ldg.feel.climbRate,   2.5, 1e-9, "LDG climbRate stays gentle")
 end)
+
+t.test("brakeTrim: symmetric (tilt-to-brake) only in CRU/DRN, forward-only elsewhere", function()
+  t.eq(tuning.forMode("CRUISE").feel.brakeTrim, true,  "CRU keeps symmetric brake lean")
+  t.eq(tuning.forMode("DRN").feel.brakeTrim,    true,  "DRN keeps symmetric (pitch is its accel/decel)")
+  t.eq(tuning.forMode("PRECISION").feel.brakeTrim, false, "PRE forward-only")
+  t.eq(tuning.forMode("MAN").feel.brakeTrim,    false, "MAN forward-only")
+  t.eq(tuning.forMode("LDG").feel.brakeTrim,    false, "LDG forward-only")
+end)

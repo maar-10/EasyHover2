@@ -60,6 +60,8 @@ local DEFAULTS = {
     trimFadeStart  = 0.25,  -- rad: full trim below this |pitch| (normal accel tilt stays fully assisted)
     trimFade       = 0.6,   -- rad: trim fully faded to 0 by this |pitch| (== attLimit)
     trimAuthority  = 0.4,   -- max fraction of caps.pitch the feedforward may consume
+    brakeTrim      = false, -- symmetric trim (lean to accel AND brake)? true only for CRU/DRN; every
+                            -- other mode is forward-only (brake stays level, frontal thrusters brake)
   },
 }
 
@@ -90,6 +92,8 @@ DEFAULTS.modes.CRUISE.gains.alt.kp     = 0.045
 DEFAULTS.modes.CRUISE.gains.alt.kd     = 0.08
 DEFAULTS.modes.CRUISE.feel.leadCapVert = 12.0
 DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
+-- CRU keeps the symmetric trim: the cruiser leans back to brake hard (wanted).
+DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
 
 DEFAULTS.modes.LDG = {
   gains = deep(DEFAULTS.gains),
@@ -116,6 +120,9 @@ DEFAULTS.modes.DRN = {
 -- Drone tilt feel (WASD tilt): keep tiltCap < attLimit (0.6).
 DEFAULTS.modes.DRN.feel.tiltRate = 0.8
 DEFAULTS.modes.DRN.feel.tiltCap  = 0.5
+-- DRN keeps symmetric trim to document intent (pitch/roll ARE its accel+decel). Moot in practice:
+-- DRN forces surge demand = 0, so the surge-scaled trim feedforward is 0 anyway; DRN brakes by pilot tilt.
+DEFAULTS.modes.DRN.feel.brakeTrim = true
 
 local M = {}
 

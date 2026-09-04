@@ -57,6 +57,13 @@ function Flight.new(deps)
         and deps.registry.byId[deps.registry.default]
       return (d and d.feel and d.feel.trimFade) or math.huge
     end)(),
+    brakeTrim = (function()
+      local d = deps.registry and deps.registry.byId and deps.registry.default
+        and deps.registry.byId[deps.registry.default]
+      local b = d and d.feel and d.feel.brakeTrim   -- boolean: nil -> true (legacy symmetric)
+      if b == nil then return true end
+      return b
+    end)(),
     compassSign = deps.compassSign or (deps.config and deps.config.bindings and deps.config.bindings.compassSign) or 1,
     _needReset = false, _loopHz = 0, noFuel = false,
     -- PARAMS extras (devWarn/disk) ride telemetry only while paramsWatch is on.
@@ -115,7 +122,8 @@ function Flight:handleCommand(cmd)
     self.trimAuthority = (d.feel and d.feel.trimAuthority) or self.trimAuthority
     self.trimFadeStart = (d.feel and d.feel.trimFadeStart) or self.trimFadeStart
     self.trimFade = (d.feel and d.feel.trimFade) or self.trimFade
-    if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade) end
+    if d.feel and d.feel.brakeTrim ~= nil then self.brakeTrim = d.feel.brakeTrim end
+    if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
     -- A1: reseed pilot setpoints from last meas so a CRUISE-leashed surgePos cannot slam
     -- reverse under CPL after the switch. Skip when _lastMeas is nil (boot, before first step).
     if self._lastMeas and self.pilot.reset then self.pilot:reset(self._lastMeas) end
@@ -124,7 +132,7 @@ function Flight:handleCommand(cmd)
     local dir = (cmd.dir and cmd.dir < 0) and -1 or 1
     self.trimDir = dir
     if self.pilot.setTrimDir then self.pilot:setTrimDir(dir) end
-    if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade) end
+    if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
     return true
   elseif k == "masterMode" then
     local d = Master.byId[cmd.id]
@@ -308,7 +316,7 @@ function Flight:step(dt, held, meas)
     self.parked = false
     self.loop:arm(false)
   end
-  if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade) end
+  if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
   local r = self.loop:cycle(dt, meas)
   self.lastDiag = r   -- exposed for optional flight instrumentation (demands/duties)
   if dt > 0 then self._loopHz = 1 / dt end
