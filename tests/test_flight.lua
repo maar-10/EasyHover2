@@ -540,3 +540,32 @@ t.test("paramsWatch on=true twice does not re-seed the disk", function()
   f:handleCommand({ k = "paramsWatch", on = true })
   t.eq(seeded, 1, "second on is a no-op seed")
 end)
+
+local function trimFakeLoop()
+  local L = fakeLoop()
+  function L:setTrim(dir, gain, authority, fadeStart, fade)
+    self.trimArgs = { dir, gain, authority, fadeStart, fade }
+  end
+  return L
+end
+local function trimFakePilot()
+  return { setMode = function() end, reset = function() end, setTrimDir = function() end,
+    setPositionHold = function() end, setMaster = function() end, update = function() return {} end }
+end
+
+t.test("flight seeds + threads trim fade/floor feel into loop:setTrim", function()
+  local L = trimFakeLoop()
+  local feel = { trimDir = -1, trimGain = 0.35, trimAuthority = 0.4, trimFadeStart = 0.25, trimFade = 0.6 }
+  local desc = { feel = feel, policy = {}, canPark = false, groundSense = false,
+    scheme = { reset = function() end } }
+  local reg = { default = "CRUISE", byId = { CRUISE = desc } }
+  local f = Flight.new({ loop = L, pilot = trimFakePilot(), registry = reg })
+  t.near(f.trimAuthority, 0.4, 1e-9, "seeded from default descriptor at boot")
+  t.near(f.trimFadeStart, 0.25, 1e-9, "fadeStart seeded")
+  t.near(f.trimFade, 0.6, 1e-9, "fade seeded")
+  f:handleCommand({ k = "flightMode", id = "CRUISE" })
+  t.truthy(L.trimArgs, "setTrim was called on mode switch")
+  t.eq(L.trimArgs[3], 0.4,  "authority threaded")
+  t.eq(L.trimArgs[4], 0.25, "fadeStart threaded")
+  t.eq(L.trimArgs[5], 0.6,  "fade threaded")
+end)
