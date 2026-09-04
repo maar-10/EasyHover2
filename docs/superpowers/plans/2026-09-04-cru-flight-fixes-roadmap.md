@@ -54,7 +54,10 @@ Data reconstructed from the sparse-diff CSV (parser in scratchpad). Engaged = 52
 Whole-flight facts: surgePos span **16,124 blk**, swayPos span **1,728 blk**, peak surgeVel **272 blk/s**
 (velocities are real, validated against position). No DAMPED trips, no NaN, no fuel interlock.
 
-### 1. Roll stuck in banks — VERDICT: missing roll integral (`ki_roll = 0`)  *(primary)*
+### 1. Roll stuck in banks — VERDICT: missing roll integral (`ki_roll = 0`)  *(primary)* — ✅ SHIPPED 2026-09-04 (main 09d7539)
+Shipped fix: roll+pitch leveling integral `ki=0.05, iBand=0.35, iMax=±0.10` in PRE/CRU/LDG; `ki=0`
+(pilot-flown) in MAN/DRN. Config-only. Spec `docs/superpowers/specs/2026-09-04-attitude-leveling-design.md`.
+In-world verify owed (banks should level in ~2 s; watch sway #2 drop).
 Evidence: ~60 s of 398 s in sustained banks (5–26°). In a 17 s hold at −7.8° (t=139–156): `sp_roll=0`
 (level commanded), `sat_roll=0` (cap 0.2, using 0.014 — huge unused authority), roll demand is a
 constant tiny `P_roll≈0.014`, `D_roll≈0`, and it never grows. With `ki_roll=0` the P-only loop cannot
@@ -113,6 +116,7 @@ bounce. Add a release capture that snaps `sp.altitude` to current + a tiny stop-
 
 1. **Base stability** — roll + pitch integral (anti-windup). Fixes #1, most of #2 and the wobble.
    Lands first because it changes how everything else feels (re-tune rates on the stabilized craft).
+   ✅ **SHIPPED 2026-09-04 (main 09d7539).** In-world verify owed before continuing to re-tune rates.
 2. **CRU active braking** — reverse/brake throttle → frontal thrusters + trim pitch-up aerobrake (#3).
    No speed cap (#4).
 3. **Snappy release** — altitude release-capture (#9) + yaw release-capture tuning (#6).
