@@ -125,16 +125,22 @@ end)
 
 -- Task 4 (fix #3): at throttle 0 the pilot LEASHES surgePos (holds current, no forward lead) instead
 -- of continuing to pin it to measured, so the CRUISE arrest (cruise.lua) has a station to hold rather
--- than chasing a coasting measured position.
-t.test("CRUISE throttle policy leashes surgePos (holds station) once throttle returns to 0", function()
+-- than chasing a coasting measured position. Drift is introduced AFTER throttle reaches 0 (simulating
+-- momentum: the craft keeps sliding forward under the old measured position while the setpoint should
+-- NOT re-track it) so the leash and pin branches provably diverge -- if the throttle-0 branch were
+-- reverted to the old unconditional `sp.surgePos = meas.surgePos`, sp.surgePos would snap to the new
+-- meas (100) and this test would fail.
+t.test("CRUISE throttle policy leashes surgePos (holds station, doesn't re-pin) once throttle returns to 0", function()
   local p = Pilot.new(FEEL)
   p:setMode({ tilt = false, surge = "throttle" }, FEEL)
   p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
   local meas = { altitude = 0, heading = 0, swayPos = 0, surgePos = 0, yawRate = 0 }
-  p:update(0.2, { surgeFwd = true }, meas)          -- ramp throttle up
-  meas.surgePos = 10                                -- craft has moved forward while throttling
-  p:update(0.2, {}, meas)                           -- release: throttle holds, still >0, pins to meas
-  p:update(0.5, { surgeBack = true }, meas)          -- ramp throttle back down to 0
-  local sp = p:update(0.1, {}, meas)                -- throttle now 0 at entry: leash branch holds
-  t.near(sp.surgePos, meas.surgePos, 1e-9, "surgePos held at current station, not re-pinned each tick")
+  p:update(0.2, { surgeFwd = true }, meas)          -- ramp throttle up (pin branch: sp tracks meas=0)
+  p:update(0.5, { surgeBack = true }, meas)         -- ramp throttle back down to 0 (still pins while >0)
+  -- Throttle is now 0. Momentum carries the craft on: meas jumps far ahead of the held setpoint.
+  meas.surgePos = 100
+  local sp = p:update(0.1, {}, meas)                -- throttle 0 at entry: leash branch, not pin
+  t.truthy(sp.surgePos < 90, "leash does not snap to the new measured position (pin would give 100)")
+  t.near(sp.surgePos, meas.surgePos - FEEL.surgeLead, 1e-9,
+    "leash clamps to at most surgeLead behind the new measured position, holding station")
 end)
