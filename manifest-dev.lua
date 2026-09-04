@@ -389,9 +389,9 @@
         },
         {
           ["dst"] = "fcs/input/keymap.lua",
-          ["size"] = 2128,
+          ["size"] = 2366,
           ["src"] = "fcs/input/keymap.lua",
-          ["sum"] = "611e812b",
+          ["sum"] = "41dd04eb",
         },
         {
           ["dst"] = "fcs/input/pilot.lua",
@@ -1476,5 +1476,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "f4c5ceaf",
+  ["version"] = "bcd3dfdf",
 }
