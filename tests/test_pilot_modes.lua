@@ -242,3 +242,12 @@ t.test("DRN hands-off + CPL holds surgePos (arrest), not frozen coast", function
   -- arrest holds the reset position (0), producing a corrective error vs meas(5)
   t.near(sp.surgePos, 0, 0.5, "surgePos held near reset (arrest), not tracking meas")
 end)
+
+t.test("CRU brake button cuts MAIN throttle for the tick", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })          -- throttle up
+  local sp = p:update(0.05, { brake=true }, measv{ surgeVel=80 }) -- brake overrides
+  t.near(sp.surgeThrottle, 0, 1e-9, "MAIN commanded off while braking")
+end)

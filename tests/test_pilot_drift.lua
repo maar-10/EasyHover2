@@ -43,3 +43,17 @@ t.test("climb ramp is always on: sustained hold exceeds a single-tick nudge", fu
   for _ = 1, 20 do held = p:update(0.05, { up = true }, m).altitude end
   t.truthy((held - m.altitude) > (a1 - m.altitude), "ramped climb outpaces the first-tick nudge")
 end)
+
+t.test("brake button forces surge arrest even under DCPL", function()
+  local Pilot = require("fcs.input.pilot")
+  local feel = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                 swaySpeed=5, swayLead=10, tiltBrake={ enabled=false, engageSpeed=30, satSpeed=100,
+                 minAngle=0.2618, maxAngle=0.5236, buttonMax=0.7854 } }
+  local m = { altitude=10, heading=0, swayPos=0, surgePos=0, surgeVel=5, swayVel=0, pitch=0, roll=0, yawRate=0 }
+  local p = Pilot.new(feel)
+  p:setMode({ tilt=false, surge="position" }, feel); p:setMaster(false); p:reset(m)  -- DCPL
+  -- DCPL normally relaxes uncommanded surge to meas (coast); brake button must hold it instead
+  local mDrift = { altitude=10, heading=0, swayPos=0, surgePos=7, surgeVel=5, swayVel=0, pitch=0, roll=0, yawRate=0 }
+  local sp = p:update(0.05, { brake=true }, mDrift)
+  t.near(sp.surgePos, 0, 0.5, "brake holds reset position under DCPL (no coast to 7)")
+end)

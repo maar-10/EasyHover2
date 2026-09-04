@@ -131,7 +131,7 @@ function Pilot:update(dt, held, meas)
       -- so the arrest, when throttle reaches 0, holds the CURRENT position. At throttle 0 we stop
       -- pinning and leash surgePos toward current (like the position modes) so the surge loop arrests
       -- and holds station instead of coasting.
-      if (self.throttle or 0) > 0 then
+      if (self.throttle or 0) > 0 and not held.brake then
         sp.surgePos = meas.surgePos or sp.surgePos
       else
         local surgeSpeed, surgeLead = c.surgeSpeed or c.cruiseSpeed, c.surgeLead or c.maxLead
@@ -151,8 +151,9 @@ function Pilot:update(dt, held, meas)
   local canTranslate = self.policy.translate ~= false
   local swayCmd  = canTranslate and (held.swayLeft or held.swayRight)  or false
   local surgeCmd = canTranslate and (held.surgeFwd or held.surgeBack)  or false
-  if tilting or (not self.driftArrest and not swayCmd)  then sp.swayPos  = meas.swayPos  end
-  if tilting or (not self.driftArrest and not surgeCmd) then sp.surgePos = meas.surgePos end
+  local braking = held.brake and true or false
+  if not braking and (tilting or (not self.driftArrest and not swayCmd))  then sp.swayPos  = meas.swayPos  end
+  if not braking and (tilting or (not self.driftArrest and not surgeCmd)) then sp.surgePos = meas.surgePos end
 
   -- Mode policy: tilt (MAN pitch/roll setpoint, auto-levels on release) and throttle
   -- (CRUISE held forward-throttle). Applied here so the existing altitude/heading/sway/surge
@@ -177,7 +178,7 @@ function Pilot:update(dt, held, meas)
     local maxT = c.cruiseThrottleMax or 1.0
     self.throttle = self.throttle + (c.cruiseThrottleRate or 1.0) * dt * d
     if self.throttle < 0 then self.throttle = 0 elseif self.throttle > maxT then self.throttle = maxT end
-    sp.surgeThrottle = self.throttle
+    sp.surgeThrottle = (held.brake and 0) or self.throttle   -- brake cuts MAIN; detent resumes on release
   end
 
   -- Yaw release-edge capture: on the tick the pilot lets go of yaw/rudder, drop the leashed lead
