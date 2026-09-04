@@ -21,8 +21,12 @@ local DEFAULTS = {
     -- (+leadCapVert 8->10) for ~2.3 blk/s in PRE/MAN/DRN; the log showed ~55% unused heave. CRUISE
     -- overrides these harder below; LDG pins them back to stay a gentle landing mode.
     alt   = { kp = 0.035, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
-    pitch = { kp = 0.10, ki = 0, kd = 0.22, tauD = 0.2 },
-    roll  = { kp = 0.10, ki = 0, kd = 0.22, tauD = 0.2 },
+    -- Attitude leveling integral (2026-09-04, fix #1): ki+iBand cancels standing banks/pitch that
+    -- P+D alone leaves as a held equilibrium (log: 5-24deg banks held for dozens of s). iBand=0.35rad
+    -- (~20deg) integrates to level the standing error but not during hard maneuvers (anti-windup);
+    -- iMax caps it well above the measured ~0.014 disturbance. MAN/DRN pin ki=0 (pilot flies attitude).
+    pitch = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
+    roll  = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     yaw   = { kp = 0.95, ki = 0, kd = 1.8 },   -- kd 1.0->1.8: damp the heavy craft's release ring
     sway  = { kp = 0.2, ki = 0, kd = 0.25 },
     surge = { kp = 0.15, ki = 0, kd = 0.25 },
@@ -82,6 +86,10 @@ DEFAULTS.modes = {
 -- Tilt feel (MAN): arrow-key tilt, rad and rad/s; keep tiltCap < attLimit (0.6).
 DEFAULTS.modes.MAN.feel.tiltRate = 0.8
 DEFAULTS.modes.MAN.feel.tiltCap  = 0.40
+-- MAN/DRN fly attitude directly (pilot tilt); no leveling integral on the axis being flown -- keep the
+-- crisp pure-P+D auto-level-on-release feel. (fix #1)
+DEFAULTS.modes.MAN.gains.pitch.ki = 0
+DEFAULTS.modes.MAN.gains.roll.ki  = 0
 -- Surge-throttle feel (CRUISE): W ramps up, release holds, S ramps down; 0..1 of MAIN.
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleRate = 1.0
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleMax  = 1.0
@@ -123,6 +131,8 @@ DEFAULTS.modes.DRN.feel.tiltCap  = 0.5
 -- DRN keeps symmetric trim to document intent (pitch/roll ARE its accel+decel). Moot in practice:
 -- DRN forces surge demand = 0, so the surge-scaled trim feedforward is 0 anyway; DRN brakes by pilot tilt.
 DEFAULTS.modes.DRN.feel.brakeTrim = true
+DEFAULTS.modes.DRN.gains.pitch.ki = 0   -- fix #1: DRN flies attitude directly, no leveling integral
+DEFAULTS.modes.DRN.gains.roll.ki  = 0
 
 local M = {}
 
