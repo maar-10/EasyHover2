@@ -252,6 +252,8 @@ local function resolveDeps(deps)
     list = deps.list or realList,
     fcsGet = deps.fcsGet,
     fcsSet = deps.fcsSet,
+    navGet = deps.navGet,
+    navSet = deps.navSet,
   }
 end
 
@@ -288,6 +290,8 @@ function M._scan(mount, deps, role)
   for _, kind in ipairs(kindsFor(role)) do
     if isFcsKind(kind) and deps.fcsGet then
       localHas[kind] = deps.fcsGet(kind) ~= nil
+    elseif kind == "nav" and deps.navGet then
+      localHas[kind] = deps.navGet() ~= nil
     else
       localHas[kind] = exists(M.localPath(kind)) and true or false
     end
@@ -368,10 +372,18 @@ end
 
 -- FCS kinds on the UI have no local files: live cache via fcsGet/fcsSet. Without those seams,
 -- skip (do not atomicCopy to/from /eh2_devbind.tbl /eh2_senscal.tbl /eh2_tuning.tbl /eh2_fuelcal.tbl).
+-- NAV settings (kind=="nav") are the same pattern via navGet/navSet; never write /eh2_nav.tbl
+-- on the UI. nav_wpt stays the exists-gate no-op (waypoints use the NAV menu disk courier).
 local function exportKind(mount, kind, deps, role)
   if isFcsKind(kind) then
     if deps.fcsGet then
       return atomicWrite(M.diskPath(mount, kind), deps.fcsGet(kind), deps)
+    end
+    return false
+  end
+  if kind == "nav" then
+    if deps.navGet then
+      return atomicWrite(M.diskPath(mount, kind), deps.navGet(), deps)
     end
     return false
   end
@@ -387,6 +399,16 @@ local function importKind(mount, kind, deps, role)
       local body = deps.read(diskPath)
       if body == nil then return false end
       return deps.fcsSet(kind, body) and true or false
+    end
+    return false
+  end
+  if kind == "nav" then
+    if deps.navSet then
+      local diskPath = M.diskPath(mount, kind)
+      if not deps.exists(diskPath) then return false end
+      local body = deps.read(diskPath)
+      if body == nil then return false end
+      return deps.navSet(body) and true or false
     end
     return false
   end
@@ -437,6 +459,8 @@ function M._scanKind(mount, kind, deps)
   local localHas, localMs = false, nil
   if isFcsKind(kind) and deps.fcsGet then
     localHas = deps.fcsGet(kind) ~= nil
+  elseif kind == "nav" and deps.navGet then
+    localHas = deps.navGet() ~= nil
   else
     localHas = deps.exists(localPath) and true or false
     if localHas then
@@ -479,7 +503,7 @@ end
 function M._importKind(mount, kind, deps)
   if mount == nil then return false end
   deps = resolveDeps(deps)
-  if isFcsKind(kind) then
+  if isFcsKind(kind) or kind == "nav" then
     return importKind(mount, kind, deps, nil)
   end
   if cfgroles.roleOf(kind) == "nav" and not deps.exists(M.localPath(kind)) then
@@ -563,6 +587,43 @@ function M._liveFcsSet(runtime, kind, body)
   return false
 end
 
+-- Live NAV read: cache hit serialises wptClient.navCfg. Cache miss fires a non-blocking
+-- requestNavCfg and returns nil this call (never waits). In-flight misses are not re-requested.
+function M._liveNavGet(runtime)
+  if not runtime then return nil end
+  local wc = runtime.wptClient
+  if not wc then return nil end
+  if type(wc.navCfg) == "table" then return textutils.serialise(wc.navCfg) end
+  if not runtime._navCfgSync and wc.requestNavCfg then
+    runtime._navCfgSync = true
+    wc:requestNavCfg(function()
+      runtime._navCfgSync = nil
+      runtime.uiRev = (runtime.uiRev or 0) + 1
+    end)
+  end
+  return nil
+end
+
+-- Live NAV write: unserialise and setNavCfg. Do not assign navCfg from the set body --
+-- nav_cfg_ack does not refresh the cache; the next get must requestNavCfg.
+function M._liveNavSet(runtime, body)
+  if type(body) == "string" then
+    body = textutils.unserialise(body)
+  end
+  if type(body) ~= "table" then return false end
+  if not (runtime and runtime.wptClient and runtime.wptClient.setNavCfg) then return false end
+  runtime.wptClient.navCfg = nil
+  runtime._navCfgSync = nil
+  runtime.cfgSaveStatus = "saving to NAV..."
+  runtime.uiRev = (runtime.uiRev or 0) + 1
+  runtime.wptClient:setNavCfg(body, function(ok, err)
+    runtime.cfgSaveStatus = ok and "saved to NAV -- reload to apply"
+      or ("SAVE FAILED: " .. tostring(err or "no NAV"))
+    runtime.uiRev = (runtime.uiRev or 0) + 1
+  end)
+  return false
+end
+
 -- M._fmtRow(row, width): compact per-kind status line, e.g. "tuning  L:OK D:--" -- DISPLAY-ONLY,
 -- row.hasLocal/hasDisk (the underlying present/plan data) are untouched. The GUARANTEE is that
 -- the returned string is always <= width (width nil/<=0 -> unbounded, matching fitLabel's own
@@ -641,6 +702,14 @@ function M.build(basalt, frame, runtime, nav, deps)
     end
     deps.fcsSet = deps.fcsSet or function(kind, body)
       return M._liveFcsSet(runtime, kind, body)
+    end
+  end
+  if runtime and runtime.wptClient then
+    deps.navGet = deps.navGet or function()
+      return M._liveNavGet(runtime)
+    end
+    deps.navSet = deps.navSet or function(body)
+      return M._liveNavSet(runtime, body)
     end
   end
 

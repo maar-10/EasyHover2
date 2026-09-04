@@ -1087,4 +1087,78 @@ t.test("nav role export/import is a no-op when local nav files are absent (UI PC
   t.eq(writes, 0)
 end)
 
+t.test("export nav role writes disk from navGet and never touches UI-local nav files", function()
+  local written = {}
+  local deps = {
+    exists = function() return false end,
+    read = function() return nil end,
+    write = function(path, body) written[path] = body; return true end,
+    delete = function() end,
+    move = function(from, to) written[to] = written[from]; written[from] = nil end,
+    navGet = function() return textutils.serialise({ channel = 65000 }) end,
+  }
+  local exported = M._export("disk0", deps, "nav")
+  t.eq(#exported, 1)
+  t.eq(exported[1], "nav")
+  t.eq(written["/eh2_nav.tbl"], nil)
+  t.truthy(written["/disk0/eh2_nav.tbl"] ~= nil)
+end)
+
+t.test("import nav role calls navSet from disk and never writes UI-local nav files", function()
+  local setBody
+  local localWrites = {}
+  local deps = {
+    exists = function(path) return path:find("eh2_nav") ~= nil end,
+    read = function() return textutils.serialise({ channel = 7 }) end,
+    write = function(path, body) localWrites[path] = body end,
+    delete = function() end,
+    move = function() end,
+    navSet = function(body) setBody = body; return true end,
+  }
+  M._import("disk0", deps, "nav")
+  t.truthy(setBody)
+  t.eq(localWrites["/eh2_nav.tbl"], nil)
+end)
+
+t.test("live navGet cache hit serialises navCfg; miss fires requestNavCfg once", function()
+  local reqs = {}
+  local runtime = {
+    wptClient = {
+      requestNavCfg = function(self, cb)
+        reqs[#reqs + 1] = { cb = cb }
+      end,
+    },
+  }
+  t.eq(M._liveNavGet(runtime), nil, "miss returns nil immediately")
+  t.eq(#reqs, 1, "one non-blocking requestNavCfg")
+  t.eq(M._liveNavGet(runtime), nil, "in-flight miss still nil")
+  t.eq(#reqs, 1, "must not re-request while in flight")
+  runtime.wptClient.navCfg = { channel = 65000 }
+  reqs[1].cb(runtime.wptClient.navCfg)
+  local body = M._liveNavGet(runtime)
+  t.truthy(body ~= nil, "body available after cache")
+  t.eq(textutils.unserialise(body).channel, 65000)
+  t.eq(#reqs, 1, "hit does not re-request")
+end)
+
+t.test("live navSet unserialises and setNavCfg; does not keep navCfg without a get", function()
+  local cbs = {}
+  local runtime = {
+    wptClient = {
+      navCfg = { channel = 1 },
+      setNavCfg = function(self, body, cb)
+        cbs[#cbs + 1] = { body = body, cb = cb }
+      end,
+    },
+  }
+  local body = textutils.serialise({ channel = 7 })
+  local ok = M._liveNavSet(runtime, body)
+  t.eq(ok, false, "must not claim success before ack")
+  t.eq(runtime.wptClient.navCfg, nil, "must not trust navCfg after set without a get")
+  t.eq(#cbs, 1)
+  t.eq(cbs[1].body.channel, 7)
+  cbs[1].cb(true)
+  t.eq(runtime.wptClient.navCfg, nil, "ack still does not invent a cache")
+end)
+
 return true
