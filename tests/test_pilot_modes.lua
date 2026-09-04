@@ -174,6 +174,21 @@ t.test("CRU: forward throttle (throttle>0) does NOT auto tilt-brake", function()
   t.near(sp.pitch, 0, 1e-9, "cruising forward stays level")
 end)
 
+-- Discriminates the `btn` half of `engaged = btn or (autoArrest and self.driftArrest)`
+-- (fcs/input/pilot.lua _brakeSetpoint): throttle>0 makes autoArrest FALSE (see the
+-- "does NOT auto tilt-brake" case above), so this can only pass via the button override.
+-- Would fail if `btn or (...)` regressed to `btn and (...)` or dropped btn entirely.
+-- (Task 7 wires the throttle-cut on held.brake; this asserts _brakeSetpoint's tilt output
+-- alone, which is independent of that.)
+t.test("CRU: held.brake button forces tilt-brake even while throttle>0 (autoArrest false)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })  -- ramp throttle up (autoArrest false)
+  local sp = p:update(0.05, { brake=true }, measv{ surgeVel=80 })
+  t.truthy(sp.pitch > 0.2, "button overrides autoArrest gate")
+end)
+
 t.test("CRU auto tilt-brake suppressed under DCPL (drift allowed)", function()
   local Pilot = require("fcs.input.pilot")
   local p = Pilot.new(CRU_FEEL)
