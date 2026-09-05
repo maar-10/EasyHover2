@@ -77,6 +77,8 @@ local RECIPES = {
   tuning     = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.tuning").build(b, f, nil, Nav.new("tuning"), readStub, noop, noop) end },
   tuning_edit = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.tuning").build(b, f, nil, Nav.new("tuning"), readStub, noop, noop) end,
                   postBuild = function(h) h.elements.region:push("edit_PRECISION_FEEL") end },
+  tuning_brake = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.tuning").build(b, f, nil, Nav.new("tuning"), readStub, noop, noop) end,
+                  postBuild = function(h) h.elements.region:push("edit_CRUISE_FEEL_extra") end },
   mdb        = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.mdb").build(b, f, nil, Nav.new("mdb"), readStub, noop, scanStub) end },
   uical      = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.uical").build(b, f, runtime, Nav.new("uical"), deps) end },
   uical_settings = { W = 36, H = 10, build = function(b, f) return P("ui.basalt.bitconfig.uical").build(b, f, runtime, Nav.new("uical"), deps) end,
