@@ -232,18 +232,35 @@ local SHARED_FEEL_EXTRA_ROWS = {
 -- PRECISION/LDG have none of their own: LDG only overrides base feel VALUES (surgeSpeed/
 -- surgeLead/swaySpeed/swayLead/climbRate) -- no new field names to tune -- and PRECISION never
 -- had per-mode feel to begin with.
+-- BRAKE_ROWS: the 5 tilt-to-brake curve tunables (engage speed, saturation speed, min/max brake
+-- angle, and the button-triggered brake's own angle cap) -- live-tunable per flight mode, appended
+-- after each of MAN/CRUISE/DRN's own 2 existing extra rows. PRE/LDG intentionally do NOT get
+-- these (braking-by-tilt is only meaningful for the flight modes that actually carry forward
+-- speed to brake off -- PRE is the flat-stable default and LDG already has its own reduced-cap
+-- ground handling).
+local BRAKE_ROWS = {
+  { id = "feel.tiltBrake.engageSpeed", label = "BRAKE ENGAGE", group = "FEEL", step = 1,    min = 0, max = 100  },
+  { id = "feel.tiltBrake.satSpeed",    label = "BRAKE SAT",    group = "FEEL", step = 1,    min = 0, max = 200  },
+  { id = "feel.tiltBrake.minAngle",    label = "BRAKE MIN",    group = "FEEL", step = 0.02, min = 0, max = 1.57 },
+  { id = "feel.tiltBrake.maxAngle",    label = "BRAKE MAX",    group = "FEEL", step = 0.02, min = 0, max = 1.57 },
+  { id = "feel.tiltBrake.buttonMax",   label = "BRAKE BTN",    group = "FEEL", step = 0.02, min = 0, max = 1.57 },
+}
+
 local MODE_OWN_EXTRA_ROWS = {
   MAN = {
     { id = "feel.tiltRate", label = "TILT RATE", group = "FEEL", step = 0.1,  min = 0.1, max = 2.0 },
     { id = "feel.tiltCap",  label = "TILT CAP",  group = "FEEL", step = 0.05, min = 0,   max = 0.6 },
+    BRAKE_ROWS[1], BRAKE_ROWS[2], BRAKE_ROWS[3], BRAKE_ROWS[4], BRAKE_ROWS[5],
   },
   CRUISE = {
     { id = "feel.cruiseThrottleRate", label = "THROTTLE RATE", group = "FEEL", step = 0.1,  min = 0.1, max = 2.0 },
     { id = "feel.cruiseThrottleMax",  label = "THROTTLE MAX",  group = "FEEL", step = 0.05, min = 0,   max = 1.0 },
+    BRAKE_ROWS[1], BRAKE_ROWS[2], BRAKE_ROWS[3], BRAKE_ROWS[4], BRAKE_ROWS[5],
   },
   DRN = {
     { id = "feel.tiltRate", label = "TILT RATE", group = "FEEL", step = 0.1,  min = 0.1, max = 2.0 },
     { id = "feel.tiltCap",  label = "TILT CAP",  group = "FEEL", step = 0.05, min = 0,   max = 0.6 },
+    BRAKE_ROWS[1], BRAKE_ROWS[2], BRAKE_ROWS[3], BRAKE_ROWS[4], BRAKE_ROWS[5],
   },
 }
 
@@ -531,15 +548,25 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
   -- ===== M.rows(workingCfg, mode), evaluated once at build time -- M.ROW_SPEC/the per-mode extra =====
   -- ===== rows never change at runtime, so the SET of ids is stable; only each row's displayed    =====
   -- ===== value/step is re-read live on every refresh()) + a "?"/"<" footer row.                  =====
+  -- buildEditScreen: windowed -- N = height-2 FIXED stepper slots over a clamped M.window offset
+  -- (Task 2 of the 2026-09-05 brake-tune-scroll-menu SDD). A screen whose row SET fits in N shows
+  -- every row at offset 0, single-row "?"/"<" footer, PIXEL-IDENTICAL slot count to before (just
+  -- now uniformly landing on the frame's bottom row via configkit.actionRow's own hasBack
+  -- auto-pin-to-bottom behaviour, same as the pre-retrofit footer already did). A screen whose row
+  -- SET overflows N pages via a "up"/"down" row ABOVE the "?"/"<" row (confirmed by reading
+  -- configkit.actionRow's splitWidths math: a single 4-item row -- "?", "<", up, down -- doesn't
+  -- fit this page's realistic ~12-wide frame, so overflowing screens get a 2-row footer and a
+  -- correspondingly smaller N, non-overflowing screens keep the 1-row footer and the full N).
+  -- Each slot's `id` is reassigned every refresh() from the window (slot.id, not a captured rid),
+  -- so the +/- closures read the CURRENT row under that slot, not the one it was built for.
   local function buildEditScreen(mode, filterFn, screenTitle, helpId)
     return function(b, f, region)
-      local fw = ({ f:getSize() })[1]
+      local fw, fh = f:getSize()
       local fx = 2
       local fiw = math.max(1, fw - 2)
-      local y = 1
+      local y0 = 2                                   -- first stepper row (row 1 = title)
 
       local titleLabel = configkit.titleRow(f, fw, screenTitle)   -- ||screenTitle|| centred, top row
-      y = y + 1
 
       local labelW = math.max(1, fiw - 8)
       local minusX = fx + labelW + 1
@@ -548,42 +575,75 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
       local rowIds = {}
       for _, r in ipairs(filterFn(M.rows(workingCfg, mode))) do rowIds[#rowIds + 1] = r.id end
 
-      -- Forward-declared: minus/plus onClick closures reference refresh() before it's DEFINED
-      -- (not before it's called) -- same upvalue-before-assignment discipline as
-      -- configkit.helpScreen's `row`/`render`.
+      -- N_fit = every row visible with a single-row "?"/"<" footer; if the row set overflows that,
+      -- drop to N (one row smaller) and split the footer into an "up"/"down" row above the "?"/"<"
+      -- row -- both rows still land inside the frame (the "?"/"<" row's actionRow "back" item
+      -- auto-pins it to the frame's bottom row regardless of the y passed in).
+      local N_fit = math.max(1, fh - 2)
+      local overflow = #rowIds > N_fit
+      local N = overflow and math.max(1, fh - 3) or N_fit
+      local offset = 0
+
+      -- Forward-declared: the +/- and up/down onClick closures reference refresh()/offset before
+      -- refresh() is DEFINED (not before it's called) -- same upvalue-before-assignment discipline
+      -- as configkit.helpScreen's `row`/`render`.
       local refresh
 
       local rowSlots = {}
-      for i, rid in ipairs(rowIds) do
-        local yy = y + i - 1
+      for i = 1, N do
+        local yy = y0 + i - 1
         local lbl   = f:addLabel({ x = fx, y = yy, width = labelW, height = 1, autoSize = false, text = "" })
         local minus = configkit.bracketBtn(f, minusX, yy, "-", colors.orange).button   -- [-] orange function
         local plus  = configkit.bracketBtn(f, plusX,  yy, "+", colors.orange).button   -- [+]
-        rowSlots[i] = { id = rid, label = lbl, minus = minus, plus = plus }
-
-        minus:onClick(function()
-          workingCfg = M.apply(workingCfg, mode, rid, -1)
-          refresh()
-        end)
-        plus:onClick(function()
-          workingCfg = M.apply(workingCfg, mode, rid, 1)
-          refresh()
-        end)
+        local slot = { id = nil, label = lbl, minus = minus, plus = plus }
+        -- Reference slot.id (the CURRENT row under this slot at click time), never a captured id --
+        -- refresh() reassigns slot.id on every window move, this same slot object stays put.
+        minus:onClick(function() if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id, -1); refresh() end end)
+        plus:onClick(function()  if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id,  1); refresh() end end)
+        rowSlots[i] = slot
       end
-      y = y + #rowIds
 
-      local footerRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
+      local helpBackItems = {
         { label = "?", onClick = function() region:push("help_" .. helpId) end },
         { id = "back", label = "<", onClick = function() region:pop() end },
-      })
+      }
+
+      local scrollUp, scrollDown, pageRow, footerRow, lastRowY
+      if overflow then
+        local pageY = y0 + N   -- one row above the "?"/"<" row (which auto-pins to the frame bottom)
+        pageRow = configkit.actionRow(f, { x = fx, y = pageY, w = fiw }, {
+          { id = "up",   label = string.char(30), onClick = function()  -- ▲
+            local w = M.window(#rowIds, offset - N, N); offset = w.offset; refresh(); bump() end },
+          { id = "down", label = string.char(31), onClick = function()  -- ▼
+            local w = M.window(#rowIds, offset + N, N); offset = w.offset; refresh(); bump() end },
+        })
+        scrollUp = pageRow.buttons[1]
+        scrollDown = pageRow.buttons[2]
+        footerRow = configkit.actionRow(f, { x = fx, y = pageY + 1, w = fiw }, helpBackItems)
+        lastRowY = pageY + 1
+      else
+        footerRow = configkit.actionRow(f, { x = fx, y = y0 + N, w = fiw }, helpBackItems)
+        lastRowY = y0 + N
+      end
 
       refresh = function()
         local byId = {}
         for _, r in ipairs(filterFn(M.rows(workingCfg, mode))) do byId[r.id] = r end
-        for _, slot in ipairs(rowSlots) do
-          local r = byId[slot.id]
+        local win = M.window(#rowIds, offset, N)
+        offset = win.offset
+        for i = 1, N do
+          local slot = rowSlots[i]
+          local rid = rowIds[win.first + i - 1]       -- nil past the window tail
+          slot.id = rid
+          local r = rid and byId[rid]
           if r then
             slot.label:setText(configkit.fitLabel(r.label .. " " .. fmtVal(r.value, r.step), labelW))
+            if slot.minus.setVisible then slot.minus:setVisible(true) end
+            if slot.plus.setVisible then slot.plus:setVisible(true) end
+          else
+            slot.label:setText("")
+            if slot.minus.setVisible then slot.minus:setVisible(false) end
+            if slot.plus.setVisible then slot.plus:setVisible(false) end
           end
         end
       end
@@ -595,7 +655,13 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
         -- layout-derived fit signal every screen builder exposes (see the fit-regression test in
         -- tests/test_bitconfig_tuning.lua, which asserts lastRowY <= the region's own height for
         -- every registered screen at a REALISTIC ~12-row monitor size).
-        elements = { titleLabel = titleLabel, rowSlots = rowSlots, footerRow = footerRow, lastRowY = y },
+        elements = { titleLabel = titleLabel, rowSlots = rowSlots, footerRow = footerRow,
+                     lastRowY = lastRowY, visibleN = N,
+                     scrollUp = scrollUp, scrollDown = scrollDown,
+                     -- expose paging for tests without a real click:
+                     pageDown = function() local w = M.window(#rowIds, offset + N, N); offset = w.offset; refresh() end,
+                     pageUp   = function() local w = M.window(#rowIds, offset - N, N); offset = w.offset; refresh() end,
+                     rowIds = rowIds },
       }
     end
   end
