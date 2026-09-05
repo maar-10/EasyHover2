@@ -59,3 +59,11 @@ t.test("reset() clears the detector state", function()
   o:reset()
   t.truthy(o:update(0.4, 0.0, 0.1) == false, "no counted crossings survive a reset")
 end)
+
+t.test("steady large pitch does not trip DAMPED (no oscillation)", function()
+  local Osc = require("fcs.safety.oscillation")
+  local o = Osc.new({ window=1.0, minChanges=6, deadband=0.02, calmTime=1.0 })
+  local tripped = false
+  for _ = 1, 40 do tripped = o:update(0.7, 0.0, 0.05) end   -- constant 0.7 rad nose-up
+  t.eq(tripped, false, "constant angle never oscillates -> no trip")
+end)
