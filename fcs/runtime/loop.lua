@@ -32,6 +32,10 @@ function Loop:clearDamped()
   self.mode = "NORMAL"
   if self.osc then self.osc:reset() end
 end
+function Loop:setEmrcvr(b)
+  self._emrcvr = b and true or false
+  if not self._emrcvr and self.osc then self.osc:reset() end   -- clean slate on exit
+end
 function Loop:setFuelScale(x)
   if self.pwm and self.pwm.setFuelScale then self.pwm:setFuelScale(x) end
   if self.sd and self.sd.setFuelScale then self.sd:setFuelScale(x) end
@@ -103,8 +107,11 @@ function Loop:cycle(rawDt, m)
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).
-  local tripped = self.osc and self.osc:update(m.pitch, m.roll, dt) or false
-  self.mode = tripped and "DAMPED" or (grounded and "GROUND" or "NORMAL")
+  -- EMRCVR (emergency recovery) is top priority and mirrors DAMPED: it must NOT zero attitude (the
+  -- flight layer feeds level setpoints + elevated gains to actively right the craft), and it suppresses
+  -- the osc trip so the detector can't zero the correction that is righting a violent tumble.
+  local tripped = (not self._emrcvr) and self.osc and self.osc:update(m.pitch, m.roll, dt) or false
+  self.mode = self._emrcvr and "EMRCVR" or (tripped and "DAMPED" or (grounded and "GROUND" or "NORMAL"))
   if self.mode == "DAMPED" then
     demands.pitch, demands.roll, demands.yaw, demands.sway, demands.surge = 0, 0, 0, 0, 0
     -- Hold vertical too: a genuine trip must not keep climbing off. Neutral = hoverDuty when
