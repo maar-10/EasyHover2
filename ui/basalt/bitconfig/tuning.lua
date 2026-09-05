@@ -300,6 +300,21 @@ function M.rows(cfg, mode)
   return out
 end
 
+-- M.window(count, offset, n) -> { first, last, offset, maxOffset }: the 1-based inclusive visible
+-- index range into a `count`-row list shown `n` at a time, with the offset clamped to
+-- [0, max(0, count-n)]. last < first means an empty window (count == 0). PURE. Mirrors the
+-- windowing in ui/basalt/waypointlist.lua so the stepper-edit screen pages the same way the NAV list does.
+function M.window(count, offset, n)
+  count = math.max(0, math.floor(count or 0))
+  n = math.max(1, math.floor(n or 1))
+  local maxOffset = math.max(0, count - n)
+  offset = math.floor(tonumber(offset) or 0)
+  if offset < 0 then offset = 0 elseif offset > maxOffset then offset = maxOffset end
+  local first = offset + 1
+  local last = math.min(offset + n, count)
+  return { first = first, last = last, offset = offset, maxOffset = maxOffset }
+end
+
 -- M.apply([mode,] cfg-or-rowId, rowId-or-delta, [delta]) -> a NEW cfg (deep-copied; `cfg` is
 -- never mutated) with the value at pathFor(mode, rowId) set to
 -- clamp(currentValue + delta*step, min, max), rounded to the step's precision. Unknown rowId (for

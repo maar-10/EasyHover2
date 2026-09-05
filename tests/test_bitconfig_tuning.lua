@@ -110,6 +110,40 @@ t.test("apply: repeated +1 clicks accumulate without float drift", function()
   t.near(out.caps.roll, 0.5, 1e-9) -- 10 * 0.05 step
 end)
 
+-- ===== M.window: pure windowing helper for a scrollable edit screen =====
+
+t.test("M.window clamps offset and returns the visible index range", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  -- 13 rows, window of 8
+  local w = T.window(13, 0, 8)
+  t.eq(w.offset, 0); t.eq(w.first, 1); t.eq(w.last, 8); t.eq(w.maxOffset, 5)
+  w = T.window(13, 5, 8)              -- offset at max: shows rows 6..13
+  t.eq(w.offset, 5); t.eq(w.first, 6); t.eq(w.last, 13)
+  w = T.window(13, 99, 8)             -- over-max clamps to maxOffset
+  t.eq(w.offset, 5); t.eq(w.first, 6); t.eq(w.last, 13)
+  w = T.window(13, -3, 8)             -- negative clamps to 0
+  t.eq(w.offset, 0); t.eq(w.first, 1); t.eq(w.last, 8)
+end)
+
+t.test("M.window: rows that fit -> maxOffset 0, full range, no scroll needed", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local w = T.window(6, 0, 8)
+  t.eq(w.maxOffset, 0); t.eq(w.first, 1); t.eq(w.last, 6)
+end)
+
+t.test("M.window: every row reachable by paging with n", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local count, n, seen = 13, 8, {}
+  local off = 0
+  while true do
+    local w = T.window(count, off, n)
+    for i = w.first, w.last do seen[i] = true end
+    if off >= w.maxOffset then break end
+    off = math.min(off + n, w.maxOffset)
+  end
+  for i = 1, count do t.truthy(seen[i], "row " .. i .. " reachable") end
+end)
+
 -- ===== Per-mode tuning model: M.MODES / M.pathFor / M.rows(cfg,mode) / =====
 -- ===== M.apply(cfg,mode,rowId,delta) / M.resetMode(cfg,mode)          =====
 -- PRECISION reads/writes the top-level gains/caps/feel (unchanged pre-existing behaviour).
