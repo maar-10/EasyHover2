@@ -1,0 +1,12 @@
+36 10
+PAL 6=14461b c=ff6a6a
+dddddddddddddddddddddddddddddddddddd	ffffffffffffffffffffffffffffffffffff	32 32 32 32 32 32 32 32 124 124 77 79 68 69 32 70 69 69 76 32 67 82 85 73 83 69 124 124 32 32 32 32 32 32 32 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 84 72 82 79 84 84 76 69 32 82 65 84 69 32 49 46 48 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 84 72 82 79 84 84 76 69 32 77 65 88 32 49 46 48 48 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 66 82 65 75 69 32 69 78 71 65 71 69 32 51 48 32 32 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 66 82 65 75 69 32 83 65 84 32 49 48 48 32 32 32 32 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 66 82 65 75 69 32 77 73 78 32 48 46 50 54 32 32 32 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 66 82 65 75 69 32 77 65 88 32 48 46 53 50 32 32 32 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddddddddddddddddd1d1d1d1d	ffffffffffffffffffffffffffffffffffff	32 66 82 65 75 69 32 66 84 78 32 48 46 55 57 32 32 32 32 32 32 32 32 32 32 32 32 32 91 45 93 32 91 43 93 32
+dddddddddddddd1d1d1d1ddddddddddddddd	ffffffffffffffffffffffffffffffffffff	32 32 32 32 32 32 32 32 32 32 32 32 32 32 91 30 93 32 91 31 93 32 32 32 32 32 32 32 32 32 32 32 32 32 32 32
+dddddddddddddd1d1dbdbddddddddddddddd	ffffffffffffffffffffffffffffffffffff	32 32 32 32 32 32 32 32 32 32 32 32 32 32 91 63 93 32 91 27 93 32 32 32 32 32 32 32 32 32 32 32 32 32 32 32

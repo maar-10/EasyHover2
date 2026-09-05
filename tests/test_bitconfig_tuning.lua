@@ -110,6 +110,46 @@ t.test("apply: repeated +1 clicks accumulate without float drift", function()
   t.near(out.caps.roll, 0.5, 1e-9) -- 10 * 0.05 step
 end)
 
+-- ===== M.window: pure windowing helper for a scrollable edit screen =====
+
+t.test("M.window clamps offset and returns the visible index range", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  -- 13 rows, window of 8
+  local w = T.window(13, 0, 8)
+  t.eq(w.offset, 0); t.eq(w.first, 1); t.eq(w.last, 8); t.eq(w.maxOffset, 5)
+  w = T.window(13, 5, 8)              -- offset at max: shows rows 6..13
+  t.eq(w.offset, 5); t.eq(w.first, 6); t.eq(w.last, 13)
+  w = T.window(13, 99, 8)             -- over-max clamps to maxOffset
+  t.eq(w.offset, 5); t.eq(w.first, 6); t.eq(w.last, 13)
+  w = T.window(13, -3, 8)             -- negative clamps to 0
+  t.eq(w.offset, 0); t.eq(w.first, 1); t.eq(w.last, 8)
+end)
+
+t.test("M.window: rows that fit -> maxOffset 0, full range, no scroll needed", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local w = T.window(6, 0, 8)
+  t.eq(w.maxOffset, 0); t.eq(w.first, 1); t.eq(w.last, 6)
+end)
+
+t.test("M.window: count==0 -> empty window (first=1,last=0,maxOffset=0)", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local w = T.window(0, 0, 8)
+  t.eq(w.first, 1); t.eq(w.last, 0); t.eq(w.maxOffset, 0); t.eq(w.offset, 0)
+end)
+
+t.test("M.window: every row reachable by paging with n", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local count, n, seen = 13, 8, {}
+  local off = 0
+  while true do
+    local w = T.window(count, off, n)
+    for i = w.first, w.last do seen[i] = true end
+    if off >= w.maxOffset then break end
+    off = math.min(off + n, w.maxOffset)
+  end
+  for i = 1, count do t.truthy(seen[i], "row " .. i .. " reachable") end
+end)
+
 -- ===== Per-mode tuning model: M.MODES / M.pathFor / M.rows(cfg,mode) / =====
 -- ===== M.apply(cfg,mode,rowId,delta) / M.resetMode(cfg,mode)          =====
 -- PRECISION reads/writes the top-level gains/caps/feel (unchanged pre-existing behaviour).
@@ -177,9 +217,9 @@ t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 6 rows shared by every
   end
 end)
 
-t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows", function()
+t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + 5 brake rows + the 6 shared trim/ramp/flip-guard rows", function()
   local rows = M.rows(tuningdefaults.get(), "DRN")
-  t.eq(#rows, 42, "34 base + 2 DRN tilt extras + 6 shared trim/ramp/flip-guard rows")
+  t.eq(#rows, 47, "34 base + 2 DRN tilt extras + 5 brake rows + 6 shared trim/ramp/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
@@ -260,9 +300,9 @@ t.test("M.rows(cfg,'MAN') reads from modes.MAN subtree, not top-level", function
   t.eq(pFound.value, tuningdefaults.get().gains.pitch.kp)
 end)
 
-t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
+t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake rows + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "MAN")
-  t.eq(#rows, 42, "34 base + 2 MAN tilt extras + 6 shared trim/ramp/flip-guard rows")
+  t.eq(#rows, 47, "34 base + 2 MAN tilt extras + 5 brake rows + 6 shared trim/ramp/flip-guard rows")
   local tiltRate, tiltCap
   for _, r in ipairs(rows) do
     if r.id == "feel.tiltRate" then tiltRate = r end
@@ -276,9 +316,9 @@ t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + the 6 s
   t.eq(tiltCap.value, tuningdefaults.get().modes.MAN.feel.tiltCap)
 end)
 
-t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
+t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + 5 brake rows + the 6 shared trim/ramp/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "CRUISE")
-  t.eq(#rows, 42, "34 base + 2 CRUISE throttle extras + 6 shared trim/ramp/flip-guard rows")
+  t.eq(#rows, 47, "34 base + 2 CRUISE throttle extras + 5 brake rows + 6 shared trim/ramp/flip-guard rows")
   local rate, max
   for _, r in ipairs(rows) do
     if r.id == "feel.cruiseThrottleRate" then rate = r end
@@ -471,6 +511,21 @@ end)
 -- construction-probe idiom: drill via region:push(id) (the SAME effect a button's onClick has),
 -- then h.apply({}) to lazily build/repaint (never basalt.run(), which blocks on pullEventRaw).
 
+-- populatedSlots(rowSlots): the CURRENTLY VISIBLE rows out of a windowed buildEditScreen's fixed
+-- N rowSlots (Task 2, 2026-09-05 brake-tune-scroll-menu -- rowSlots is now N FIXED slots, blank
+-- past the window tail, so a plain ipairs() over it includes blanks with slot.id == nil). Every
+-- pre-existing construction-probe test below that inspects row ids/labels/-+ buttons via rowSlots
+-- filters through this so it sees exactly the same "one entry per actual row" shape it always did
+-- -- count assertions ("exactly N rows") were updated to check elements.rowIds instead (the
+-- windowing-independent logical row-id list), which is unaffected by N/offset.
+local function populatedSlots(rowSlots)
+  local out = {}
+  for _, slot in ipairs(rowSlots) do
+    if slot.id then out[#out + 1] = slot end
+  end
+  return out
+end
+
 local function newHarness()
   local basalt = BasaltApp.ensureBasalt()
   local frame = basalt.createFrame() -- binds to term.current(), per ui/basalt/app.lua's header
@@ -533,9 +588,9 @@ t.test("M.build: drilling PRECISION -> cat -> GAINS axis -> ALT shows KP/KI/KD s
   region:push("edit_PRECISION_GAINS_alt"); h.apply({})
   t.eq(region:top(), "edit_PRECISION_GAINS_alt")
   local editHandle = region.built.edit_PRECISION_GAINS_alt.handle
-  t.eq(#editHandle.elements.rowSlots, 3, "ALT gains edit screen has exactly 3 rows (KP/KI/KD)")
+  t.eq(#editHandle.elements.rowIds, 3, "ALT gains edit screen has exactly 3 rows (KP/KI/KD)")
   local ids = {}
-  for _, slot in ipairs(editHandle.elements.rowSlots) do
+  for _, slot in ipairs(populatedSlots(editHandle.elements.rowSlots)) do
     ids[slot.id] = true
     t.truthy(slot.minus ~= nil and slot.plus ~= nil, "row " .. slot.id .. " has -/+ buttons")
   end
@@ -555,9 +610,9 @@ t.test("M.build: GAINS axis screen's BASE button homes the 3 non-axis gains rows
   t.eq(region:top(), "edit_PRECISION_GAINS_base")
 
   local baseHandle = region.built.edit_PRECISION_GAINS_base.handle
-  t.eq(#baseHandle.elements.rowSlots, 3, "BASE screen has exactly the 3 non-axis gains rows")
+  t.eq(#baseHandle.elements.rowIds, 3, "BASE screen has exactly the 3 non-axis gains rows")
   local ids = {}
-  for _, slot in ipairs(baseHandle.elements.rowSlots) do ids[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(baseHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["gains.hoverDuty"], "gains.hoverDuty present on BASE screen")
   t.truthy(ids["gains.heaveMin"], "gains.heaveMin present on BASE screen")
   t.truthy(ids["gains.heaveMax"], "gains.heaveMax present on BASE screen")
@@ -571,7 +626,7 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   region:push("cat_PRECISION"); h.apply({})
   region:push("edit_PRECISION_CAPS"); h.apply({})
   t.eq(region:top(), "edit_PRECISION_CAPS")
-  t.eq(#region.built.edit_PRECISION_CAPS.handle.elements.rowSlots, 5, "5 CAPS rows")
+  t.eq(#region.built.edit_PRECISION_CAPS.handle.elements.rowIds, 5, "5 CAPS rows")
 
   region:pop(); h.apply({})
   -- PRECISION's FEEL is now 14 rows (8 base + 6 shared trim/ramp/flip-guard) -- too many for one
@@ -584,14 +639,14 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.truthy(precFeelMenu.elements.extraBtn ~= nil, "feel_menu_PRECISION has a MODE FEEL button")
 
   region:push("edit_PRECISION_FEEL_base"); h.apply({})
-  t.eq(#region.built.edit_PRECISION_FEEL_base.handle.elements.rowSlots, 8, "8 base FEEL rows for PRECISION")
+  t.eq(#region.built.edit_PRECISION_FEEL_base.handle.elements.rowIds, 8, "8 base FEEL rows for PRECISION")
 
   region:pop(); h.apply({})
   region:push("edit_PRECISION_FEEL_extra"); h.apply({})
-  local precFeelExtra = region.built.edit_PRECISION_FEEL_extra.handle.elements.rowSlots
-  t.eq(#precFeelExtra, 6, "PRECISION MODE FEEL has exactly the 6 shared trim/ramp/flip-guard rows (no own extras)")
+  local precFeelExtraHandle = region.built.edit_PRECISION_FEEL_extra.handle
+  t.eq(#precFeelExtraHandle.elements.rowIds, 6, "PRECISION MODE FEEL has exactly the 6 shared trim/ramp/flip-guard rows (no own extras)")
   local precExtraIds = {}
-  for _, slot in ipairs(precFeelExtra) do precExtraIds[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(precFeelExtraHandle.elements.rowSlots)) do precExtraIds[slot.id] = true end
   t.truthy(precExtraIds["feel.trimGain"], "PRECISION MODE FEEL includes feel.trimGain")
   t.truthy(precExtraIds["feel.climbRampTime"], "PRECISION MODE FEEL includes feel.climbRampTime")
   t.truthy(precExtraIds["feel.climbBoost"], "PRECISION MODE FEEL includes feel.climbBoost")
@@ -614,20 +669,22 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.truthy(feelMenu.elements.extraBtn ~= nil, "feel_menu_MAN has a MODE FEEL button")
 
   region:push("edit_MAN_FEEL_base"); h.apply({})
-  local manFeelBase = region.built.edit_MAN_FEEL_base.handle.elements.rowSlots
-  t.eq(#manFeelBase, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
-  for _, slot in ipairs(manFeelBase) do
+  local manFeelBaseHandle = region.built.edit_MAN_FEEL_base.handle
+  t.eq(#manFeelBaseHandle.elements.rowIds, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
+  for _, slot in ipairs(populatedSlots(manFeelBaseHandle.elements.rowSlots)) do
     t.truthy(slot.id ~= "feel.tiltRate" and slot.id ~= "feel.tiltCap", "BASE FEEL excludes MAN's own extras: " .. slot.id)
   end
 
   region:pop(); h.apply({})
   region:push("edit_MAN_FEEL_extra"); h.apply({})
-  local manFeelExtra = region.built.edit_MAN_FEEL_extra.handle.elements.rowSlots
-  t.eq(#manFeelExtra, 8, "MODE FEEL has MAN's 2 own extras + the 6 rows shared by every flight mode")
+  local manFeelExtraHandle = region.built.edit_MAN_FEEL_extra.handle
+  t.eq(#manFeelExtraHandle.elements.rowIds, 13, "MODE FEEL has MAN's 2 own extras + 5 brake rows + the 6 rows shared by every flight mode")
   local extraIds = {}
-  for _, slot in ipairs(manFeelExtra) do extraIds[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(manFeelExtraHandle.elements.rowSlots)) do extraIds[slot.id] = true end
   t.truthy(extraIds["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
   t.truthy(extraIds["feel.tiltCap"], "MODE FEEL includes feel.tiltCap")
+  t.truthy(extraIds["feel.tiltBrake.engageSpeed"], "MODE FEEL includes feel.tiltBrake.engageSpeed")
+  t.truthy(extraIds["feel.tiltBrake.buttonMax"], "MODE FEEL includes feel.tiltBrake.buttonMax")
   t.truthy(extraIds["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
   t.truthy(extraIds["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
   t.truthy(extraIds["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
@@ -644,12 +701,14 @@ t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own 
   region:push("cat_CRUISE"); h.apply({})
   region:push("feel_menu_CRUISE"); h.apply({})
   region:push("edit_CRUISE_FEEL_extra"); h.apply({})
-  local extra = region.built.edit_CRUISE_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 8, "MODE FEEL has CRUISE's 2 own extras + the 6 rows shared by every flight mode")
+  local extraHandle = region.built.edit_CRUISE_FEEL_extra.handle
+  t.eq(#extraHandle.elements.rowIds, 13, "MODE FEEL has CRUISE's 2 own extras + 5 brake rows + the 6 rows shared by every flight mode")
   local ids = {}
-  for _, slot in ipairs(extra) do ids[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.cruiseThrottleRate"], "MODE FEEL includes feel.cruiseThrottleRate")
   t.truthy(ids["feel.cruiseThrottleMax"], "MODE FEEL includes feel.cruiseThrottleMax")
+  t.truthy(ids["feel.tiltBrake.engageSpeed"], "MODE FEEL includes feel.tiltBrake.engageSpeed")
+  t.truthy(ids["feel.tiltBrake.buttonMax"], "MODE FEEL includes feel.tiltBrake.buttonMax")
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
   t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
   t.truthy(ids["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
@@ -666,27 +725,30 @@ t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 6 rows share
   region:push("cat_LDG"); h.apply({})
   region:push("feel_menu_LDG"); h.apply({})
   region:push("edit_LDG_FEEL_extra"); h.apply({})
-  local extra = region.built.edit_LDG_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 6, "MODE FEEL has exactly the 6 rows shared by every flight mode")
+  local extraHandle = region.built.edit_LDG_FEEL_extra.handle
+  t.eq(#extraHandle.elements.rowIds, 6, "MODE FEEL has exactly the 6 rows shared by every flight mode -- LDG gets no brake rows")
   local ids = {}
-  for _, slot in ipairs(extra) do ids[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes feel.trimGain")
   t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes feel.climbRampTime")
   t.truthy(ids["feel.climbBoost"], "MODE FEEL includes feel.climbBoost")
   t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes feel.trimAuthority")
   t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes feel.trimFadeStart")
   t.truthy(ids["feel.trimFade"], "MODE FEEL includes feel.trimFade")
+  for id in pairs(ids) do
+    t.truthy(not id:match("^feel%.tiltBrake%."), "LDG MODE FEEL has no brake row: " .. id)
+  end
 
   region:pop(); h.apply({})
   region:push("edit_LDG_FEEL_base"); h.apply({})
-  local base = region.built.edit_LDG_FEEL_base.handle.elements.rowSlots
-  t.eq(#base, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
-  for _, slot in ipairs(base) do
+  local baseHandle = region.built.edit_LDG_FEEL_base.handle
+  t.eq(#baseHandle.elements.rowIds, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
+  for _, slot in ipairs(populatedSlots(baseHandle.elements.rowSlots)) do
     t.truthy(ids[slot.id] == nil, "BASE FEEL excludes LDG's shared extras: " .. slot.id)
   end
 end)
 
-t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + the 6 shared trim/ramp/flip-guard rows", function()
+t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + 5 brake rows + the 6 shared trim/ramp/flip-guard rows", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -694,12 +756,14 @@ t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/ti
   region:push("cat_DRN"); h.apply({})
   region:push("feel_menu_DRN"); h.apply({})
   region:push("edit_DRN_FEEL_extra"); h.apply({})
-  local extra = region.built.edit_DRN_FEEL_extra.handle.elements.rowSlots
-  t.eq(#extra, 8, "MODE FEEL has DRN's 2 own tilt extras + the 6 rows shared by every flight mode")
+  local extraHandle = region.built.edit_DRN_FEEL_extra.handle
+  t.eq(#extraHandle.elements.rowIds, 13, "MODE FEEL has DRN's 2 own tilt extras + 5 brake rows + the 6 rows shared by every flight mode")
   local ids = {}
-  for _, slot in ipairs(extra) do ids[slot.id] = true end
+  for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
   t.truthy(ids["feel.tiltCap"], "MODE FEEL includes feel.tiltCap")
+  t.truthy(ids["feel.tiltBrake.engageSpeed"], "MODE FEEL includes feel.tiltBrake.engageSpeed")
+  t.truthy(ids["feel.tiltBrake.buttonMax"], "MODE FEEL includes feel.tiltBrake.buttonMax")
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
   t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
   t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
@@ -814,7 +878,18 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
 
   local frameW, frameH = frame:getSize()
   t.eq(frameH, 12, "sanity: the page frame really is the short/realistic size, not the wide headless default")
-  local regionBudget = frameH - 2 -- mirrors M.build's own `height = math.max(1, h - 2)` exactly
+  -- Task 2 (2026-09-05 brake-tune-scroll-menu): buildEditScreen now windows to a FIXED N =
+  -- height-2 (or height-3 with a paged "up"/"down" row) stepper slots, whose footer/"?"/"<" row
+  -- ALWAYS lands on the frame's own bottom row (configkit.actionRow's "back" item auto-pins the
+  -- whole row to the frame's bottom regardless of the y passed in -- true before this retrofit
+  -- too, just previously masked by lastRowY tracking the un-pinned logical y instead of the real
+  -- pinned one). So every edit_* screen's lastRowY now equals frameH exactly, windowed or not --
+  -- widen ONLY the edit_* budget to frameH (still catches any windowed screen whose deepest row
+  -- would spill past the physical frame -- the real invariant this test protects). Every OTHER
+  -- builder (modes/cat_*/gains_axis_*/feel_menu_*) is untouched by this retrofit, is NOT windowed,
+  -- and can still genuinely overflow -- keep their original frameH-2 safety margin.
+  local editBudget = frameH
+  local otherBudget = frameH - 2
 
   local checked = 0
   for id, _ in pairs(region.screens) do
@@ -825,6 +900,7 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
       t.truthy(rec ~= nil, id .. " built")
       local handle = rec.handle
       t.truthy(handle.elements.lastRowY ~= nil, id .. " exposes lastRowY")
+      local regionBudget = (id:sub(1, 5) == "edit_") and editBudget or otherBudget
       t.truthy(handle.elements.lastRowY <= regionBudget,
         id .. ": lastRowY=" .. tostring(handle.elements.lastRowY) .. " exceeds region budget " .. tostring(regionBudget))
       checked = checked + 1
@@ -836,6 +912,133 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
   -- BASE/MODE, including PRECISION, since the 6 rows shared by every flight mode -- trim/ramp/
   -- flip-guard -- push its FEEL past the flat-screen budget too).
   t.truthy(checked >= 66, "walked all non-help screens across every mode, got " .. checked)
+end)
+
+-- ===== Task 2 (2026-09-05 brake-tune-scroll-menu): brake-curve rows + windowed edit screens =====
+
+t.test("brake rows: present in MODE FEEL for CRU/MAN/DRN, absent for PRE/LDG", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local function feelExtraIds(mode)
+    local ids = {}
+    for _, r in ipairs(T.rows({}, mode)) do
+      if r.id:match("^feel%.tiltBrake%.") then ids[r.id] = true end
+    end
+    return ids
+  end
+  for _, mode in ipairs({ "CRUISE", "MAN", "DRN" }) do
+    local ids = feelExtraIds(mode)
+    t.truthy(ids["feel.tiltBrake.engageSpeed"], mode .. " has BRAKE ENGAGE")
+    t.truthy(ids["feel.tiltBrake.buttonMax"],  mode .. " has BRAKE BTN")
+  end
+  for _, mode in ipairs({ "PRECISION", "LDG" }) do
+    local ids = feelExtraIds(mode)
+    t.eq(next(ids), nil, mode .. " has no brake rows")
+  end
+end)
+
+t.test("brake row apply writes the nested per-mode path, clamped to step/min/max", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local cfg = T.apply({}, "CRUISE", "feel.tiltBrake.engageSpeed", 1)  -- from default 30, step 1 -> 31
+  t.near(cfg.modes.CRUISE.feel.tiltBrake.engageSpeed, 31, 1e-9)
+  -- min clamp: buttonMax default 0.7854, step 0.02; huge negative delta floors at 0
+  local cfg2 = T.apply({}, "MAN", "feel.tiltBrake.buttonMax", -1000)
+  t.near(cfg2.modes.MAN.feel.tiltBrake.buttonMax, 0, 1e-9)
+end)
+
+-- ===== Construction probe: windowed edit screen paging (real CraftOS-PC Basalt) =====
+-- edit_CRUISE_FEEL_extra is now 13 rows (2 CRUISE throttle extras + 5 new brake rows + 6 shared
+-- trim/ramp/flip-guard rows) -- too many for ANY realistic monitor's stepper budget, so it must
+-- page. Built on an explicit SHORT/NARROW child frame (mirrors the fit-regression test's own
+-- 14x12 convention above), but at height=8 -- narrow enough that N (the actual windowed slot
+-- count) lands below 7, so offset-0 genuinely hides some of the brake rows (which sit right after
+-- CRUISE's own 2 throttle rows, i.e. rows 3-7 of the 13) and paging down surfaces them -- verified
+-- against the real configkit.actionRow width math (see buildEditScreen's header comment) rather
+-- than assumed.
+t.test("M.build: edit_CRUISE_FEEL_extra windows to <= height-2 slots and pages a hidden brake row into view", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local root = basalt.createFrame()
+  local frame = root:addFrame({ x = 1, y = 1, width = 14, height = 8 })
+  local nav = Nav.new("bitconfig")
+  local stored = nil
+  local function read(filename) return stored end
+  local function write(filename, body) stored = body end
+  local function delete(path) stored = nil end
+
+  local h = M.build(basalt, frame, nil, nav, read, write, delete)
+  local region = h.elements.region
+
+  local frameW, frameH = frame:getSize()
+  t.eq(frameH, 8, "sanity: short/realistic paging frame")
+
+  region:push("cat_CRUISE"); h.apply({})
+  region:push("feel_menu_CRUISE"); h.apply({})
+  region:push("edit_CRUISE_FEEL_extra"); h.apply({})
+  local extraHandle = region.built.edit_CRUISE_FEEL_extra.handle
+  local els = extraHandle.elements
+
+  t.eq(#els.rowIds, 13, "13 rows: 2 CRUISE own extras + 5 brake rows + 6 shared")
+  -- (a) windowed, not all 13 laid out -- at most N = height-2 stepper slots
+  t.truthy(#els.rowSlots <= frameH - 2, "rowSlots windowed to <= height-2, got " .. #els.rowSlots)
+  t.truthy(#els.rowSlots < 13, "fewer slots than the full 13-row set (actually paging)")
+  t.truthy(els.lastRowY <= frameH, "footer/lastRowY fits inside the frame")
+
+  -- (b) rows overflow -> scrollUp/scrollDown handles present
+  t.truthy(els.scrollUp ~= nil, "scrollUp present when rows overflow")
+  t.truthy(els.scrollDown ~= nil, "scrollDown present when rows overflow")
+
+  local function visibleIds()
+    local ids = {}
+    for _, slot in ipairs(els.rowSlots) do if slot.id then ids[slot.id] = true end end
+    return ids
+  end
+  local before = visibleIds()
+
+  els.pageDown()
+  local after = visibleIds()
+  local newBrakeRow = false
+  for id in pairs(after) do
+    if id:match("^feel%.tiltBrake%.") and not before[id] then newBrakeRow = true end
+  end
+  t.truthy(newBrakeRow, "paging down surfaces a brake row that was not visible at offset 0")
+
+  -- (c) a screen that FITS has no scroll buttons
+  region:push("edit_CRUISE_CAPS"); h.apply({})
+  local capsHandle = region.built.edit_CRUISE_CAPS.handle
+  t.eq(capsHandle.elements.scrollUp, nil, "fitting screen (CAPS) has no scrollUp")
+  t.eq(capsHandle.elements.scrollDown, nil, "fitting screen (CAPS) has no scrollDown")
+  t.truthy(#capsHandle.elements.rowSlots >= 5, "fitting screen shows every one of its 5 rows at offset 0")
+end)
+
+-- FIX 1 (review, 2026-09-05): a fitting screen must stay PIXEL-IDENTICAL to the pre-retrofit
+-- layout -- exactly #rowIds stepper slots, footer landing right after the last row, no blank
+-- padding slots down to the frame's bottom. buildEditScreen's non-overflow branch must cap N at
+-- #rowIds (not the full height-2 budget). Verified against the current (post-FIX1) code as GREEN;
+-- against the pre-FIX1 code (N always fixed at height-2 regardless of row count) this would have
+-- FAILED -- e.g. edit_CRUISE_CAPS has 5 rows but a 14x12 frame's N_fit=10, so the old fixed-N code
+-- built 10 rowSlots (5 populated + 5 blank) instead of exactly 5.
+t.test("FIX 1: a fitting edit screen (edit_CRUISE_CAPS) lays out exactly #rowIds rowSlots -- no blank padding", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local root = basalt.createFrame()
+  local frame = root:addFrame({ x = 1, y = 1, width = 14, height = 12 })
+  local nav = Nav.new("bitconfig")
+  local stored = nil
+  local function read(filename) return stored end
+  local function write(filename, body) stored = body end
+  local function delete(path) stored = nil end
+
+  local h = M.build(basalt, frame, nil, nav, read, write, delete)
+  local region = h.elements.region
+  region:push("cat_CRUISE"); h.apply({})
+  region:push("edit_CRUISE_CAPS"); h.apply({})
+  local capsHandle = region.built.edit_CRUISE_CAPS.handle
+
+  t.eq(#capsHandle.elements.rowIds, 5, "sanity: CAPS has 5 rows")
+  t.eq(#capsHandle.elements.rowSlots, 5, "fitting screen creates exactly #rowIds rowSlots, no blank padding")
+  for i, slot in ipairs(capsHandle.elements.rowSlots) do
+    t.truthy(slot.id ~= nil, "slot " .. i .. " is populated, not blank")
+  end
+  -- footer lands right after the last (5th) row, not padded down to the frame's bottom
+  t.eq(capsHandle.elements.lastRowY, 2 + 5, "footer lands right after the last row (y0=2 + 5 rows)")
 end)
 
 return true
