@@ -5,6 +5,15 @@ local Master = require("fcs.modes.master")
 local Flight = {}
 Flight.__index = Flight
 
+-- Deep-copy helper (mirrors fcs/io/tuningdefaults.lua's `deep`): an injected deps.emrcvr, or the
+-- shared tuningdefaults table, must never be mutated by a later live setEmrcvrCfg edit.
+local function deepCopy(v)
+  if type(v) ~= "table" then return v end
+  local o = {}
+  for k, x in pairs(v) do o[k] = deepCopy(x) end
+  return o
+end
+
 -- Default trimDir at boot: the default mode's own feel.trimDir when the registry descriptor
 -- carries one (real fcs.io.tuningdefaults-built feels do), else -1 (nose-down trim convention).
 local function defaultTrimDir(reg)
@@ -16,6 +25,10 @@ end
 function Flight.new(deps)
   return setmetatable({
     loop = deps.loop, pilot = deps.pilot, registry = deps.registry,
+    -- EMRCVR config (Task 2): deps.emrcvr, or the shared tuningdefaults block when no dep is
+    -- injected (tests / callers that don't care). Deep-copied so a later setEmrcvrCfg live edit
+    -- can never mutate the caller's dep table or the shared tuningdefaults singleton.
+    emr = deepCopy(deps.emrcvr or require("fcs.io.tuningdefaults").get().emrcvr),
     -- §11.8 no-fuel interlock: deps.fuel is an injected getter returning the mean lift-thruster
     -- fuel fraction (0..1) or nil when the gauge has never read. Reads the FCS's already-polled
     -- 1 Hz snapshot -- no extra mainThread I/O, no UI/NAV sensor polling. minFuel trips the
@@ -69,6 +82,13 @@ function Flight.new(deps)
     -- PARAMS extras (devWarn/disk) ride telemetry only while paramsWatch is on.
     paramsWatch = false, disk = false, devWarn = false, diskPresent = deps.diskPresent,
   }, Flight)
+end
+
+-- Live EMRCVR config update (e.g. from BIT/CONFIG or config-sync): merge numeric fields only,
+-- leaving unspecified fields (and any non-numeric junk) untouched.
+function Flight:setEmrcvrCfg(t)
+  if type(t) ~= "table" then return end
+  for k, v in pairs(t) do if type(v) == "number" then self.emr[k] = v end end
 end
 
 function Flight:handleCommand(cmd)

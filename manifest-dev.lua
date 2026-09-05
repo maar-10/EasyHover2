@@ -473,9 +473,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 9764,
+          ["size"] = 10386,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "54d8059f",
+          ["sum"] = "48dcc7cf",
         },
         {
           ["dst"] = "fcs/leash.lua",
@@ -509,9 +509,9 @@
         },
         {
           ["dst"] = "fcs/runtime/flight.lua",
-          ["size"] = 18261,
+          ["size"] = 19275,
           ["src"] = "fcs/runtime/flight.lua",
-          ["sum"] = "1b9d5d55",
+          ["sum"] = "97a3b9e6",
         },
         {
           ["dst"] = "fcs/runtime/loop.lua",
@@ -605,9 +605,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 34924,
+          ["size"] = 34950,
           ["src"] = "tools/flight.lua",
-          ["sum"] = "4e0478d8",
+          ["sum"] = "4b45abd0",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -730,9 +730,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 9764,
+          ["size"] = 10386,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "54d8059f",
+          ["sum"] = "48dcc7cf",
         },
         {
           ["dst"] = "nav/app.lua",
@@ -977,9 +977,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 9764,
+          ["size"] = 10386,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "54d8059f",
+          ["sum"] = "48dcc7cf",
         },
         {
           ["dst"] = "fcs/mixer/level_flight.lua",
@@ -1406,9 +1406,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 9764,
+          ["size"] = 10386,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "54d8059f",
+          ["sum"] = "48dcc7cf",
         },
         {
           ["dst"] = "fcs2disk",
@@ -1458,9 +1458,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 9764,
+          ["size"] = 10386,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "54d8059f",
+          ["sum"] = "48dcc7cf",
         },
         {
           ["dst"] = "splitconfig",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "818b9553",
+  ["version"] = "b194d2a0",
 }

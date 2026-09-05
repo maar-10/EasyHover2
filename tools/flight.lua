@@ -118,6 +118,7 @@ local Master = require("fcs.modes.master")
 pilot:setMaster(Master.byId[Master.default].driftArrest)
 local flight = Flight.new({ loop = loop, pilot = pilot, registry = registry, config = config,
   park = tuning.park,
+  emrcvr = tuning.emrcvr,
   setGroundSense = function(b) backend:setGroundSense(b) end,
   fuel = function() return fuelState.fuelMain end,
   setFuelScale = function(x) loop:setFuelScale(x) end,
