@@ -884,11 +884,12 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
   -- whole row to the frame's bottom regardless of the y passed in -- true before this retrofit
   -- too, just previously masked by lastRowY tracking the un-pinned logical y instead of the real
   -- pinned one). So every edit_* screen's lastRowY now equals frameH exactly, windowed or not --
-  -- the budget below widens from the old "2-row margin" (frameH-2) to frameH itself, which still
-  -- catches any screen whose deepest row would spill past the physical frame (the real invariant
-  -- this test protects), while every non-edit screen (modes/cat_*/gains_axis_*/feel_menu_*,
-  -- untouched by this retrofit) stays comfortably within it exactly as before.
-  local regionBudget = frameH
+  -- widen ONLY the edit_* budget to frameH (still catches any windowed screen whose deepest row
+  -- would spill past the physical frame -- the real invariant this test protects). Every OTHER
+  -- builder (modes/cat_*/gains_axis_*/feel_menu_*) is untouched by this retrofit, is NOT windowed,
+  -- and can still genuinely overflow -- keep their original frameH-2 safety margin.
+  local editBudget = frameH
+  local otherBudget = frameH - 2
 
   local checked = 0
   for id, _ in pairs(region.screens) do
@@ -899,6 +900,7 @@ t.test("REGRESSION: every tuning screen's deepest row fits a realistic ~12-row m
       t.truthy(rec ~= nil, id .. " built")
       local handle = rec.handle
       t.truthy(handle.elements.lastRowY ~= nil, id .. " exposes lastRowY")
+      local regionBudget = (id:sub(1, 5) == "edit_") and editBudget or otherBudget
       t.truthy(handle.elements.lastRowY <= regionBudget,
         id .. ": lastRowY=" .. tostring(handle.elements.lastRowY) .. " exceeds region budget " .. tostring(regionBudget))
       checked = checked + 1
@@ -1005,6 +1007,38 @@ t.test("M.build: edit_CRUISE_FEEL_extra windows to <= height-2 slots and pages a
   t.eq(capsHandle.elements.scrollUp, nil, "fitting screen (CAPS) has no scrollUp")
   t.eq(capsHandle.elements.scrollDown, nil, "fitting screen (CAPS) has no scrollDown")
   t.truthy(#capsHandle.elements.rowSlots >= 5, "fitting screen shows every one of its 5 rows at offset 0")
+end)
+
+-- FIX 1 (review, 2026-09-05): a fitting screen must stay PIXEL-IDENTICAL to the pre-retrofit
+-- layout -- exactly #rowIds stepper slots, footer landing right after the last row, no blank
+-- padding slots down to the frame's bottom. buildEditScreen's non-overflow branch must cap N at
+-- #rowIds (not the full height-2 budget). Verified against the current (post-FIX1) code as GREEN;
+-- against the pre-FIX1 code (N always fixed at height-2 regardless of row count) this would have
+-- FAILED -- e.g. edit_CRUISE_CAPS has 5 rows but a 14x12 frame's N_fit=10, so the old fixed-N code
+-- built 10 rowSlots (5 populated + 5 blank) instead of exactly 5.
+t.test("FIX 1: a fitting edit screen (edit_CRUISE_CAPS) lays out exactly #rowIds rowSlots -- no blank padding", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local root = basalt.createFrame()
+  local frame = root:addFrame({ x = 1, y = 1, width = 14, height = 12 })
+  local nav = Nav.new("bitconfig")
+  local stored = nil
+  local function read(filename) return stored end
+  local function write(filename, body) stored = body end
+  local function delete(path) stored = nil end
+
+  local h = M.build(basalt, frame, nil, nav, read, write, delete)
+  local region = h.elements.region
+  region:push("cat_CRUISE"); h.apply({})
+  region:push("edit_CRUISE_CAPS"); h.apply({})
+  local capsHandle = region.built.edit_CRUISE_CAPS.handle
+
+  t.eq(#capsHandle.elements.rowIds, 5, "sanity: CAPS has 5 rows")
+  t.eq(#capsHandle.elements.rowSlots, 5, "fitting screen creates exactly #rowIds rowSlots, no blank padding")
+  for i, slot in ipairs(capsHandle.elements.rowSlots) do
+    t.truthy(slot.id ~= nil, "slot " .. i .. " is populated, not blank")
+  end
+  -- footer lands right after the last (5th) row, not padded down to the frame's bottom
+  t.eq(capsHandle.elements.lastRowY, 2 + 5, "footer lands right after the last row (y0=2 + 5 rows)")
 end)
 
 return true

@@ -578,10 +578,13 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
       -- N_fit = every row visible with a single-row "?"/"<" footer; if the row set overflows that,
       -- drop to N (one row smaller) and split the footer into an "up"/"down" row above the "?"/"<"
       -- row -- both rows still land inside the frame (the "?"/"<" row's actionRow "back" item
-      -- auto-pins it to the frame's bottom row regardless of the y passed in).
+      -- auto-pins it to the frame's bottom row regardless of the y passed in). A FITTING screen
+      -- (#rowIds <= N_fit) gets EXACTLY #rowIds slots -- not N_fit -- so its footer lands right
+      -- after the last row, pixel-identical to the pre-retrofit layout (no blank stepper rows
+      -- padding down to the frame's bottom).
       local N_fit = math.max(1, fh - 2)
       local overflow = #rowIds > N_fit
-      local N = overflow and math.max(1, fh - 3) or N_fit
+      local N = overflow and math.max(1, fh - 3) or math.max(1, math.min(N_fit, #rowIds))
       local offset = 0
 
       -- Forward-declared: the +/- and up/down onClick closures reference refresh()/offset before
@@ -589,17 +592,28 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
       -- as configkit.helpScreen's `row`/`render`.
       local refresh
 
+      -- setBracketVisible(br, vis): hide/show a FULL bracketBtn ctrl -- the centre button AND its
+      -- flanking "["/"]" labels -- mirrors ui/basalt/keypad.lua's hideBracket idiom so a blank slot
+      -- (past the window tail on an overflowing screen's last page) renders truly empty instead of
+      -- leaving "[ ]" brackets with nothing between them.
+      local function setBracketVisible(br, vis)
+        if br.button and br.button.setVisible then br.button:setVisible(vis) end
+        if br.open and br.open.setVisible then br.open:setVisible(vis) end
+        if br.close and br.close.setVisible then br.close:setVisible(vis) end
+      end
+
       local rowSlots = {}
       for i = 1, N do
         local yy = y0 + i - 1
-        local lbl   = f:addLabel({ x = fx, y = yy, width = labelW, height = 1, autoSize = false, text = "" })
-        local minus = configkit.bracketBtn(f, minusX, yy, "-", colors.orange).button   -- [-] orange function
-        local plus  = configkit.bracketBtn(f, plusX,  yy, "+", colors.orange).button   -- [+]
-        local slot = { id = nil, label = lbl, minus = minus, plus = plus }
+        local lbl     = f:addLabel({ x = fx, y = yy, width = labelW, height = 1, autoSize = false, text = "" })
+        local minusBr = configkit.bracketBtn(f, minusX, yy, "-", colors.orange)   -- [-] orange function
+        local plusBr  = configkit.bracketBtn(f, plusX,  yy, "+", colors.orange)   -- [+]
+        local slot = { id = nil, label = lbl, minus = minusBr.button, plus = plusBr.button,
+                       minusBr = minusBr, plusBr = plusBr }
         -- Reference slot.id (the CURRENT row under this slot at click time), never a captured id --
         -- refresh() reassigns slot.id on every window move, this same slot object stays put.
-        minus:onClick(function() if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id, -1); refresh() end end)
-        plus:onClick(function()  if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id,  1); refresh() end end)
+        slot.minus:onClick(function() if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id, -1); refresh() end end)
+        slot.plus:onClick(function()  if slot.id then workingCfg = M.apply(workingCfg, mode, slot.id,  1); refresh() end end)
         rowSlots[i] = slot
       end
 
@@ -638,12 +652,12 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
           local r = rid and byId[rid]
           if r then
             slot.label:setText(configkit.fitLabel(r.label .. " " .. fmtVal(r.value, r.step), labelW))
-            if slot.minus.setVisible then slot.minus:setVisible(true) end
-            if slot.plus.setVisible then slot.plus:setVisible(true) end
+            setBracketVisible(slot.minusBr, true)
+            setBracketVisible(slot.plusBr, true)
           else
             slot.label:setText("")
-            if slot.minus.setVisible then slot.minus:setVisible(false) end
-            if slot.plus.setVisible then slot.plus:setVisible(false) end
+            setBracketVisible(slot.minusBr, false)
+            setBracketVisible(slot.plusBr, false)
           end
         end
       end
