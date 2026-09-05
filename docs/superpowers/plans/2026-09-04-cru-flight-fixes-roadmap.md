@@ -72,7 +72,17 @@ modest `kp_roll` bump. Highest-value change.
 lateral slide from the tilted lift vector of the standing banks. **Expected to largely resolve once
 #1 lands.** Re-measure after #1 before touching sway tuning.
 
-### 3. CRU braking doesn't work — VERDICT: design gap (throttle can't reverse)
+### 3. CRU braking doesn't work — VERDICT: design gap (throttle can't reverse) — ✅ SHIPPED 2026-09-05 (main bacbbd3)
+Shipped: CRU arrests at throttle 0 (frontal thrusters) + a speed-scaled, drift-opposing pitch/roll
+**tilt-brake vector** (CRU/MAN/DRN, engage 30 → saturate 100 blk/s, 15°→30° auto, 45° on the new CTRL
+brake button); trim reworked to an attitude setpoint the #1 loop holds; old lean commented-out. Spec
+`docs/superpowers/specs/2026-09-04-cru-braking-tilt-brake-design.md`, plan
+`…/plans/2026-09-04-cru-braking-tilt-brake.md`. New pure `fcs/brake.lua`. **OWED (in-world):** verify;
+raise CRU `caps.pitch/roll` for the 30–45° hold; confirm the typewriter forwards `leftCtrl` (fallback
+`keys.c`). **DEFERRED FOLLOW-UP:** wire the tiltBrake curve (engage/sat/min/max/buttonMax) as
+live-tunable BIT/CONFIG rows — blocked on the MODE FEEL row budget (already at cap), needs a new
+group/drilldown (operator UI-layout call). **NEW FUTURE SAFETY ITEM (surfaced in brainstorm):**
+extreme-attitude / control-loss auto-recovery in hand-flown modes (DAMPED is oscillation-only today).
 At the 272 blk/s decel (t≈211) the craft **coasts on drag only**: `dSurge=0`, `FRL/FRR=0`,
 `ff_pitch=0`. Cause (`fcs/input/pilot.lua:145-151`): CRU throttle is clamped to **[0, max]** — holding
 S only ramps MAIN down to 0, never negative, so there is no active brake and no negative surge demand
@@ -118,7 +128,8 @@ bounce. Add a release capture that snaps `sp.altitude` to current + a tiny stop-
    Lands first because it changes how everything else feels (re-tune rates on the stabilized craft).
    ✅ **SHIPPED 2026-09-04 (main 09d7539).** In-world verify owed before continuing to re-tune rates.
 2. **CRU active braking** — reverse/brake throttle → frontal thrusters + trim pitch-up aerobrake (#3).
-   No speed cap (#4).
+   No speed cap (#4). ✅ **SHIPPED 2026-09-05 (main bacbbd3).** In-world verify owed; live-tune UI + the
+   new extreme-attitude-recovery safety item deferred (see #3 above).
 3. **Snappy release** — altitude release-capture (#9) + yaw release-capture tuning (#6).
 4. **Rate tuning pass** — yaw rate (#5), CRU strafe (#7), PRE climb/descend (#8). Last, on the
    stabilized craft; re-measure sway (#2) here.
