@@ -46,6 +46,9 @@ function Flight.new(deps)
     setFuelScale = deps.setFuelScale, saveFuel = deps.saveFuel,
     fuelName = deps.fuelName or fueltable.default,
     canPark = false, groundSense = false,
+    -- EMRCVR (Task 3): latch + captured recovery target + dwell timer + scope-save for the
+    -- entry-mutated scheme/gains (comAuto ki-scoping pattern; see _emrEnter/_emrExit).
+    emrcvr = false, emrcvrAlt = nil, emrStableT = 0, _emrSch = nil, _emrSaved = nil,
     engaged = false, gndSafety = true, positionHold = false,
     fuelPump = false, flightMode = (deps.registry and deps.registry.default) or "PRECISION", parked = false,
     trimDir = defaultTrimDir(deps.registry),
@@ -122,31 +125,7 @@ function Flight:handleCommand(cmd)
     end
     return true
   elseif k == "flightMode" then
-    local reg = self.registry
-    local d = reg and reg.byId[cmd.id]
-    if not d then return true end                 -- unknown id: stay on current mode
-    if self._comKiSaved and self._comKiSch == self.loop.scheme then
-      self:_restoreComKi()                        -- mode switch mid-HOLD: restore BEFORE switching
-    end
-    self.loop:setActive(d)
-    self.pilot:setMode(d.policy, d.feel)
-    self.flightMode = cmd.id
-    -- §3.3 latch wiring: mirror the new descriptor's flags and (re)gate the ground sensor.
-    -- self.parked is deliberately left untouched here -- HONOR/CLEAR is step()'s sole authority
-    -- (Task 7), so the latch persists across a switch away from LDG.
-    self.canPark = d.canPark or false
-    self.groundSense = d.groundSense or false
-    if self.setGroundSense then self.setGroundSense(self.groundSense) end
-    self.trimDir = (d.feel and d.feel.trimDir) or self.trimDir
-    self.trimGain = (d.feel and d.feel.trimGain) or self.trimGain
-    self.trimAuthority = (d.feel and d.feel.trimAuthority) or self.trimAuthority
-    self.trimFadeStart = (d.feel and d.feel.trimFadeStart) or self.trimFadeStart
-    self.trimFade = (d.feel and d.feel.trimFade) or self.trimFade
-    if d.feel and d.feel.brakeTrim ~= nil then self.brakeTrim = d.feel.brakeTrim end
-    if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
-    -- A1: reseed pilot setpoints from last meas so a CRUISE-leashed surgePos cannot slam
-    -- reverse under CPL after the switch. Skip when _lastMeas is nil (boot, before first step).
-    if self._lastMeas and self.pilot.reset then self.pilot:reset(self._lastMeas) end
+    self:_applyFlightMode(cmd.id)
     return true
     elseif k == "flightTrim" then
     local dir = (cmd.dir and cmd.dir < 0) and -1 or 1
@@ -155,10 +134,7 @@ function Flight:handleCommand(cmd)
     if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
     return true
   elseif k == "masterMode" then
-    local d = Master.byId[cmd.id]
-    if not d then return true end
-    self.masterMode = cmd.id
-    if self.pilot.setMaster then self.pilot:setMaster(d.driftArrest) end
+    self:_applyMasterMode(cmd.id)
     return true
   elseif k == "comAuto" then
     if cmd.op == "abort" then
@@ -195,6 +171,45 @@ function Flight:handleCommand(cmd)
     return true
   end
   return false
+end
+
+-- Shared mode-transition helpers (pure refactor out of handleCommand's flightMode/masterMode
+-- branches -- behavior-preserving). Both are also called directly by _emrExit (below) to drop
+-- the craft into a clean CPL/PRECISION hover once recovery completes, without re-parsing a
+-- synthetic command.
+function Flight:_applyFlightMode(id)
+  local reg = self.registry
+  local d = reg and reg.byId[id]
+  if not d then return end                       -- unknown id: stay on current mode
+  if self._comKiSaved and self._comKiSch == self.loop.scheme then
+    self:_restoreComKi()                         -- mode switch mid-HOLD: restore BEFORE switching
+  end
+  self.loop:setActive(d)
+  self.pilot:setMode(d.policy, d.feel)
+  self.flightMode = id
+  -- §3.3 latch wiring: mirror the new descriptor's flags and (re)gate the ground sensor.
+  -- self.parked is deliberately left untouched here -- HONOR/CLEAR is step()'s sole authority
+  -- (Task 7), so the latch persists across a switch away from LDG.
+  self.canPark = d.canPark or false
+  self.groundSense = d.groundSense or false
+  if self.setGroundSense then self.setGroundSense(self.groundSense) end
+  self.trimDir = (d.feel and d.feel.trimDir) or self.trimDir
+  self.trimGain = (d.feel and d.feel.trimGain) or self.trimGain
+  self.trimAuthority = (d.feel and d.feel.trimAuthority) or self.trimAuthority
+  self.trimFadeStart = (d.feel and d.feel.trimFadeStart) or self.trimFadeStart
+  self.trimFade = (d.feel and d.feel.trimFade) or self.trimFade
+  if d.feel and d.feel.brakeTrim ~= nil then self.brakeTrim = d.feel.brakeTrim end
+  if self.loop.setTrim then self.loop:setTrim(self.trimDir, self.trimGain, self.trimAuthority, self.trimFadeStart, self.trimFade, self.brakeTrim) end
+  -- A1: reseed pilot setpoints from last meas so a CRUISE-leashed surgePos cannot slam
+  -- reverse under CPL after the switch. Skip when _lastMeas is nil (boot, before first step).
+  if self._lastMeas and self.pilot.reset then self.pilot:reset(self._lastMeas) end
+end
+
+function Flight:_applyMasterMode(id)
+  local d = Master.byId[id]
+  if not d then return end
+  self.masterMode = id
+  if self.pilot.setMaster then self.pilot:setMaster(d.driftArrest) end
 end
 
 -- LDG landed-detector (design §4.3). Permissive, for uneven/tilted ground: parks when the craft is
@@ -263,12 +278,88 @@ function Flight:_restoreComKi()
   self._comKiSch = nil
 end
 
+-- EMRCVR emergency recovery (detect / right / restore / exit). Top priority within `engaged`:
+-- an excessive tilt while airborne locks out pilot/UI control, rights the craft with elevated
+-- attitude authority, restores altitude, and hands back a clean CPL/PRECISION hover once level
+-- and slow for `dwell` seconds. See loop:setEmrcvr (Task 1) for the mirrored, DAMPED-suppressing
+-- loop-side mode, and self.emr (Task 2) for the tuning block this reads.
+function Flight:_emrEnter(meas)
+  self.emrcvr = true
+  self.emrcvrAlt = meas.altitude          -- restore target
+  self.emrStableT = 0
+  if self.comAuto and self.comAuto.abort then self.comAuto:abort("EMRCVR") end
+  -- Elevate attitude authority; SCOPE the save to the exact scheme object we mutate (mirrors the
+  -- comAuto ki-scoping pattern in _restoreComKi -- a later mode switch must never write the
+  -- recovery gain into whatever scheme happens to be active when _emrExit runs).
+  -- CRUISE/DRN wrap an inner Level scheme (fcs/schemes/cruise.lua, drone.lua); mirror loop:diag's
+  -- `level = scheme.inner or scheme` so the PID objects mutated here are the ones actually driving
+  -- the loop.
+  local sch = self.loop.scheme
+  self._emrSch = sch
+  local level = (sch and sch.inner) or sch
+  self._emrSaved = { kp_p = level.pitchPid.kp, kp_r = level.rollPid.kp, caps = self.loop.caps }
+  level.pitchPid.kp, level.rollPid.kp = self.emr.kpAtt, self.emr.kpAtt
+  self.loop.caps = { pitch = self.emr.capAtt, roll = self.emr.capAtt,
+                     yaw = self._emrSaved.caps.yaw, sway = self._emrSaved.caps.sway, surge = self._emrSaved.caps.surge }
+  if self.loop.setEmrcvr then self.loop:setEmrcvr(true) end
+  self.pilot:setPositionHold(false)
+end
+
+function Flight:_emrStep(dt, meas)
+  local emr = self.emr
+  local tiltMag = math.max(math.abs(meas.pitch or 0), math.abs(meas.roll or 0))
+  local alt = (tiltMag < emr.levelBand) and self.emrcvrAlt or meas.altitude
+  self.loop:setpoints({ pitch = 0, roll = 0, heading = meas.heading,
+                        altitude = alt, swayPos = meas.swayPos, surgePos = meas.surgePos })
+  self.loop:arm(true)
+  local drift = math.sqrt((meas.surgeVel or 0)^2 + (meas.swayVel or 0)^2)
+  if math.abs(meas.pitch or 0) < emr.exitAngle and math.abs(meas.roll or 0) < emr.exitAngle
+     and drift < emr.maxDrift then
+    self.emrStableT = (self.emrStableT or 0) + (dt > 0 and dt or 0)
+    if self.emrStableT >= emr.dwell then self:_emrExit(meas) end
+  else
+    self.emrStableT = 0
+  end
+end
+
+function Flight:_emrExit(meas)
+  -- Restore the exact scheme object (and PID) we mutated -- not whatever is active now.
+  local sch = self._emrSch
+  if sch and self._emrSaved then
+    local level = (sch.inner) or sch
+    level.pitchPid.kp = self._emrSaved.kp_p
+    level.rollPid.kp = self._emrSaved.kp_r
+    self.loop.caps = self._emrSaved.caps
+  end
+  self._emrSch, self._emrSaved = nil, nil
+  if self.loop.setEmrcvr then self.loop:setEmrcvr(false) end
+  self.emrcvr = false; self.emrStableT = 0
+  self:_applyMasterMode("CPL")            -- clean slate
+  self:_applyFlightMode("PRECISION")
+  if self.pilot.reset then self.pilot:reset(meas) end
+end
+
 function Flight:step(dt, held, meas)
   self._lastMeas = meas
   local autoOn = self.comAuto and self.comAuto:active()
   if autoOn then held = {} end
   self:_checkFuel(meas)
   if self.engaged then
+    -- EMRCVR check FIRST: overrides parked/comAuto/pilot below whenever latched, and can latch
+    -- fresh this very tick if the trip condition just fired.
+    local emr = self.emr
+    local tiltMag = math.max(math.abs(meas.pitch or 0), math.abs(meas.roll or 0))
+    local airborne = not (meas.onGround == true)
+    if self.engaged and not self.emrcvr and airborne and tiltMag > emr.tripAngle then
+      self:_emrEnter(meas)
+    end
+    if self.emrcvr then
+      self:_emrStep(dt, meas)
+      local r = self.loop:cycle(dt, meas)
+      self.lastDiag = r
+      if dt > 0 then self._loopHz = 1 / dt end
+      return self:snapshot(r, meas)
+    end
     if self._needReset then self.pilot:reset(meas); self._needReset = false end
     -- §3.3 global parked latch: HONOR and CLEAR are step()'s sole authority (SET is Task 8's
     -- LDG-only landed-detector, below). Once latched, EVERY mode honors it -- zero control, inputs
@@ -352,7 +443,8 @@ function Flight:snapshot(r, meas)
     positionHold = self.positionHold, fuelPump = self.fuelPump, parked = self.parked,
     noFuel = self.noFuel,
     fuel = self.fuelName, fuelPct = fueltable.pctOf(self.fuelName), badFuel = fueltable.isBad(self.fuelName),
-    mode = self.parked and "PARKED" or ((r and r.mode) or self.loop:getMode()),
+    emrcvr = self.emrcvr and true or false,
+    mode = self.emrcvr and "EMRCVR" or (self.parked and "PARKED" or ((r and r.mode) or self.loop:getMode())),
     flightMode = self.flightMode,
     masterMode = self.masterMode,
     trimDir = self.trimDir,
