@@ -23,12 +23,13 @@ end)
 t.test("yaw defaults detuned for a crisp release stop (lower turn rate + more damping)", function()
   -- Higher-momentum heavy craft overshoots on release. Halve the turn rate (leadCapHeading) and
   -- raise yaw kd so the craft stops near release instead of ringing back 20-30deg.
+  -- (2026-09-05, fix #5: leadCapHeading raised again 0.45->1.1 for a snappier turn; kd unchanged.)
   local p = tuning.forMode("PRECISION")
   t.near(p.gains.yaw.kd, 1.8, 1e-9, "yaw kd raised for damping")
-  t.near(p.feel.leadCapHeading, 0.45, 1e-9, "yaw turn rate (lead cap) reduced from 0.70, nudged up from 0.35")
+  t.near(p.feel.leadCapHeading, 1.1, 1e-9, "yaw turn rate (lead cap) raised again to 1.1 (fix #5)")
   local man = tuning.forMode("MAN")
   t.near(man.gains.yaw.kd, 1.8, 1e-9, "MAN inherits the damped yaw")
-  t.near(man.feel.leadCapHeading, 0.45, 1e-9, "MAN inherits the turn rate")
+  t.near(man.feel.leadCapHeading, 1.1, 1e-9, "MAN inherits the turn rate")
 end)
 
 t.test("yawStopLead is a live feel knob across the tilt modes (snappy-yaw release stop)", function()
@@ -113,9 +114,9 @@ t.test("faster climb/descend: per-mode vertical authority (kp/leadCapVert/kd/cli
   -- steady climb v ~= kp*leadCapVert/kd. PRE(base)+MAN/DRN moderate; CRUISE aggressive; LDG pinned gentle.
   for _, mode in ipairs({ "PRECISION", "MAN", "DRN" }) do
     local m = tuning.forMode(mode)
-    t.near(m.gains.alt.kp, 0.035, 1e-9, mode.." alt kp raised (0.02->0.035)")
+    t.near(m.gains.alt.kp, 0.06, 1e-9, mode.." alt kp raised again (0.035->0.06, fix #7)")
     t.near(m.gains.alt.kd, 0.15,  1e-9, mode.." alt kd unchanged")
-    t.near(m.feel.leadCapVert, 10.0, 1e-9, mode.." leadCapVert raised (8->10)")
+    t.near(m.feel.leadCapVert, 14.0, 1e-9, mode.." leadCapVert raised again (10->14, fix #7)")
     t.near(m.feel.climbRate,   5.0,  1e-9, mode.." climbRate raised (4.5->5)")
   end
   local cru = tuning.forMode("CRUISE")
@@ -152,6 +153,30 @@ t.test("attitude leveling integral resolves per mode (fix #1)", function()
   t.near(tuning.forMode("MAN").gains.roll.ki,  0, 1e-9, "MAN roll ki off")
   t.near(tuning.forMode("DRN").gains.pitch.ki, 0, 1e-9, "DRN pitch ki off")
   t.near(tuning.forMode("DRN").gains.roll.ki,  0, 1e-9, "DRN roll ki off")
+end)
+
+t.test("rate-tuning defaults resolve per mode (fix #5-#9)", function()
+  local function feel(m) return tuning.forMode(m).feel end
+  local function gains(m) return tuning.forMode(m).gains end
+  -- base (PRECISION reads top-level)
+  local pf, pg = feel("PRECISION"), gains("PRECISION")
+  t.near(pf.headingRate, 4.5, 1e-9); t.near(pf.leadCapHeading, 1.1, 1e-9)
+  t.near(pf.yawStopLead, 0.05, 1e-9); t.near(pf.altStopLead, 0.10, 1e-9)
+  t.near(pf.leadCapVert, 14.0, 1e-9); t.near(pg.alt.kp, 0.06, 1e-9)
+  -- MAN/DRN inherit the base bumps
+  for _, m in ipairs({ "MAN", "DRN" }) do
+    t.near(feel(m).headingRate, 4.5, 1e-9); t.near(feel(m).altStopLead, 0.10, 1e-9)
+    t.near(gains(m).alt.kp, 0.06, 1e-9)
+  end
+  -- CRU: fastest yaw + strafe; keeps its own climb
+  local cf, cg = feel("CRUISE"), gains("CRUISE")
+  t.near(cf.headingRate, 5.5, 1e-9); t.near(cf.leadCapHeading, 1.5, 1e-9)
+  t.near(cf.swaySpeed, 10.0, 1e-9); t.near(cf.swayLead, 20.0, 1e-9)
+  t.near(cg.alt.kp, 0.045, 1e-9); t.near(cf.leadCapVert, 12.0, 1e-9)
+  -- LDG unchanged
+  local lf, lg = feel("LDG"), gains("LDG")
+  t.near(lf.headingRate, 2.2, 1e-9); t.near(lf.leadCapHeading, 0.45, 1e-9)
+  t.near(lg.alt.kp, 0.02, 1e-9); t.near(lf.leadCapVert, 8.0, 1e-9)
 end)
 
 t.test("attitude leveling: level-hold roll gains integrate a standing bank; MAN does not", function()

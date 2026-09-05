@@ -20,7 +20,9 @@ local DEFAULTS = {
     -- Vertical authority (2026-09-04): steady climb v ~= kp*leadCapVert/kd. Base kp raised 0.02->0.035
     -- (+leadCapVert 8->10) for ~2.3 blk/s in PRE/MAN/DRN; the log showed ~55% unused heave. CRUISE
     -- overrides these harder below; LDG pins them back to stay a gentle landing mode.
-    alt   = { kp = 0.035, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
+    -- Rate-tuning batch (2026-09-05, fix #7): kp raised again 0.035->0.06 for a snappier PRE/MAN/DRN
+    -- climb response; see feel.leadCapVert below for the paired authority bump.
+    alt   = { kp = 0.06, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
     -- Attitude leveling integral (2026-09-04, fix #1): ki+iBand cancels standing banks/pitch that
     -- P+D alone leaves as a held equilibrium (log: 5-24deg banks held for dozens of s). iBand=0.35rad
     -- (~20deg) integrates to level the standing error but not during hard maneuvers (anti-windup);
@@ -45,12 +47,16 @@ local DEFAULTS = {
   profile = { climbHeight = 6, climbRate = 0.6, holdTime = 20, descendRate = 0.7,
               landEps = 0.4, watchdog = 60, overshootMargin = 2, leadCap = 1.0 },
   feel = {
-    headingRate    = 2.2,
-    leadCapHeading = 0.45,   -- 0.70->0.35 killed the overshoot; nudged to 0.45 for a bit more turn speed
-    yawStopLead    = 0.15,   -- s of yaw-rate led into the release capture; LOWER = harder stop
+    -- Rate-tuning batch (2026-09-05, fix #5-#9): aggressive yaw/strafe/climb defaults for a snappier
+    -- feel across PRE/MAN/DRN. CRUISE overrides yaw/strafe harder below; LDG pins yaw back to today's
+    -- values (see the LDG block) so this base bump doesn't reach the gentle landing mode.
+    headingRate    = 4.5,    -- 2.2->4.5: faster turn-rate response (fix #5)
+    leadCapHeading = 1.1,    -- 0.45->1.1: more setpoint lead for a snappier turn (fix #5)
+    yawStopLead    = 0.05,   -- s of yaw-rate led into the release capture; LOWER = harder stop (fix #6)
 
     climbRate      = 5.0,
-    leadCapVert    = 10.0,
+    leadCapVert    = 14.0,   -- 10.0->14.0: paired with the alt.kp bump above (fix #7)
+    altStopLead    = 0.10,   -- predictive altitude stop-lead for the climb release capture (fix #9)
     surgeSpeed     = 10.0,
     surgeLead      = 20.0,
     swaySpeed      = 5.0,
@@ -116,6 +122,12 @@ DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
 DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
 -- Tilt-brake (fix #3): CRU's active braking, speed-scaled.
 DEFAULTS.modes.CRUISE.feel.tiltBrake.enabled = true
+-- Rate-tuning batch (2026-09-05, fix #5/#8): CRUISE gets the fastest yaw turn-rate and lateral strafe
+-- of any mode -- it's the mode built for covering distance fast.
+DEFAULTS.modes.CRUISE.feel.headingRate    = 5.5
+DEFAULTS.modes.CRUISE.feel.leadCapHeading = 1.5
+DEFAULTS.modes.CRUISE.feel.swaySpeed      = 10.0
+DEFAULTS.modes.CRUISE.feel.swayLead       = 20.0
 
 DEFAULTS.modes.LDG = {
   gains = deep(DEFAULTS.gains),
@@ -133,6 +145,10 @@ DEFAULTS.modes.LDG.feel.climbRate  = 2.5
 DEFAULTS.modes.LDG.gains.alt.kp     = 0.02
 DEFAULTS.modes.LDG.gains.alt.kd     = 0.15
 DEFAULTS.modes.LDG.feel.leadCapVert = 8.0
+-- Rate-tuning batch (2026-09-05): pin yaw back to today's values too -- LDG stays as-tuned; the base
+-- yaw bump (fix #5) must not reach the gentle landing mode.
+DEFAULTS.modes.LDG.feel.headingRate    = 2.2
+DEFAULTS.modes.LDG.feel.leadCapHeading = 0.45
 
 DEFAULTS.modes.DRN = {
   gains = deep(DEFAULTS.gains),
