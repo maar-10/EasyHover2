@@ -214,13 +214,16 @@ end
 -- FEEL screen (which already fit the ~12-row budget EXACTLY, title+8+footer=10) well past it.
 -- Routing them through the SAME base/extra FEEL split MAN/CRUISE already used (see
 -- feel_menu_<mode> below) keeps every mode's BASE FEEL screen a flat 8 (10 total). MODE FEEL
--- varies by mode: 6 rows for PRECISION/LDG (8 total, fits one screen). trim-flip-guard-Task-5
--- added feel.trimAuthority/feel.trimFadeStart/feel.trimFade here (3 -> 6 shared rows), and the
--- brake-tune-scroll-menu SDD (2026-09-05) appended BRAKE_ROWS' 5 tilt-to-brake tunables on top of
--- MAN/CRUISE/DRN's own 2 extras: their MODE FEEL screen is now 13 rows (2 own + 5 brake + 6
--- shared), well past the old ~10-row single-screen budget. Rather than a new split,
--- buildEditScreen's windowing (up/down paging, Task 2 of that SDD) absorbs the overflow --
--- verified by the REGRESSION construction probe in tests/test_bitconfig_tuning.lua, not by hand.
+-- varies by mode: 8 rows for PRECISION/LDG (10 total, fits one screen -- windowing absorbs any
+-- overflow if that ever changes). trim-flip-guard-Task-5 added feel.trimAuthority/
+-- feel.trimFadeStart/feel.trimFade here (3 -> 6 shared rows), the brake-tune-scroll-menu SDD
+-- (2026-09-05) appended BRAKE_ROWS' 5 tilt-to-brake tunables on top of MAN/CRUISE/DRN's own 2
+-- extras (their MODE FEEL screen was 13 rows -- 2 own + 5 brake + 6 shared -- well past the old
+-- ~10-row single-screen budget), and the rate-tuning-snappy SDD (2026-09-05, Task 3) added
+-- feel.yawStopLead/feel.altStopLead here (6 -> 8 shared rows; MAN/CRUISE/DRN MODE FEEL now 15).
+-- Rather than a new split, buildEditScreen's windowing (up/down paging, Task 2 of the brake-tune
+-- SDD) absorbs the overflow -- verified by the REGRESSION construction probe in
+-- tests/test_bitconfig_tuning.lua, not by hand.
 local SHARED_FEEL_EXTRA_ROWS = {
   { id = "feel.climbRampTime", label = "CLIMB RAMP TIME", group = "FEEL", step = 0.1,  min = 0.1, max = 5.0 },
   { id = "feel.climbBoost",    label = "CLIMB BOOST",     group = "FEEL", step = 0.1,  min = 0.5, max = 5.0 },
@@ -228,6 +231,8 @@ local SHARED_FEEL_EXTRA_ROWS = {
   { id = "feel.trimAuthority", label = "TRIM AUTH",       group = "FEEL", step = 0.05, min = 0,   max = 1.0 },
   { id = "feel.trimFadeStart", label = "TRIM FADE LO",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
   { id = "feel.trimFade",      label = "TRIM FADE HI",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
+  { id = "feel.yawStopLead",   label = "YAW STOP LEAD",   group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
+  { id = "feel.altStopLead",   label = "ALT STOP LEAD",   group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
 }
 
 -- MODE_OWN_EXTRA_ROWS: each flight mode's OWN extra feel rows, on top of the 8 base ROW_SPEC rows
