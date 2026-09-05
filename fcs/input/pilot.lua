@@ -1,6 +1,7 @@
 -- fcs/input/pilot.lua
 local leash = require("fcs.leash")
 local angle = require("fcs.angle")
+local brake = require("fcs.brake")
 
 local Pilot = {}
 Pilot.__index = Pilot
@@ -45,6 +46,25 @@ function Pilot:setMaster(driftArrest) self.driftArrest = driftArrest ~= false en
 
 local function dirOf(held, neg, pos)
   return (held[pos] and 1 or 0) - (held[neg] and 1 or 0)
+end
+
+-- Tilt-brake setpoint (fix #3): a speed-scaled pitch/roll tilt opposing the horizontal drift, held
+-- as an attitude setpoint the leveling loop maintains. Engages when this craft is arresting (CRU at
+-- throttle 0 / MAN|DRN hands-off) under CPL, above the engage speed, in a tiltBrake-enabled mode.
+-- held.brake overrides the master mode in any mode and uses the steeper button curve; where tilt is
+-- disabled (PRE/LDG) the button still forces a lateral hold but injects no tilt (returns 0,0).
+function Pilot:_brakeSetpoint(held, meas, tilting)
+  local tb = self.cfg.tiltBrake
+  local btn = held.brake and true or false
+  local autoArrest
+  if self.policy.surge == "throttle" then autoArrest = (self.throttle or 0) <= 0
+  elseif self.policy.tilt then autoArrest = not tilting
+  else autoArrest = true end
+  local engaged = btn or (autoArrest and self.driftArrest)
+  if not engaged or not (tb and tb.enabled) then return 0, 0 end
+  local sv, wv = meas.surgeVel or 0, meas.swayVel or 0
+  local s = math.sqrt(sv * sv + wv * wv)
+  return brake.vector(brake.angle(s, tb, btn), sv, wv)
 end
 
 function Pilot:update(dt, held, meas)
@@ -107,7 +127,16 @@ function Pilot:update(dt, held, meas)
       local utarget = (sud ~= 0) and (meas.surgePos + surgeLead * sud) or sp.surgePos
       sp.surgePos = leash.step(sp.surgePos, utarget, meas.surgePos, dt, surgeSpeed, surgeLead)
     else
-      sp.surgePos = meas.surgePos or sp.surgePos
+      -- CRUISE throttle mode. While pushing forward (throttle>0) surge = throttle and we track meas
+      -- so the arrest, when throttle reaches 0, holds the CURRENT position. At throttle 0 we stop
+      -- pinning and leash surgePos toward current (like the position modes) so the surge loop arrests
+      -- and holds station instead of coasting.
+      if (self.throttle or 0) > 0 and not held.brake then
+        sp.surgePos = meas.surgePos or sp.surgePos
+      else
+        local surgeSpeed, surgeLead = c.surgeSpeed or c.cruiseSpeed, c.surgeLead or c.maxLead
+        sp.surgePos = leash.step(sp.surgePos, sp.surgePos, meas.surgePos, dt, surgeSpeed, surgeLead)
+      end
     end
   end
 
@@ -122,8 +151,9 @@ function Pilot:update(dt, held, meas)
   local canTranslate = self.policy.translate ~= false
   local swayCmd  = canTranslate and (held.swayLeft or held.swayRight)  or false
   local surgeCmd = canTranslate and (held.surgeFwd or held.surgeBack)  or false
-  if tilting or (not self.driftArrest and not swayCmd)  then sp.swayPos  = meas.swayPos  end
-  if tilting or (not self.driftArrest and not surgeCmd) then sp.surgePos = meas.surgePos end
+  local braking = held.brake and true or false
+  if not braking and (tilting or (not self.driftArrest and not swayCmd))  then sp.swayPos  = meas.swayPos  end
+  if not braking and (tilting or (not self.driftArrest and not surgeCmd)) then sp.surgePos = meas.surgePos end
 
   -- Mode policy: tilt (MAN pitch/roll setpoint, auto-levels on release) and throttle
   -- (CRUISE held forward-throttle). Applied here so the existing altitude/heading/sway/surge
@@ -138,16 +168,19 @@ function Pilot:update(dt, held, meas)
     end
     self.tilt.pitch = toward(self.tilt.pitch, dirOf(held, "pitchDown", "pitchUp"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     self.tilt.roll  = toward(self.tilt.roll,  dirOf(held, "rollLeft",  "rollRight"), c.tiltRate or 0.8, c.tiltCap or 0.4)
-    sp.pitch, sp.roll = self.tilt.pitch, self.tilt.roll
+    local bp, br = self:_brakeSetpoint(held, meas, tilting)   -- 0,0 while tilting
+    -- Brake button (btn) intentionally SUMS onto the pilot's active tilt (btn overrides the
+    -- hands-off gate); the total is bounded by the envelope's demand clamp, not the tilt setpoint.
+    sp.pitch, sp.roll = self.tilt.pitch + bp, self.tilt.roll + br
   else
-    sp.pitch, sp.roll = 0, 0
+    sp.pitch, sp.roll = self:_brakeSetpoint(held, meas, false)   -- 0,0 unless braking
   end
   if self.policy.surge == "throttle" then
     local d = dirOf(held, "surgeBack", "surgeFwd")
     local maxT = c.cruiseThrottleMax or 1.0
     self.throttle = self.throttle + (c.cruiseThrottleRate or 1.0) * dt * d
     if self.throttle < 0 then self.throttle = 0 elseif self.throttle > maxT then self.throttle = maxT end
-    sp.surgeThrottle = self.throttle
+    sp.surgeThrottle = (held.brake and 0) or self.throttle   -- brake cuts MAIN; detent resumes on release
   end
 
   -- Yaw release-edge capture: on the tick the pilot lets go of yaw/rudder, drop the leashed lead

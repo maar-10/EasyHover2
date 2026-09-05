@@ -109,12 +109,145 @@ end)
 
 -- A1: CRUISE drives surge via throttle, not the position leash. Leaving CRUISE under CPL with a
 -- leashed-ahead surgePos rails reverse after detent; keep sp.surgePos on measured while throttle.
+-- (self.throttle is checked at the START of update(), so the first tick after reset -- where the
+-- accumulator is still 0 -- takes the arrest/leash branch, not the pin; a priming tick establishes
+-- throttle>0 before we assert the pin, per the one-tick-lag note in fix #3 task 4.)
 t.test("CRUISE throttle policy does not advance surgePos off measured", function()
   local p = Pilot.new(FEEL)
   p:setMode({ tilt = false, surge = "throttle" }, FEEL)
   p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 100 })
   local meas = { altitude = 0, heading = 0, swayPos = 0, surgePos = 50, yawRate = 0 }
+  p:update(0.2, { surgeFwd = true }, meas)         -- priming tick: throttle ramps 0 -> >0
   local sp = p:update(0.2, { surgeFwd = true }, meas)
   t.near(sp.surgePos, 50, 1e-9, "surgePos stays on measured, not leashed ahead")
   t.truthy((sp.surgeThrottle or 0) > 0, "throttle still ramps under CRUISE")
+end)
+
+-- Task 4 (fix #3): at throttle 0 the pilot LEASHES surgePos (holds current, no forward lead) instead
+-- of continuing to pin it to measured, so the CRUISE arrest (cruise.lua) has a station to hold rather
+-- than chasing a coasting measured position. Drift is introduced AFTER throttle reaches 0 (simulating
+-- momentum: the craft keeps sliding forward under the old measured position while the setpoint should
+-- NOT re-track it) so the leash and pin branches provably diverge -- if the throttle-0 branch were
+-- reverted to the old unconditional `sp.surgePos = meas.surgePos`, sp.surgePos would snap to the new
+-- meas (100) and this test would fail.
+t.test("CRUISE throttle policy leashes surgePos (holds station, doesn't re-pin) once throttle returns to 0", function()
+  local p = Pilot.new(FEEL)
+  p:setMode({ tilt = false, surge = "throttle" }, FEEL)
+  p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  local meas = { altitude = 0, heading = 0, swayPos = 0, surgePos = 0, yawRate = 0 }
+  p:update(0.2, { surgeFwd = true }, meas)          -- ramp throttle up (pin branch: sp tracks meas=0)
+  p:update(0.5, { surgeBack = true }, meas)         -- ramp throttle back down to 0 (still pins while >0)
+  -- Throttle is now 0. Momentum carries the craft on: meas jumps far ahead of the held setpoint.
+  meas.surgePos = 100
+  local sp = p:update(0.1, {}, meas)                -- throttle 0 at entry: leash branch, not pin
+  t.truthy(sp.surgePos < 90, "leash does not snap to the new measured position (pin would give 100)")
+  t.near(sp.surgePos, meas.surgePos - FEEL.surgeLead, 1e-9,
+    "leash clamps to at most surgeLead behind the new measured position, holding station")
+end)
+
+-- Task 5 (fix #3): non-tilt-mode auto tilt-brake. CRU arrests (throttle<=0) under CPL, above
+-- engageSpeed, in a tiltBrake-enabled mode -> pitch/roll setpoint opposing horizontal drift.
+local function measv(o) o = o or {}
+  return { altitude=o.altitude or 10, heading=o.heading or 0, swayPos=o.swayPos or 0,
+           surgePos=o.surgePos or 0, surgeVel=o.surgeVel or 0, swayVel=o.swayVel or 0,
+           pitch=o.pitch or 0, roll=o.roll or 0, yawRate=o.yawRate or 0 }
+end
+local TB = { enabled=true, engageSpeed=30, satSpeed=100, minAngle=0.2618, maxAngle=0.5236, buttonMax=0.7854 }
+local CRU_FEEL = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                   swaySpeed=5, swayLead=10, cruiseThrottleRate=1, cruiseThrottleMax=1, tiltBrake=TB }
+
+t.test("CRU auto tilt-brake: throttle 0, fast forward drift, CPL -> nose-up pitch setpoint", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })   -- throttle 0, 80 blk/s forward
+  t.truthy(sp.pitch > 0.2, "aerobrake nose-up engaged")
+  t.near(sp.roll, 0, 1e-9, "no lateral drift -> no roll brake")
+end)
+
+t.test("CRU: forward throttle (throttle>0) does NOT auto tilt-brake", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })  -- ramp throttle up
+  local sp = p:update(0.05, { surgeFwd=true }, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "cruising forward stays level")
+end)
+
+-- Discriminates the `btn` half of `engaged = btn or (autoArrest and self.driftArrest)`
+-- (fcs/input/pilot.lua _brakeSetpoint): throttle>0 makes autoArrest FALSE (see the
+-- "does NOT auto tilt-brake" case above), so this can only pass via the button override.
+-- Would fail if `btn or (...)` regressed to `btn and (...)` or dropped btn entirely.
+-- (Task 7 wires the throttle-cut on held.brake; this asserts _brakeSetpoint's tilt output
+-- alone, which is independent of that.)
+t.test("CRU: held.brake button forces tilt-brake even while throttle>0 (autoArrest false)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })  -- ramp throttle up (autoArrest false)
+  local sp = p:update(0.05, { brake=true }, measv{ surgeVel=80 })
+  t.truthy(sp.pitch > 0.2, "button overrides autoArrest gate")
+end)
+
+t.test("CRU auto tilt-brake suppressed under DCPL (drift allowed)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(false); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "DCPL coasts, no auto brake")
+end)
+
+t.test("CRU below engage speed -> no tilt (thrusters only)", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=20 })
+  t.near(sp.pitch, 0, 1e-9, "20 blk/s < 30 engage")
+end)
+
+t.test("PRE (tiltBrake disabled) never auto tilt-brakes even fast", function()
+  local Pilot = require("fcs.input.pilot")
+  local feel = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                 swaySpeed=5, swayLead=10, tiltBrake={ enabled=false, engageSpeed=30, satSpeed=100,
+                 minAngle=0.2618, maxAngle=0.5236, buttonMax=0.7854 } }
+  local p = Pilot.new(feel)
+  p:setMode({ tilt=false, surge="position" }, feel); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })
+  t.near(sp.pitch, 0, 1e-9, "PRE stays level")
+end)
+
+-- Task 6 (fix #3): tilt-mode brake (MAN/DRN hands-off) + DRN hands-off arrest.
+local DRN_FEEL = { headingRate=1, climbRate=1, leadCapVert=10, surgeSpeed=10, surgeLead=20,
+                   swaySpeed=5, swayLead=10, tiltRate=0.8, tiltCap=0.5, tiltBrake=TB }
+
+t.test("MAN hands-off at speed brakes; while tilting it does not", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(DRN_FEEL)
+  p:setMode({ tilt=true, surge="position" }, DRN_FEEL); p:setMaster(true); p:reset(measv())
+  local sp = p:update(0.05, {}, measv{ surgeVel=80 })              -- hands off, fast forward
+  t.truthy(sp.pitch > 0.2, "hands-off -> aerobrake")
+  -- actively tilting (pilot owns attitude): brake stands down
+  local p2 = Pilot.new(DRN_FEEL)
+  p2:setMode({ tilt=true, surge="position" }, DRN_FEEL); p2:setMaster(true); p2:reset(measv())
+  local sp2 = p2:update(0.05, { pitchUp=true }, measv{ surgeVel=80 })
+  t.truthy(sp2.pitch < 0.2, "tilting -> pilot tilt only, brake suppressed")
+end)
+
+t.test("DRN hands-off + CPL holds surgePos (arrest), not frozen coast", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(DRN_FEEL)
+  p:setMode({ tilt=true, surge="position", translate=false }, DRN_FEEL)
+  p:setMaster(true); p:reset(measv{ surgePos=0 })
+  local sp = p:update(0.05, {}, measv{ surgePos=5, surgeVel=8 })   -- drifted to +5
+  -- arrest holds the reset position (0), producing a corrective error vs meas(5)
+  t.near(sp.surgePos, 0, 0.5, "surgePos held near reset (arrest), not tracking meas")
+end)
+
+t.test("CRU brake button cuts MAIN throttle for the tick", function()
+  local Pilot = require("fcs.input.pilot")
+  local p = Pilot.new(CRU_FEEL)
+  p:setMode({ tilt=false, surge="throttle" }, CRU_FEEL); p:setMaster(true); p:reset(measv())
+  p:update(1.0, { surgeFwd=true }, measv{ surgeVel=80 })          -- throttle up
+  local sp = p:update(0.05, { brake=true }, measv{ surgeVel=80 }) -- brake overrides
+  t.near(sp.surgeThrottle, 0, 1e-9, "MAIN commanded off while braking")
 end)

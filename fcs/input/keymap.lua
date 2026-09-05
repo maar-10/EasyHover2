@@ -16,6 +16,7 @@ local FLAG = {
 function M.flagFor(map, code)
   local m = map[code]
   if not m then return nil end
+  if m.axis == "brake" then return "brake" end          -- momentary boolean; no dir
   return FLAG[m.axis] and FLAG[m.axis][m.dir] or nil
 end
 
@@ -38,6 +39,7 @@ M.default = {
   [keys.leftShift] = {axis="lift", dir=-1},  -- descend (alias for F)
   [keys.up]    = {axis="pitch", dir=-1}, [keys.down]  = {axis="pitch", dir=1},
   [keys.left]  = {axis="roll",  dir=-1}, [keys.right] = {axis="roll",  dir=1},
+  [keys.leftCtrl] = {axis="brake"},   -- momentary brake button (fix #3)
 }
 
 -- DRN drone layout: WASD body tilt (pitch/roll), QE yaw, Space/LShift lift. No translate keys.
@@ -47,6 +49,7 @@ M.drone = {
   [keys.q] = {axis="yaw",   dir=-1}, [keys.e] = {axis="yaw",   dir=1},
   [keys.space]     = {axis="lift", dir=1},   -- climb
   [keys.leftShift] = {axis="lift", dir=-1},  -- descend
+  [keys.leftCtrl]  = {axis="brake"},         -- momentary brake button (fix #3)
 }
 
 function M.forMode(id)

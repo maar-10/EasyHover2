@@ -66,6 +66,16 @@ local DEFAULTS = {
     trimAuthority  = 0.4,   -- max fraction of caps.pitch the feedforward may consume
     brakeTrim      = false, -- symmetric trim (lean to accel AND brake)? true only for CRU/DRN; every
                             -- other mode is forward-only (brake stays level, frontal thrusters brake)
+    -- Tilt-brake (fix #3): speed-scaled pitch/roll brake into the drift direction. Base OFF so
+    -- PRECISION (reads top-level) and LDG stay level-braking; CRU/MAN/DRN enable it below.
+    tiltBrake = {
+      enabled     = false,
+      engageSpeed = 30.0,   -- blk/s: below this, directional thrusters brake alone (level)
+      satSpeed    = 100.0,  -- blk/s: tilt reaches its max angle here
+      minAngle    = 0.2618, -- 15deg: tilt at the engage speed
+      maxAngle    = 0.5236, -- 30deg: auto max at/above satSpeed
+      buttonMax   = 0.7854, -- 45deg: CTRL-brake max at/above satSpeed
+    },
   },
 }
 
@@ -90,6 +100,8 @@ DEFAULTS.modes.MAN.feel.tiltCap  = 0.40
 -- crisp pure-P+D auto-level-on-release feel. (fix #1)
 DEFAULTS.modes.MAN.gains.pitch.ki = 0
 DEFAULTS.modes.MAN.gains.roll.ki  = 0
+-- Tilt-brake (fix #3): MAN pilots directly, so enable speed-scaled brake tilt.
+DEFAULTS.modes.MAN.feel.tiltBrake.enabled = true
 -- Surge-throttle feel (CRUISE): W ramps up, release holds, S ramps down; 0..1 of MAIN.
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleRate = 1.0
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleMax  = 1.0
@@ -102,6 +114,8 @@ DEFAULTS.modes.CRUISE.feel.leadCapVert = 12.0
 DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
 -- CRU keeps the symmetric trim: the cruiser leans back to brake hard (wanted).
 DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
+-- Tilt-brake (fix #3): CRU's active braking, speed-scaled.
+DEFAULTS.modes.CRUISE.feel.tiltBrake.enabled = true
 
 DEFAULTS.modes.LDG = {
   gains = deep(DEFAULTS.gains),
@@ -133,6 +147,8 @@ DEFAULTS.modes.DRN.feel.tiltCap  = 0.5
 DEFAULTS.modes.DRN.feel.brakeTrim = true
 DEFAULTS.modes.DRN.gains.pitch.ki = 0   -- fix #1: DRN flies attitude directly, no leveling integral
 DEFAULTS.modes.DRN.gains.roll.ki  = 0
+-- Tilt-brake (fix #3): DRN pilots directly, so enable speed-scaled brake tilt.
+DEFAULTS.modes.DRN.feel.tiltBrake.enabled = true
 
 local M = {}
 
