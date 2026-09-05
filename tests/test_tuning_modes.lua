@@ -114,9 +114,9 @@ t.test("faster climb/descend: per-mode vertical authority (kp/leadCapVert/kd/cli
   -- steady climb v ~= kp*leadCapVert/kd. PRE(base)+MAN/DRN moderate; CRUISE aggressive; LDG pinned gentle.
   for _, mode in ipairs({ "PRECISION", "MAN", "DRN" }) do
     local m = tuning.forMode(mode)
-    t.near(m.gains.alt.kp, 0.06, 1e-9, mode.." alt kp raised again (0.035->0.06, fix #7)")
+    t.near(m.gains.alt.kp, 0.06, 1e-9, mode.." alt kp raised again (0.035->0.06, fix #8)")
     t.near(m.gains.alt.kd, 0.15,  1e-9, mode.." alt kd unchanged")
-    t.near(m.feel.leadCapVert, 14.0, 1e-9, mode.." leadCapVert raised again (10->14, fix #7)")
+    t.near(m.feel.leadCapVert, 14.0, 1e-9, mode.." leadCapVert raised again (10->14, fix #8)")
     t.near(m.feel.climbRate,   5.0,  1e-9, mode.." climbRate raised (4.5->5)")
   end
   local cru = tuning.forMode("CRUISE")

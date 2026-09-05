@@ -20,7 +20,7 @@ local DEFAULTS = {
     -- Vertical authority (2026-09-04): steady climb v ~= kp*leadCapVert/kd. Base kp raised 0.02->0.035
     -- (+leadCapVert 8->10) for ~2.3 blk/s in PRE/MAN/DRN; the log showed ~55% unused heave. CRUISE
     -- overrides these harder below; LDG pins them back to stay a gentle landing mode.
-    -- Rate-tuning batch (2026-09-05, fix #7): kp raised again 0.035->0.06 for a snappier PRE/MAN/DRN
+    -- Rate-tuning batch (2026-09-05, fix #8): kp raised again 0.035->0.06 for a snappier PRE/MAN/DRN
     -- climb response; see feel.leadCapVert below for the paired authority bump.
     alt   = { kp = 0.06, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
     -- Attitude leveling integral (2026-09-04, fix #1): ki+iBand cancels standing banks/pitch that
@@ -55,7 +55,7 @@ local DEFAULTS = {
     yawStopLead    = 0.05,   -- s of yaw-rate led into the release capture; LOWER = harder stop (fix #6)
 
     climbRate      = 5.0,
-    leadCapVert    = 14.0,   -- 10.0->14.0: paired with the alt.kp bump above (fix #7)
+    leadCapVert    = 14.0,   -- 10.0->14.0: paired with the alt.kp bump above (fix #8)
     altStopLead    = 0.10,   -- predictive altitude stop-lead for the climb release capture (fix #9)
     surgeSpeed     = 10.0,
     surgeLead      = 20.0,
@@ -122,7 +122,7 @@ DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
 DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
 -- Tilt-brake (fix #3): CRU's active braking, speed-scaled.
 DEFAULTS.modes.CRUISE.feel.tiltBrake.enabled = true
--- Rate-tuning batch (2026-09-05, fix #5/#8): CRUISE gets the fastest yaw turn-rate and lateral strafe
+-- Rate-tuning batch (2026-09-05, fix #5/#7): CRUISE gets the fastest yaw turn-rate and lateral strafe
 -- of any mode -- it's the mode built for covering distance fast.
 DEFAULTS.modes.CRUISE.feel.headingRate    = 5.5
 DEFAULTS.modes.CRUISE.feel.leadCapHeading = 1.5
