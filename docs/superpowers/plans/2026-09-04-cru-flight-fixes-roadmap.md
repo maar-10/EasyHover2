@@ -79,9 +79,10 @@ brake button); trim reworked to an attitude setpoint the #1 loop holds; old lean
 `docs/superpowers/specs/2026-09-04-cru-braking-tilt-brake-design.md`, plan
 `…/plans/2026-09-04-cru-braking-tilt-brake.md`. New pure `fcs/brake.lua`. **OWED (in-world):** verify;
 raise CRU `caps.pitch/roll` for the 30–45° hold; confirm the typewriter forwards `leftCtrl` (fallback
-`keys.c`). **DEFERRED FOLLOW-UP:** wire the tiltBrake curve (engage/sat/min/max/buttonMax) as
-live-tunable BIT/CONFIG rows — blocked on the MODE FEEL row budget (already at cap), needs a new
-group/drilldown (operator UI-layout call). **NEW FUTURE SAFETY ITEM (surfaced in brainstorm):**
+`keys.c`). **FOLLOW-UP ✅ SHIPPED 2026-09-05 (main d320e44):** the tiltBrake curve
+(engage/sat/min/max/buttonMax) is now live-tunable via BIT/CONFIG — the MODE FEEL edit screen was made
+button-paged (▲/▼, `buildEditScreen` windowing + pure `M.window`) so the 5 brake rows fit for CRU/MAN/DRN.
+Spec `docs/superpowers/specs/2026-09-05-brake-tune-scroll-menu-design.md`. **NEW FUTURE SAFETY ITEM (surfaced in brainstorm):**
 extreme-attitude / control-loss auto-recovery in hand-flown modes (DAMPED is oscillation-only today).
 At the 272 blk/s decel (t≈211) the craft **coasts on drag only**: `dSurge=0`, `FRL/FRR=0`,
 `ff_pitch=0`. Cause (`fcs/input/pilot.lua:145-151`): CRU throttle is clamped to **[0, max]** — holding
