@@ -7,6 +7,11 @@ local M = {}
 function M.angle(s, cfg, button)
   s = s or 0
   local top = (button and cfg.buttonMax) or cfg.maxAngle
+  -- Degenerate config guard: satSpeed<=engageSpeed would divide by zero/negative below.
+  -- Treat the curve as a pure step instead of ramping.
+  if cfg.satSpeed <= cfg.engageSpeed then
+    return (s >= cfg.engageSpeed) and top or 0
+  end
   if s < cfg.engageSpeed then return 0 end
   if s >= cfg.satSpeed then return top end
   local f = (s - cfg.engageSpeed) / (cfg.satSpeed - cfg.engageSpeed)

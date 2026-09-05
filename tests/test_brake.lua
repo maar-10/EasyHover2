@@ -16,6 +16,15 @@ t.test("angle: button variant reaches buttonMax", function()
   t.near(brake.angle(100, CFG, true), 0.7854, 1e-4, "buttonMax at sat")
 end)
 
+t.test("angle: degenerate satSpeed<=engageSpeed treated as pure step (no NaN)", function()
+  local DEG = { engageSpeed = 30, satSpeed = 30, minAngle = 0.2618, maxAngle = 0.5236, buttonMax = 0.7854 }
+  local a
+  a = brake.angle(29, DEG); t.eq(a, 0); t.truthy(a == a, "finite, not NaN")
+  a = brake.angle(30, DEG); t.near(a, 0.5236, 1e-9, "step to max at engage"); t.truthy(a == a, "finite, not NaN")
+  a = brake.angle(50, DEG); t.near(a, 0.5236, 1e-9, "stays at max above engage"); t.truthy(a == a, "finite, not NaN")
+  a = brake.angle(30, DEG, true); t.near(a, 0.7854, 1e-9, "button step to buttonMax"); t.truthy(a == a, "finite, not NaN")
+end)
+
 t.test("vector: magnitude preserved and opposes drift", function()
   local p, r = brake.vector(0.5, 10, 0)          -- pure forward
   t.truthy(p > 0, "forward -> nose-up (pitch>0)")

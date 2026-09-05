@@ -169,6 +169,8 @@ function Pilot:update(dt, held, meas)
     self.tilt.pitch = toward(self.tilt.pitch, dirOf(held, "pitchDown", "pitchUp"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     self.tilt.roll  = toward(self.tilt.roll,  dirOf(held, "rollLeft",  "rollRight"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     local bp, br = self:_brakeSetpoint(held, meas, tilting)   -- 0,0 while tilting
+    -- Brake button (btn) intentionally SUMS onto the pilot's active tilt (btn overrides the
+    -- hands-off gate); the total is bounded by the envelope's demand clamp, not the tilt setpoint.
     sp.pitch, sp.roll = self.tilt.pitch + bp, self.tilt.roll + br
   else
     sp.pitch, sp.roll = self:_brakeSetpoint(held, meas, false)   -- 0,0 unless braking

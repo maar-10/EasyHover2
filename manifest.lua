@@ -257,9 +257,9 @@
         },
         {
           ["dst"] = "fcs/brake.lua",
-          ["size"] = 382,
+          ["size"] = 455,
           ["src"] = "dist/fcs/brake.lua",
-          ["sum"] = "a0e93ec6",
+          ["sum"] = "92de881b",
         },
         {
           ["dst"] = "fcs/bringup/instrument.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "357f4d43",
+  ["version"] = "e3c9a74f",
 }
