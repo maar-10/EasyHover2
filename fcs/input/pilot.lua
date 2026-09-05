@@ -16,6 +16,7 @@ function Pilot.new(cfg)
     throttle = 0,
     climbHeld = 0,
     yawWasHeld = false,
+    climbWasHeld = false,
     driftArrest = true,
   }, Pilot)
 end
@@ -29,6 +30,7 @@ function Pilot:reset(meas)
   -- at re-engage with no W held (F2). tilt/climbHeld cleared for the same reason on any reseed.
   self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0
   self.yawWasHeld = false
+  self.climbWasHeld = false
   return self.sp
 end
 
@@ -38,6 +40,8 @@ function Pilot:setMode(policy, feel)
   self.policy = policy or { tilt = false, surge = "position" }
   if feel then self.cfg = feel end
   self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0   -- transition: center tilt, drop throttle
+  self.yawWasHeld = false
+  self.climbWasHeld = false
 end
 
 function Pilot:setTrimDir(dir) self.cfg.trimDir = (dir and dir < 0) and -1 or 1 end
@@ -193,6 +197,16 @@ function Pilot:update(dt, held, meas)
   elseif self.yawWasHeld then
     sp.heading = angle.wrap((meas.heading or 0) + (c.yawStopLead or 0) * (meas.yawRate or 0))
     self.yawWasHeld = false
+  end
+
+  -- Altitude release-edge capture (fix #9): mirror the yaw capture. On release of climb/descend, drop
+  -- the leadCapVert lead and snap sp.altitude to current + a small predictive stop, so the craft holds
+  -- where you released instead of climbing the lead out (the bounce). Edge-triggered (climbWasHeld).
+  if ld ~= 0 then
+    self.climbWasHeld = true
+  elseif self.climbWasHeld then
+    sp.altitude = (meas.altitude or sp.altitude) + (c.altStopLead or 0) * (meas.vSpeed or 0)
+    self.climbWasHeld = false
   end
 
   -- Return a snapshot copy: sp is self.sp, mutated in place as internal ramp state across calls

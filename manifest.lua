@@ -401,9 +401,9 @@
         },
         {
           ["dst"] = "fcs/input/pilot.lua",
-          ["size"] = 4297,
+          ["size"] = 4554,
           ["src"] = "dist/fcs/input/pilot.lua",
-          ["sum"] = "90a87383",
+          ["sum"] = "00b0fade",
         },
         {
           ["dst"] = "fcs/io/backend.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "26d4a03b",
+  ["version"] = "ab957cd2",
 }
