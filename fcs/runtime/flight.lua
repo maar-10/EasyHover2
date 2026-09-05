@@ -96,6 +96,11 @@ end
 
 function Flight:handleCommand(cmd)
   local k = cmd and cmd.k
+  -- EMRCVR lockout: while recovering, only ENG SW (fuelPump) and FCS engage/disengage are honored.
+  -- disengage is the sole abort; the hardware fuel relay + gndSafety interlock remain the physical override.
+  if self.emrcvr and not (k == "disengage" or k == "engage" or k == "fuelPump") then
+    return false
+  end
   if k == "gndSafety" then
     self.gndSafety = cmd.on and true or false; return true
   elseif k == "engage" then
@@ -109,6 +114,7 @@ function Flight:handleCommand(cmd)
   elseif k == "disengage" then
     self.engaged = false; self.positionHold = false
     if self._comKiSaved then self:_restoreComKi() end
+    self:_emrAbort()
     self.pilot:setPositionHold(false); self.loop:arm(false); return true
   elseif k == "positionHold" then
     self.positionHold = cmd.on and true or false
@@ -252,6 +258,7 @@ function Flight:_checkFuel(meas)
       self.engaged = false
       self.positionHold = false
       if self._comKiSaved then self:_restoreComKi() end
+      self:_emrAbort()
       if self.comAuto and self.comAuto.abort then self.comAuto:abort("NOFUEL") end
       if self.pilot.setPositionHold then self.pilot:setPositionHold(false) end
       self.pilot:reset(meas)
@@ -276,6 +283,25 @@ function Flight:_restoreComKi()
   end
   self._comKiSaved = nil
   self._comKiSch = nil
+end
+
+-- Shared abort for EVERY path that disarms (self.engaged=false) while EMRCVR is latched. The
+-- EMRCVR block in step() is nested inside `if self.engaged`, so once engaged flips false the
+-- latch would never run again -- leaving self.emrcvr stranded true (snapshot misreports
+-- mode=="EMRCVR" while disarmed) and the elevated recovery kp/caps never restored. Mirrors
+-- _emrExit's exact restore shape but WITHOUT the mode-reapply/pilot-handoff: the craft is being
+-- disarmed, not handed back to the pilot.
+function Flight:_emrAbort()
+  if not self.emrcvr then return end
+  local sch = self._emrSch
+  if sch and self._emrSaved then
+    local level = (sch.inner or sch)
+    level.pitchPid.kp = self._emrSaved.kp_p; level.rollPid.kp = self._emrSaved.kp_r
+    self.loop.caps = self._emrSaved.caps
+  end
+  self._emrSch, self._emrSaved = nil, nil
+  if self.loop.setEmrcvr then self.loop:setEmrcvr(false) end
+  self.emrcvr = false; self.emrStableT = 0
 end
 
 -- EMRCVR emergency recovery (detect / right / restore / exit). Top priority within `engaged`:

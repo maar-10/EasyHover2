@@ -87,7 +87,9 @@ local function schemeLoop(wrapInner)
       demands = { pitch = lvl.pitchPid:update(self.sp.pitch or 0, m.pitch or 0, dt, false),
                   roll  = lvl.rollPid:update(self.sp.roll or 0, m.roll or 0, dt, false) }
     end
-    self.mode = self._emrcvr and "EMRCVR" or self.mode
+    -- Mirrors loop.lua's non-sticky recompute (self._emrcvr and "EMRCVR" or ...NORMAL...): once
+    -- _emrcvr clears, the reported mode reverts, it does not linger on the last-seen value.
+    self.mode = self._emrcvr and "EMRCVR" or "NORMAL"
     return { mode = self.mode, m = m, demands = demands, duties = nil }
   end
   return L, level
@@ -225,6 +227,79 @@ t.test("EMRCVR entry/exit through a wrapped inner scheme (CRUISE/DRN shape)", fu
   t.eq(f.emrcvr, false)
   t.near(level.pitchPid.kp, origKp, 1e-9, "wrapped-inner pitch kp restored to the exact saved value")
   t.eq(L.caps, origCaps, "caps restored to the exact saved object")
+end)
+
+-- =====================================================================================
+-- Task 4: handleCommand gating while latched + shared _emrAbort on every disarm path
+-- =====================================================================================
+
+t.test("EMRCVR lockout: while latched, flightMode/masterMode/gndSafety are refused; fuelPump and engage act", function()
+  local L = schemeLoop(false)
+  local f = engagedEmrFlight(L)
+  f:step(0.1, {}, tiltMeas{ pitch = math.rad(80) })
+  t.eq(f.emrcvr, true, "latched")
+  local modeBefore = f.flightMode
+
+  t.eq(f:handleCommand({ k = "flightMode", id = "CRUISE" }), false, "flightMode refused while latched")
+  t.eq(f.flightMode, modeBefore, "flightMode unchanged")
+
+  t.eq(f:handleCommand({ k = "masterMode", id = "DCPL" }), false, "masterMode refused while latched")
+  t.eq(f.masterMode, "CPL", "masterMode unchanged (default)")
+
+  t.eq(f:handleCommand({ k = "gndSafety", on = true }), false, "gndSafety refused while latched")
+  t.eq(f.gndSafety, false, "gndSafety unchanged")
+
+  t.eq(f:handleCommand({ k = "fuelPump", on = true }), true, "fuelPump honored while latched")
+  t.eq(f.fuelPump, true, "fuelPump actually toggled")
+
+  t.eq(f:handleCommand({ k = "engage" }), true, "engage honored while latched")
+end)
+
+t.test("EMRCVR disengage while latched: disengages, clears latch, restores exact saved kp/caps", function()
+  local L, level = schemeLoop(false)
+  local origKpP, origKpR = level.pitchPid.kp, level.rollPid.kp
+  local origCaps = L.caps
+  local f = engagedEmrFlight(L)
+  f:step(0.1, {}, tiltMeas{ pitch = math.rad(80) })
+  t.eq(f.emrcvr, true, "latched")
+
+  local r = f:handleCommand({ k = "disengage" })
+  t.eq(r, true, "disengage command itself returns true (not blocked)")
+  t.eq(f.engaged, false, "disengaged")
+  t.eq(f.emrcvr, false, "latch cleared by disengage")
+  t.near(level.pitchPid.kp, origKpP, 1e-9, "pitch kp restored to exact saved value")
+  t.near(level.rollPid.kp, origKpR, 1e-9, "roll kp restored to exact saved value")
+  t.eq(L.caps, origCaps, "caps restored to exact saved object")
+  t.eq(L.emrCalls[#L.emrCalls], false, "loop:setEmrcvr(false) called on disengage-abort")
+
+  -- A real snapshot is always emitted through step() (which cycles the loop every tick) --
+  -- disengaged now, so this exercises the disarmed/idle path, not EMRCVR.
+  local snap = f:step(0.05, {}, tiltMeas{})
+  t.truthy(snap.mode ~= "EMRCVR", "snapshot no longer reports EMRCVR after disengage")
+end)
+
+t.test("EMRCVR no-fuel abort: _checkFuel clears latch, restores gains/caps, snapshot no longer EMRCVR", function()
+  local L, level = schemeLoop(false)
+  local origKpP, origKpR = level.pitchPid.kp, level.rollPid.kp
+  local origCaps = L.caps
+  local frac = 1.0
+  local f = Flight.new({ loop = L, pilot = Pilot.new(CFG), fuel = function() return frac end, minFuel = 0.05 })
+  f:handleCommand({ k = "gndSafety", on = false }); f:handleCommand({ k = "engage" })
+  f:step(0.1, {}, tiltMeas{ pitch = math.rad(80) })
+  t.eq(f.emrcvr, true, "latched")
+
+  frac = 0.01   -- below minFuel: trips the no-fuel interlock
+  f:step(0.05, {}, tiltMeas{ pitch = math.rad(80) })
+
+  t.eq(f.noFuel, true, "no-fuel latched")
+  t.eq(f.emrcvr, false, "EMRCVR latch cleared by no-fuel abort")
+  t.near(level.pitchPid.kp, origKpP, 1e-9, "pitch kp restored to exact saved value")
+  t.near(level.rollPid.kp, origKpR, 1e-9, "roll kp restored to exact saved value")
+  t.eq(L.caps, origCaps, "caps restored to exact saved object")
+  t.eq(L.emrCalls[#L.emrCalls], false, "loop:setEmrcvr(false) called on no-fuel abort")
+
+  local snap = f:snapshot(nil, tiltMeas{})
+  t.truthy(snap.mode ~= "EMRCVR", "snapshot no longer reports EMRCVR after no-fuel abort")
 end)
 
 t.test("EMRCVR exit is gated on BOTH <exitAngle and <maxDrift held for dwell, then applies CPL/PRECISION + pilot:reset", function()
