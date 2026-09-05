@@ -132,7 +132,22 @@ bounce. Add a release capture that snaps `sp.altitude` to current + a tiny stop-
    No speed cap (#4). ✅ **SHIPPED 2026-09-05 (main bacbbd3).** In-world verify owed; live-tune UI + the
    new extreme-attitude-recovery safety item deferred (see #3 above).
 3. **Snappy release** — altitude release-capture (#9) + yaw release-capture tuning (#6).
+   ✅ **SHIPPED 2026-09-05 (main e08dea4).**
 4. **Rate tuning pass** — yaw rate (#5), CRU strafe (#7), PRE climb/descend (#8). Last, on the
    stabilized craft; re-measure sway (#2) here.
+   ✅ **SHIPPED 2026-09-05 (main e08dea4)** — aggressive defaults, all live-tunable (yaw stop-lead +
+   the brake curve now have BIT/CONFIG rows via the scrollable MODE FEEL). #2 sway re-measure is an
+   in-world step.
+
+---
+
+## ✅ BATCH COMPLETE (2026-09-05) — #1–#9 all shipped to main.
+#1 leveling integral (09d7539) · #3 CRU braking + tilt-brake (bacbbd3) · brake-curve live-tune menu
+(d320e44) · #4–#9 rate tuning + snappy release (e08dea4). #4 = no action by design (no speed cap).
+**OWED = in-world verification + tuning** across the batch: level the stuck banks (#1); CRU braking +
+30–45° aerobrake hold, raise CRU caps.pitch/roll (#3), confirm typewriter leftCtrl + ▲/▼ glyphs;
+faster yaw/strafe/climb + no climb-release bounce, dial the rate/stop-lead rows to taste (#4–#9);
+re-measure sway (#2). **Still deferred (separate future item):** extreme-attitude / control-loss
+auto-recovery in hand-flown modes (DAMPED is oscillation-only).
 
 Each step: brainstorm → spec → subagent-driven implement → dual-gate → merge → in-world verify.
