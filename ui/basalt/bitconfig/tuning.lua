@@ -35,21 +35,20 @@
 --     "?"(help_gains) + "<" (region:pop, back to "cat_<mode>"). CAPS has NO axis layer.
 --   * FEEL fit fix: EVERY mode's FEEL button opens "feel_menu_<mode>" (a small BASE FEEL / MODE
 --     FEEL chooser, mirroring the GAINS axis/BASE split above), which fans out to
---     "edit_<mode>_FEEL_base" (the 8 base rows shared by every mode, filtered via FEEL_BASE_IDS)
---     and "edit_<mode>_FEEL_extra" (that mode's own extras, if any -- 7 for MAN/CRUISE/DRN (2 own
---     + 5 brake rows, see BRAKE_ROWS), none for PRECISION/LDG -- PLUS the 6 rows Task 14/
---     trim-flip-guard-Task-5 made shared by ALL flight modes now that forward-trim/rampable-climb/
---     flip-guard apply everywhere: feel.trimGain/feel.climbRampTime/feel.climbBoost/
---     feel.trimAuthority/feel.trimFadeStart/feel.trimFade, see SHARED_FEEL_EXTRA_ROWS below).
---     BASE FEEL is always exactly 8 rows (title+8+footer=10, the ~12-row monitor's region budget
---     EXACTLY); MODE FEEL is 6 rows for PRECISION/LDG (title+6+footer=8, fits one screen) or
---     13 rows for MAN/CRUISE/DRN (2 own + 5 brake + 6 shared) -- too many for one screen, so it
+--     "edit_<mode>_FEEL_base" (the 5 base rows shared by every mode, filtered via FEEL_BASE_IDS --
+--     Task 10, 2026-09-06 rate-command batch: 5, not 8 -- the 3 retired leash rows dropped) and
+--     "edit_<mode>_FEEL_extra" (that mode's own extras, if any -- 7 for MAN/CRUISE/DRN (2 own
+--     + 5 brake rows, see BRAKE_ROWS), none for PRECISION/LDG -- PLUS the 4 rows Task 14/
+--     trim-flip-guard-Task-5 made shared by ALL flight modes now that forward-trim/flip-guard
+--     apply everywhere: feel.trimGain/feel.trimAuthority/feel.trimFadeStart/feel.trimFade, see
+--     SHARED_FEEL_EXTRA_ROWS below -- Task 10 retired feel.climbRampTime/feel.climbBoost from this
+--     shared set, replaced by the direct rate command).
+--     BASE FEEL is always exactly 5 rows (title+5+footer=7, well inside the ~12-row monitor's
+--     region budget); MODE FEEL is 4 rows for PRECISION/LDG (title+4+footer=6, fits one screen) or
+--     11 rows for MAN/CRUISE/DRN (2 own + 5 brake + 4 shared) -- too many for one screen, so it
 --     pages via buildEditScreen's windowing (Task 2, 2026-09-05 brake-tune-scroll-menu SDD; see
---     that function's header comment below). PRECISION used to skip this menu entirely (its FEEL
---     was flat, 8 rows fit alone on one screen) -- Task 14 folded the shared trim/ramp rows into
---     EVERY mode's extras, so PRECISION's FEEL no longer fits one flat screen and needs the SAME
---     split, closing that exception -- every mode, including PRECISION, now routes through
---     feel_menu_<mode>.
+--     that function's header comment below). Every mode, including PRECISION, routes through
+--     feel_menu_<mode> (Task 14 closed PRECISION's earlier flat-screen exception).
 --   * "edit_<mode>_<GROUP>[_<axis>]"/"edit_<mode>_FEEL_base"/"edit_<mode>_FEEL_extra": the actual
 --     +/- stepper rows -- built by one shared factory (buildEditScreen) parameterised by a pure
 --     filter over M.rows(workingCfg, mode), so a screen's row SET (ids) is fixed at build time
@@ -159,6 +158,14 @@ for _, axis in ipairs(AXES) do
   addRow("gains." .. axis .. ".ki", al .. " KI", "GAINS", 0.01, 0, 1)
   addRow("gains." .. axis .. ".kd", al .. " KD", "GAINS", 0.01, 0, 5)
 end
+-- Rate-command batch (2026-09-06, Task 10): velocity-feedforward gains for the 3 rate-commanded
+-- axes (alt/yaw/sway) -- each mode commands feel.climbRate/headingRate/swaySpeed as an ACHIEVED
+-- rate, applied through these kv/kw/ks terms (see fcs/io/tuningdefaults.lua's DEFAULTS.gains.*).
+-- Live-tunable here alongside that axis's kp/ki/kd -- gainsAxisFilter groups by "gains.<axis>."
+-- prefix, so these land as a 4th row on that same ALT/YAW/SWAY axis screen.
+addRow("gains.alt.kv",  "ALT KV",  "GAINS", 0.01, 0, 1)
+addRow("gains.yaw.kw",  "YAW KW",  "GAINS", 0.01, 0, 1)
+addRow("gains.sway.ks", "SWAY KS", "GAINS", 0.01, 0, 1)
 
 addRow("caps.pitch", "PITCH CAP", "CAPS", 0.05, 0, 2)
 addRow("caps.roll",  "ROLL CAP",  "CAPS", 0.05, 0, 2)
@@ -166,14 +173,15 @@ addRow("caps.yaw",   "YAW CAP",   "CAPS", 0.05, 0, 2)
 addRow("caps.sway",  "SWAY CAP",  "CAPS", 0.05, 0, 2)
 addRow("caps.surge", "SURGE CAP", "CAPS", 0.05, 0, 2)
 
-addRow("feel.headingRate",    "HEADING RATE",     "FEEL", 0.1, 0, 10)
-addRow("feel.leadCapHeading", "HEADING LEAD CAP", "FEEL", 0.05, 0, 5)
-addRow("feel.climbRate",      "CLIMB RATE",       "FEEL", 0.1, 0, 20)
-addRow("feel.leadCapVert",    "VERT LEAD CAP",    "FEEL", 0.5, 0, 50)
-addRow("feel.surgeSpeed",     "SURGE SPEED",      "FEEL", 0.5, 0, 50)
-addRow("feel.surgeLead",      "SURGE LEAD",       "FEEL", 1.0, 0, 100)
-addRow("feel.swaySpeed",      "SWAY SPEED",       "FEEL", 0.5, 0, 50)
-addRow("feel.swayLead",       "SWAY LEAD",        "FEEL", 0.5, 0, 100)
+-- Rate-command batch (2026-09-06, Task 10): feel.headingRate/climbRate/swaySpeed are now ACHIEVED-
+-- rate targets (rad/s, blk/s) the pilot/scheme command directly via the kv/kw/ks gains above, not
+-- setpoint-lead slew rates -- see fcs/io/tuningdefaults.lua's DEFAULTS.feel header comment. The old
+-- leash rows (feel.leadCapVert/leadCapHeading/swayLead) are RETIRED and dropped from this list.
+addRow("feel.headingRate", "YAW RATE",    "FEEL", 0.1, 0, 3)
+addRow("feel.climbRate",   "CLIMB RATE",  "FEEL", 0.1, 0, 20)
+addRow("feel.surgeSpeed",  "SURGE SPEED", "FEEL", 0.5, 0, 50)
+addRow("feel.surgeLead",   "SURGE LEAD",  "FEEL", 1.0, 0, 100)
+addRow("feel.swaySpeed",   "STRAFE RATE", "FEEL", 0.5, 0, 20)
 
 M.ROW_SPEC = ROW_SPEC
 
@@ -221,32 +229,26 @@ function M.pathFor(mode, dotted)
   return "modes." .. mode .. "." .. dotted
 end
 
--- SHARED_FEEL_EXTRA_ROWS: forward-trim + rampable-climb feel now apply to EVERY flight mode
--- (Task 14 -- these were moved into the shared DEFAULTS.feel, tuningdefaults.lua, in an earlier
--- task of this SDD, once CPL/DCPL stopped being the only place trim/ramp lived). Kept OUT of the
--- 8 base FEEL rows (ROW_SPEC) on purpose: adding them there would push PRECISION's flat 8-row
--- FEEL screen (which already fit the ~12-row budget EXACTLY, title+8+footer=10) well past it.
--- Routing them through the SAME base/extra FEEL split MAN/CRUISE already used (see
--- feel_menu_<mode> below) keeps every mode's BASE FEEL screen a flat 8 (10 total). MODE FEEL
--- varies by mode: 8 rows for PRECISION/LDG (10 total, fits one screen -- windowing absorbs any
--- overflow if that ever changes). trim-flip-guard-Task-5 added feel.trimAuthority/
--- feel.trimFadeStart/feel.trimFade here (3 -> 6 shared rows), the brake-tune-scroll-menu SDD
--- (2026-09-05) appended BRAKE_ROWS' 5 tilt-to-brake tunables on top of MAN/CRUISE/DRN's own 2
--- extras (their MODE FEEL screen was 13 rows -- 2 own + 5 brake + 6 shared -- well past the old
--- ~10-row single-screen budget), and the rate-tuning-snappy SDD (2026-09-05, Task 3) added
--- feel.yawStopLead/feel.altStopLead here (6 -> 8 shared rows; MAN/CRUISE/DRN MODE FEEL now 15).
--- Rather than a new split, buildEditScreen's windowing (up/down paging, Task 2 of the brake-tune
--- SDD) absorbs the overflow -- verified by the REGRESSION construction probe in
--- tests/test_bitconfig_tuning.lua, not by hand.
+-- SHARED_FEEL_EXTRA_ROWS: forward-trim feel + the trim flip-guard bounds now apply to EVERY
+-- flight mode (Task 14 -- moved into the shared DEFAULTS.feel, tuningdefaults.lua, once CPL/DCPL
+-- stopped being the only place trim lived; trim-flip-guard-Task-5 added trimAuthority/
+-- trimFadeStart/trimFade). Kept OUT of the base FEEL rows (ROW_SPEC) on purpose: routing them
+-- through the SAME base/extra FEEL split MAN/CRUISE already used (see feel_menu_<mode> below)
+-- keeps every mode's BASE FEEL screen a flat 5 (7 total: title+5+footer). MODE FEEL varies by
+-- mode: 4 rows for PRECISION/LDG (6 total, fits one screen) or 11 rows for MAN/CRUISE/DRN (2 own
+-- + 5 brake + 4 shared, see BRAKE_ROWS) -- buildEditScreen's windowing (up/down paging, Task 2 of
+-- the brake-tune-scroll-menu SDD) absorbs any overflow, verified by the REGRESSION construction
+-- probe in tests/test_bitconfig_tuning.lua, not by hand.
+-- Rate-command batch (2026-09-06, Task 10): feel.climbRampTime/climbBoost (the old rampable-climb
+-- feedforward) and feel.yawStopLead/altStopLead (the old release-edge stop-lead capture, added by
+-- the rate-tuning-snappy SDD) are RETIRED -- the direct rate command (feel.headingRate/climbRate/
+-- swaySpeed + gains.*.k{v,w,s} in ROW_SPEC above) replaces both mechanisms, so their rows are
+-- dropped here; only trim/flip-guard remain shared.
 local SHARED_FEEL_EXTRA_ROWS = {
-  { id = "feel.climbRampTime", label = "CLIMB RAMP TIME", group = "FEEL", step = 0.1,  min = 0.1, max = 5.0 },
-  { id = "feel.climbBoost",    label = "CLIMB BOOST",     group = "FEEL", step = 0.1,  min = 0.5, max = 5.0 },
   { id = "feel.trimGain",      label = "TRIM GAIN",       group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
   { id = "feel.trimAuthority", label = "TRIM AUTH",       group = "FEEL", step = 0.05, min = 0,   max = 1.0 },
   { id = "feel.trimFadeStart", label = "TRIM FADE LO",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
   { id = "feel.trimFade",      label = "TRIM FADE HI",    group = "FEEL", step = 0.05, min = 0,   max = 1.5 },
-  { id = "feel.yawStopLead",   label = "YAW STOP LEAD",   group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
-  { id = "feel.altStopLead",   label = "ALT STOP LEAD",   group = "FEEL", step = 0.01, min = 0,   max = 1.0 },
 }
 
 -- MODE_OWN_EXTRA_ROWS: each flight mode's OWN extra feel rows, on top of the 8 base ROW_SPEC rows
@@ -288,8 +290,8 @@ local MODE_OWN_EXTRA_ROWS = {
 }
 
 -- MODE_EXTRA_ROWS(mode) = that mode's own extras (if any) + SHARED_FEEL_EXTRA_ROWS -- built once
--- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 6 shared
--- rows and MAN/CRUISE/DRN get their own extras PLUS the 6 shared rows.
+-- here for every flight mode in M.MODES, so PRECISION/LDG (no own extras) still get the 4 shared
+-- rows and MAN/CRUISE/DRN get their own extras PLUS the 4 shared rows.
 local MODE_EXTRA_ROWS = {}
 for _, mode in ipairs(M.MODES) do
   local extra = {}
@@ -500,16 +502,15 @@ end
 
 local capsFilter = groupFilter("CAPS")
 
--- FEEL_BASE_IDS: the 8 base feel.* ids from M.ROW_SPEC (shared by every mode). Every mode's own
--- extra FEEL rows (feel.tiltRate/tiltCap, feel.cruiseThrottleRate/cruiseThrottleMax, and the 6
--- rows shared by ALL modes -- feel.trimGain/feel.climbRampTime/feel.climbBoost/feel.trimAuthority/
--- feel.trimFadeStart/feel.trimFade, Task 14 + trim-flip-guard Task 5) are NOT
--- in this set -- M.rows(cfg,mode) appends them after the 8 base ones, with the same "FEEL" group,
--- so filtering on "group==FEEL and not in FEEL_BASE_IDS" cleanly isolates just the per-mode
--- extras. title(1) + 8 base rows + footer(1) = 10 == the ~12-row monitor's region budget (h-2)
--- EXACTLY -- adding any extras to that same flat screen would push it past the frame (the bug
--- this split fixes: see "gains_axis_<mode>"'s ALT/PITCH/.../BASE split for the established
--- precedent of splitting a group that doesn't fit one screen).
+-- FEEL_BASE_IDS: the 5 base feel.* ids from M.ROW_SPEC (shared by every mode; Task 10 dropped the
+-- 3 retired leash rows -- leadCapVert/leadCapHeading/swayLead). Every mode's own extra FEEL rows
+-- (feel.tiltRate/tiltCap, feel.cruiseThrottleRate/cruiseThrottleMax, and the 4 rows shared by ALL
+-- modes -- feel.trimGain/feel.trimAuthority/feel.trimFadeStart/feel.trimFade, Task 14 +
+-- trim-flip-guard Task 5) are NOT in this set -- M.rows(cfg,mode) appends them after the 5 base
+-- ones, with the same "FEEL" group, so filtering on "group==FEEL and not in FEEL_BASE_IDS"
+-- cleanly isolates just the per-mode extras. title(1) + 5 base rows + footer(1) = 7, well inside
+-- the ~12-row monitor's region budget (h-2) -- see "gains_axis_<mode>"'s ALT/PITCH/.../BASE split
+-- for the established precedent of splitting a group that doesn't fit one screen.
 local FEEL_BASE_IDS = {}
 for _, spec in ipairs(ROW_SPEC) do
   if spec.group == "FEEL" then FEEL_BASE_IDS[spec.id] = true end
@@ -741,13 +742,12 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
 
   -- ===== feel_menu_<mode> (EVERY mode, Task 14): BASE FEEL / MODE FEEL -- FEEL's own axis-less =====
   -- ===== split (mirrors gains_axis_<mode>'s ALT/../BASE split). Every mode's FEEL is now at    =====
-  -- ===== least 14 rows total (8 base + the 6 rows shared by all modes -- trim/ramp/flip-guard) =====
-  -- ===== and MAN/CRUISE/DRN's is 21 (8 base + 7 own [2 + 5 brake, see BRAKE_ROWS] + 6 shared)  =====
-  -- ===== -- none of that fits ONE ~10-row screen budget, so this menu fans out to two screens: =====
-  -- ===== BASE FEEL (8 base -> 10 rows, fits one screen) and MODE FEEL (6 rows for PRECISION/   =====
-  -- ===== LDG -> 8 total, fits one screen; 13 rows for MAN/CRUISE/DRN -- too many for a fixed   =====
-  -- ===== budget, so it pages via buildEditScreen's windowing, see that function's header       =====
-  -- ===== comment below).                                                                       =====
+  -- ===== least 9 rows total (5 base + the 4 rows shared by all modes -- trim/flip-guard) and   =====
+  -- ===== MAN/CRUISE/DRN's is 16 (5 base + 7 own [2 + 5 brake, see BRAKE_ROWS] + 4 shared) --    =====
+  -- ===== this menu fans out to two screens regardless: BASE FEEL (5 base -> 7 rows, fits one   =====
+  -- ===== screen) and MODE FEEL (4 rows for PRECISION/LDG -> 6 total, fits one screen; 11 rows  =====
+  -- ===== for MAN/CRUISE/DRN -- too many for a fixed budget, so it pages via buildEditScreen's  =====
+  -- ===== windowing, see that function's header comment below).                                 =====
   local function buildFeelMenuScreen(mode)
     return function(b, f, region)
       local fw = ({ f:getSize() })[1]
