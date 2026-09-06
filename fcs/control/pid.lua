@@ -9,6 +9,8 @@ function Pid.new(cfg)
   -- sustained error (e.g. a moving setpoint that leads the craft during a climb) is left to P/D and
   -- the integrator never winds up on the transient -- it only trims the steady-state residual near
   -- the setpoint. nil => integrate at any error (classic PID; clamp-only anti-windup).
+  -- The 'saturated' flag in :update() freezes INTEGRATION ONLY; the derivative computes whenever
+  -- dt is valid (dtok), regardless of saturation. This prevents D from being killed by output rails.
   self.iBand = cfg.iBand
   self.dtMax = cfg.dtMax or 0.5
   self:reset()
@@ -17,17 +19,16 @@ end
 function Pid:reset() self.i = 0; self.lastMeas = nil; self.dFilt = 0 end
 function Pid:update(sp, meas, dt, saturated)
   local err = sp - meas
-  local usable = (dt > 0) and (dt <= self.dtMax) and not saturated
-  -- Band gates INTEGRATION ONLY -- the derivative must stay live outside the band (that D damping is
-  -- what arrests the climb), so it keys off `usable`, not `integrate`.
-  local integrate = usable and not (self.iBand and (err > self.iBand or err < -self.iBand))
+  local dtok = (dt > 0) and (dt <= self.dtMax)         -- valid timestep (stale/overrun dt skips D & I)
+  local integrate = dtok and not saturated
+    and not (self.iBand and (err > self.iBand or err < -self.iBand))
   if integrate then
     self.i = self.i + self.ki * err * dt
     if self.i > self.iMax then self.i = self.iMax elseif self.i < self.iMin then self.i = self.iMin end
   end
   local d = 0
   if self.kd ~= 0 then
-    if usable and self.lastMeas ~= nil then
+    if dtok and self.lastMeas ~= nil then               -- D keys off dtok ONLY, not saturation
       local dMeas = (meas - self.lastMeas) / dt
       local alpha = dt / (self.tauD + dt)
       self.dFilt = self.dFilt + alpha * (dMeas - self.dFilt)
