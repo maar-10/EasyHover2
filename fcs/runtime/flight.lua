@@ -329,6 +329,11 @@ function Flight:_emrEnter(meas)
                      yaw = self._emrSaved.caps.yaw, sway = self._emrSaved.caps.sway, surge = self._emrSaved.caps.surge }
   if self.loop.setEmrcvr then self.loop:setEmrcvr(true) end
   self.pilot:setPositionHold(false)
+  self.positionHold = false               -- keep in sync with the pilot call above (snapshot)
+  -- A craft violent enough to exceed tripAngle while airborne is definitively not resting:
+  -- clear any stale parked latch (e.g. LDG's landed-detector) so step()'s parked-honor branch
+  -- can't drop the just-recovered craft (arm(false)) on handback until the pilot presses climb.
+  self.parked = false
 end
 
 function Flight:_emrStep(dt, meas)

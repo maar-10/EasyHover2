@@ -302,6 +302,43 @@ t.test("EMRCVR no-fuel abort: _checkFuel clears latch, restores gains/caps, snap
   t.truthy(snap.mode ~= "EMRCVR", "snapshot no longer reports EMRCVR after no-fuel abort")
 end)
 
+t.test("EMRCVR entry clears a stale parked latch (LDG parked craft knocked airborne): no re-park drop after recovery", function()
+  local L = schemeLoop(false)
+  local f = engagedEmrFlight(L)
+  -- Simulate a craft that was parked-latched (e.g. LDG landed-detector) before an external
+  -- force threw it airborne past tripAngle.
+  f.parked = true
+
+  local snap = f:step(0.1, {}, tiltMeas{ pitch = math.rad(80) })
+  t.eq(f.emrcvr, true, "EMRCVR trips")
+  t.eq(f.parked, false, "_emrEnter clears the stale parked latch -- a craft violently thrown past "
+    .. "tripAngle while airborne is definitively not resting")
+
+  -- Drive recovery to exit (level + low drift held for dwell).
+  for i = 1, 20 do f:step(0.05, {}, tiltMeas{ pitch = 0, roll = 0 }) end
+  t.eq(f.emrcvr, false, "exited recovery")
+
+  -- The following step is the regression this test guards: without the fix, step()'s
+  -- parked-honor branch (self.parked still true) would reset the pilot and arm(false) here,
+  -- dropping the just-recovered craft until the pilot presses climb.
+  local snap2 = f:step(0.05, {}, tiltMeas{ pitch = 0, roll = 0 })
+  t.eq(f.parked, false, "parked latch stays clear after handback")
+  t.truthy(snap2.mode ~= "PARKED", "snapshot is not PARKED after recovery handback")
+  t.eq(L.armCalls[#L.armCalls], true, "loop stays armed on the post-recovery step (no drop)")
+end)
+
+t.test("EMRCVR entry clears a stale positionHold flag so snapshot.positionHold isn't stale-true after recovery", function()
+  local L = schemeLoop(false)
+  local f = engagedEmrFlight(L)
+  f:handleCommand({ k = "positionHold", on = true })
+  t.eq(f.positionHold, true, "positionHold set before trip")
+
+  local snap = f:step(0.1, {}, tiltMeas{ pitch = math.rad(80) })
+  t.eq(f.emrcvr, true, "EMRCVR trips")
+  t.eq(f.positionHold, false, "_emrEnter clears positionHold in sync with pilot:setPositionHold(false)")
+  t.eq(snap.positionHold, false, "snapshot.positionHold reflects the cleared flag, not stale-true")
+end)
+
 t.test("EMRCVR exit is gated on BOTH <exitAngle and <maxDrift held for dwell, then applies CPL/PRECISION + pilot:reset", function()
   local L = schemeLoop(false)
   local pil = spyPilot()
