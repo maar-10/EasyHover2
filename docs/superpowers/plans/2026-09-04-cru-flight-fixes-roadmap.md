@@ -147,7 +147,10 @@ bounce. Add a release capture that snaps `sp.altitude` to current + a tiny stop-
 **OWED = in-world verification + tuning** across the batch: level the stuck banks (#1); CRU braking +
 30–45° aerobrake hold, raise CRU caps.pitch/roll (#3), confirm typewriter leftCtrl + ▲/▼ glyphs;
 faster yaw/strafe/climb + no climb-release bounce, dial the rate/stop-lead rows to taste (#4–#9);
-re-measure sway (#2). **Still deferred (separate future item):** extreme-attitude / control-loss
-auto-recovery in hand-flown modes (DAMPED is oscillation-only).
+re-measure sway (#2). **Extreme-attitude / control-loss auto-recovery — ✅ SHIPPED 2026-09-06 (main
+45173fe) as EMRCVR** (emergency recovery mode: >75° trip → lockout + aggressive righting, incl. inverted,
+→ altitude restore → clean CPL/PRE handback; disengage-only abort; 3 tunable thresholds). Spec
+`docs/superpowers/specs/2026-09-06-emrcvr-emergency-recovery-design.md`. No deferred items remain from
+this batch's follow-ons.
 
 Each step: brainstorm → spec → subagent-driven implement → dual-gate → merge → in-world verify.
