@@ -20,6 +20,18 @@ t.test("tuning defaults include com fwd/right/span", function()
   t.eq(d.com.spanRight, 0)
 end)
 
+t.test("tuning defaults include the top-level emrcvr block with all 7 fields", function()
+  local d = TD.get().emrcvr
+  t.eq(type(d), "table", "emrcvr block present")
+  t.near(d.tripAngle, 1.309, 1e-9)
+  t.near(d.exitAngle, 0.175, 1e-9)
+  t.near(d.maxDrift, 2.0, 1e-9)
+  t.near(d.dwell, 0.5, 1e-9)
+  t.near(d.levelBand, 0.5, 1e-9)
+  t.near(d.kpAtt, 0.6, 1e-9)
+  t.near(d.capAtt, 0.8, 1e-9)
+end)
+
 t.test("tiltBrake enabled for CRU/MAN/DRN, disabled for PRE/LDG, with curve defaults", function()
   local D = require("fcs.io.tuningdefaults").get()
   -- base (PRECISION reads top-level feel) is disabled

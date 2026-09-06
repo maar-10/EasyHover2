@@ -103,6 +103,21 @@ t.test("without hoverDuty configured, DAMPED leaves heave to the scheme", functi
   t.near(d.demands.heave, 0.5, 1e-9)       -- scheme heave preserved
 end)
 
+t.test("EMRCVR mode: active attitude correction, DAMPED suppressed", function()
+  -- prime the osc detector into a genuine DAMPED trip (same steeringScheme/OSC harness as above),
+  -- then assert setEmrcvr(true) overrides it: mode flips to EMRCVR and steering is NOT zeroed.
+  local loop = buildOsc({ osc = OSC }); loop:arm(true)
+  for i = 1, 12 do loop:cycle(0.1, mkM((i % 2 == 0) and 0.4 or -0.4, 0)) end
+  t.eq(loop:getMode(), "DAMPED")           -- confirm the trip is live before overriding it
+  loop:setEmrcvr(true)
+  local r = loop:cycle(0.1, mkM(1.2, 0))
+  t.eq(r.mode, "EMRCVR")
+  t.truthy((r.demands.pitch or 0) ~= 0, "attitude demand NOT zeroed in EMRCVR (unlike DAMPED)")
+  loop:setEmrcvr(false)
+  loop:cycle(0.1, mkM(0, 0))                -- mode is cycle-computed; one more tick reflects the clear
+  t.truthy(loop:getMode() ~= "EMRCVR", "mode leaves EMRCVR when cleared")
+end)
+
 -- ---- §6 dt discipline: an overrun cycle is SKIPPED, not integrated ----
 t.test("an overrun dt reaches controllers as 0 (integration+derivative skipped, P still acts)", function()
   local loop = build(); loop:arm(true)

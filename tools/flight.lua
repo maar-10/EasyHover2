@@ -118,6 +118,7 @@ local Master = require("fcs.modes.master")
 pilot:setMaster(Master.byId[Master.default].driftArrest)
 local flight = Flight.new({ loop = loop, pilot = pilot, registry = registry, config = config,
   park = tuning.park,
+  emrcvr = tuning.emrcvr,
   setGroundSense = function(b) backend:setGroundSense(b) end,
   fuel = function() return fuelState.fuelMain end,
   setFuelScale = function(x) loop:setFuelScale(x) end,
@@ -615,16 +616,23 @@ end
 local function cfgProvider(kind) return cfgaccess.getKind(kind, readFile) end
 local function cfgApplier(kind, body)
   local ok, err = cfgaccess.setKind(kind, body, readFile, writeFile, deleteFile)
-  -- Apply-timing preserved: the ONLY hot config change is CoM. A tuning set carrying com{} is
-  -- pushed to the mixer LIVE via the same setCom path the COM screen uses, so a hand trim takes
-  -- effect now; tuning/bindings otherwise need an FCS reload. Idempotent with the COM screen's own
-  -- command-channel setCom (fcs/runtime/flight.lua:132).
+  -- Apply-timing preserved: the hot config changes are CoM and EMRCVR. A tuning set carrying
+  -- com{} is pushed to the mixer LIVE via the same setCom path the COM screen uses, so a hand
+  -- trim takes effect now; tuning/bindings otherwise need an FCS reload. Idempotent with the COM
+  -- screen's own command-channel setCom (fcs/runtime/flight.lua:132).
   if ok and kind == "tuning" and type(body) == "table" and type(body.com) == "table" then
     pcall(function()
       flight:handleCommand({ k = "setCom",
         fwd = body.com.fwd or 0, right = body.com.right or 0,
         spanFwd = body.com.spanFwd or body.com.span, spanRight = body.com.spanRight or body.com.span })
     end)
+  end
+  -- A tuning set carrying emrcvr{} (Task 5, BIT/CONFIG EMRCVR screen) is merged into the live
+  -- Flight instance's self.emr LIVE via Flight:setEmrcvrCfg (Task 2) -- no reboot needed, unlike
+  -- gains/caps/feel. No command round-trip required (setEmrcvrCfg is a plain method on the SAME
+  -- `flight` object this responder already closes over), so this is simpler than the setCom path.
+  if ok and kind == "tuning" and type(body) == "table" and type(body.emrcvr) == "table" then
+    pcall(function() flight:setEmrcvrCfg(body.emrcvr) end)
   end
   return ok, err
 end

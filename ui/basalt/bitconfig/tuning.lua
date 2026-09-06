@@ -185,9 +185,22 @@ local COM_SPEC = {
 }
 M.COM_SPEC = COM_SPEC
 
+-- EMRCVR_SPEC (Task 5, 2026-09-06 emrcvr-emergency-recovery SDD): the 3 operator-facing
+-- thresholds off the emrcvr config block (Task 2 -- fcs/io/tuningdefaults.lua's DEFAULTS.emrcvr,
+-- threaded to Flight via deps.emrcvr / Flight:setEmrcvrCfg). GLOBAL like COM_SPEC -- top-level
+-- `emrcvr.*` paths, not per-mode (see M.pathFor's emrcvr guard below). dwell and the other
+-- emrcvr fields are intentionally NOT exposed here -- only the 3 named in the task brief.
+local EMRCVR_SPEC = {
+  { id = "emrcvr.tripAngle", label = "TRIP ANGLE", group = "EMRCVR", step = 0.05, min = 0.5, max = 1.8 },
+  { id = "emrcvr.exitAngle", label = "EXIT ANGLE", group = "EMRCVR", step = 0.02, min = 0,   max = 0.6 },
+  { id = "emrcvr.maxDrift",  label = "MAX DRIFT",  group = "EMRCVR", step = 0.5,  min = 0,   max = 20  },
+}
+M.EMRCVR_SPEC = EMRCVR_SPEC
+
 local SPEC_BY_ID = {}
 for _, spec in ipairs(ROW_SPEC) do SPEC_BY_ID[spec.id] = spec end
 for _, spec in ipairs(COM_SPEC) do SPEC_BY_ID[spec.id] = spec end
+for _, spec in ipairs(EMRCVR_SPEC) do SPEC_BY_ID[spec.id] = spec end
 
 -- ===== per-mode tuning: PRECISION is the top-level gains/caps/feel (unchanged); MAN/CRUISE =====
 -- ===== live under modes.MAN / modes.CRUISE and carry their own extra FEEL rows on top      =====
@@ -203,6 +216,7 @@ M.MODES = { "PRECISION", "MAN", "CRUISE", "LDG", "DRN" }
 -- mode) is the top-level path as-is; MAN/CRUISE are prefixed under modes.<mode>. PURE.
 function M.pathFor(mode, dotted)
   if type(dotted) == "string" and dotted:sub(1, 4) == "com." then return dotted end
+  if type(dotted) == "string" and dotted:sub(1, 7) == "emrcvr." then return dotted end
   if mode == nil or mode == "PRECISION" then return dotted end
   return "modes." .. mode .. "." .. dotted
 end
@@ -839,11 +853,13 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
       items[#items + 1] = { id = mode, label = mode, onClick = function() region:push("cat_" .. mode) end }
     end
     items[#items + 1] = { id = "COM", label = "COM", onClick = function() region:push("com") end }
+    items[#items + 1] = { id = "EMRCVR", label = "EMRCVR", onClick = function() region:push("emrcvr") end }
     local titleLabel = configkit.titleRow(f, fw, M.title)          -- ||FCS TUNING|| (self-titled, per screen)
     local menu = configkit.menuColumn(f, { y = 3, items = items }) -- gap at row 2 (detach from title)
     local modeBtns = {}
     for _, mode in ipairs(M.MODES) do modeBtns[mode] = menu.buttons[mode] end
     local comBtn = menu.buttons.COM
+    local emrcvrBtn = menu.buttons.EMRCVR
 
     local y = menu.nextY
     local footerRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
@@ -853,7 +869,7 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
 
     return {
       apply = function(_state) end,
-      elements = { titleLabel = titleLabel, modeBtns = modeBtns, comBtn = comBtn, footerRow = footerRow, lastRowY = y },
+      elements = { titleLabel = titleLabel, modeBtns = modeBtns, comBtn = comBtn, emrcvrBtn = emrcvrBtn, footerRow = footerRow, lastRowY = y },
     }
   end
 
@@ -943,6 +959,72 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
     }
   end
 
+  -- ===== EMRCVR (Task 5): a GLOBAL 3-row stepper screen over EMRCVR_SPEC, mirroring
+  -- buildComScreen's shape (title + N rows + SAVE + "<") -- but without COM's AUTO/RST: there is
+  -- no capture-driven auto-run for EMRCVR, and a "zero" reset has no safe meaning for trip/exit
+  -- angles or max drift the way it does for a CoM offset, so this screen is SAVE + "<" only.
+  -- doSave is exposed directly on elements (the cat_<mode> convention) so a test can invoke the
+  -- exact SAVE effect without a real Basalt click. SAVE persists via M._save -- the SAME
+  -- cfgClient:writeKind("tuning", ...) courier every other tuning row already uses; the FCS-side
+  -- responder (tools/flight.lua's cfgApplier) hot-applies emrcvr.* to the running Flight via
+  -- Flight:setEmrcvrCfg whenever a tuning SET carries an `emrcvr` table, mirroring how it already
+  -- hot-applies `com` -- see that file's cfgApplier for the wiring.
+  local function buildEmrcvrScreen(b, f, region)
+    local fw = ({ f:getSize() })[1]
+    local fx = 2
+    local fiw = math.max(1, fw - 2)
+    local y = 1
+    local titleLabel = configkit.titleRow(f, ({ f:getSize() })[1], "EMRCVR")
+    y = y + 1
+    local labelW = math.max(1, fiw - 8)
+    local minusX = fx + labelW + 1
+    local plusX = minusX + 4
+    local refresh
+    local rowSlots = {}
+    for i, spec in ipairs(EMRCVR_SPEC) do
+      local yy = y + i - 1
+      local lbl = f:addLabel({ x = fx, y = yy, width = labelW, height = 1, autoSize = false, text = "" })
+      local minus = f:addButton({ x = minusX, y = yy, width = 3, height = 1, text = "-" })
+      local plus = f:addButton({ x = plusX, y = yy, width = 3, height = 1, text = "+" })
+      rowSlots[i] = { id = spec.id, label = lbl, minus = minus, plus = plus }
+      minus:onClick(function()
+        workingCfg = M.apply(workingCfg, spec.id, -1)
+        refresh()
+      end)
+      plus:onClick(function()
+        workingCfg = M.apply(workingCfg, spec.id, 1)
+        refresh()
+      end)
+    end
+    y = y + #EMRCVR_SPEC
+    local function doSave()
+      M._save(workingCfg, write)
+    end
+    local saveRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
+      { label = "SAVE", onClick = doSave },
+    })
+    y = y + 1
+    local footerRow = configkit.actionRow(f, { x = fx, y = y, w = fiw }, {
+      { id = "back", label = "<", onClick = function() region:pop() end },
+    })
+    refresh = function()
+      for _, slot in ipairs(rowSlots) do
+        local spec = SPEC_BY_ID[slot.id]
+        local path = M.pathFor(nil, slot.id)
+        local v = getPath(workingCfg, path)
+        if v == nil then v = getPath(tuningdefaults.get(), path) end
+        if v == nil then v = 0 end
+        slot.label:setText(spec.label .. " " .. fmtVal(v, spec.step))
+      end
+    end
+    refresh()
+    return {
+      apply = function(_s) refresh() end,
+      elements = { titleLabel = titleLabel, rowSlots = rowSlots, saveRow = saveRow,
+        doSave = doSave, footerRow = footerRow, lastRowY = y },
+    }
+  end
+
   local function buildComAutoScreen(b, f, region)
     local fw = ({ f:getSize() })[1]
     local fx = 2
@@ -1020,7 +1102,7 @@ function M.build(basalt, frame, runtime, nav, read, write, delete)
   end
 
   -- ===== assemble the region's screens map =====
-  local screens = { modes = buildModesScreen, com = buildComScreen, comauto = buildComAutoScreen }
+  local screens = { modes = buildModesScreen, com = buildComScreen, comauto = buildComAutoScreen, emrcvr = buildEmrcvrScreen }
   for _, mode in ipairs(M.MODES) do
     screens["cat_" .. mode] = buildCatScreen(mode)
     screens["gains_axis_" .. mode] = buildGainsAxisScreen(mode)

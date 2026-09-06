@@ -40,6 +40,13 @@ local DEFAULTS = {
   -- Oscillation detector: a crossing counts only past +/-deadband (rad) so level-flight sensor
   -- dither can't false-trip; a trip auto-releases after calmTime (s) of calm. Per-axis (pitch/roll).
   osc = { window = 1.0, minChanges = 6, deadband = 0.02, calmTime = 1.0 },
+  -- Emergency recovery (EMRCVR): active righting when attitude departs level far past normal
+  -- flight (see the emrcvr spec/plan). tripAngle/exitAngle are the trip/release hysteresis pair
+  -- (rad); maxDrift bounds how far the recovery lets the craft drift while righting; dwell (s)
+  -- gates a brief settle before release; levelBand (rad) is the "level enough" exit tolerance;
+  -- kpAtt/capAtt are the recovery attitude loop's own gain/cap (independent of the flying mode's).
+  emrcvr = { tripAngle = 1.309, exitAngle = 0.175, maxDrift = 2.0, dwell = 0.5,
+             levelBand = 0.5, kpAtt = 0.6, capAtt = 0.8 },
   dtMax = 0.5,
   attLimit = 0.6,
   com = { fwd = 0, right = 0, spanFwd = 0, spanRight = 0 },

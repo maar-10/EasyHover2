@@ -72,6 +72,60 @@ t.test("apply com.fwd steps by 0.1 and stays on the top-level com table", functi
   t.eq(out.gains.hoverDuty, cfg.gains.hoverDuty, "other tuning untouched")
 end)
 
+-- ===== EMRCVR_SPEC: global, top-level operator-facing recovery thresholds (Task 5, 2026-09-06 =====
+-- ===== emrcvr-emergency-recovery SDD) -- mirrors COM_SPEC's shape/tests exactly.               =====
+
+t.test("EMRCVR_SPEC: tripAngle/exitAngle/maxDrift present with correct label/group/step/min/max", function()
+  local byId = {}
+  for _, spec in ipairs(M.EMRCVR_SPEC) do byId[spec.id] = spec end
+
+  local trip = byId["emrcvr.tripAngle"]
+  t.truthy(trip, "emrcvr.tripAngle spec present")
+  t.eq(trip.label, "TRIP ANGLE")
+  t.eq(trip.group, "EMRCVR")
+  t.near(trip.step, 0.05, 1e-9); t.near(trip.min, 0.5, 1e-9); t.near(trip.max, 1.8, 1e-9)
+
+  local exitS = byId["emrcvr.exitAngle"]
+  t.truthy(exitS, "emrcvr.exitAngle spec present")
+  t.eq(exitS.label, "EXIT ANGLE")
+  t.eq(exitS.group, "EMRCVR")
+  t.near(exitS.step, 0.02, 1e-9); t.near(exitS.min, 0, 1e-9); t.near(exitS.max, 0.6, 1e-9)
+
+  local drift = byId["emrcvr.maxDrift"]
+  t.truthy(drift, "emrcvr.maxDrift spec present")
+  t.eq(drift.label, "MAX DRIFT")
+  t.eq(drift.group, "EMRCVR")
+  t.near(drift.step, 0.5, 1e-9); t.near(drift.min, 0, 1e-9); t.near(drift.max, 20, 1e-9)
+end)
+
+t.test("apply(cfg, nil, 'emrcvr.tripAngle', +1) writes the top-level emrcvr table, clamped, other tuning untouched", function()
+  local cfg = tuningdefaults.get()
+  local before = cfg.emrcvr.tripAngle -- 1.309, step 0.05 -> rounded to the step's 2-decimal precision
+  local out = M.apply(cfg, nil, "emrcvr.tripAngle", 1)
+  t.near(out.emrcvr.tripAngle, 1.36, 1e-9)
+  t.truthy(math.abs(out.emrcvr.tripAngle - before) > 0, "value actually changed")
+  t.eq(out.gains.hoverDuty, cfg.gains.hoverDuty, "other tuning untouched")
+  t.eq(out.emrcvr.exitAngle, cfg.emrcvr.exitAngle, "sibling emrcvr fields untouched")
+end)
+
+t.test("apply emrcvr.maxDrift clamps at min (0) with a large negative delta", function()
+  local cfg = tuningdefaults.get()
+  local out = M.apply(cfg, nil, "emrcvr.maxDrift", -1000)
+  t.eq(out.emrcvr.maxDrift, 0)
+end)
+
+t.test("apply emrcvr.exitAngle clamps at max (0.6) with a large positive delta", function()
+  local cfg = tuningdefaults.get()
+  local out = M.apply(cfg, nil, "emrcvr.exitAngle", 1000)
+  t.eq(out.emrcvr.exitAngle, 0.6)
+end)
+
+t.test("apply emrcvr.tripAngle clamps at max (1.8), rounded to the step's precision", function()
+  local cfg = tuningdefaults.get()
+  local out = M.apply(cfg, nil, "emrcvr.tripAngle", 1000)
+  t.eq(out.emrcvr.tripAngle, 1.8)
+end)
+
 t.test("apply at min with -1 clamps (does not go below min)", function()
   local cfg = tuningdefaults.get()
   cfg.caps.yaw = 0 -- already at min
@@ -258,6 +312,12 @@ end)
 t.test("pathFor: PRECISION (or nil mode) returns the dotted path as-is (top-level)", function()
   t.eq(M.pathFor("PRECISION", "gains.pitch.kp"), "gains.pitch.kp")
   t.eq(M.pathFor(nil, "gains.pitch.kp"), "gains.pitch.kp")
+end)
+
+t.test("pathFor: emrcvr.* is top-level (not per-mode prefixed), like com.*", function()
+  t.eq(M.pathFor("MAN", "emrcvr.tripAngle"), "emrcvr.tripAngle")
+  t.eq(M.pathFor(nil, "emrcvr.tripAngle"), "emrcvr.tripAngle")
+  t.eq(M.pathFor("PRECISION", "emrcvr.maxDrift"), "emrcvr.maxDrift")
 end)
 
 t.test("pathFor: MAN/CRUISE prefix under modes.<mode>.", function()
@@ -557,6 +617,7 @@ t.test("M.build: modes screen (root) has PRECISION/MAN/CRUISE buttons + '?' + '<
   end
   t.eq(#modesHandle.elements.footerRow.buttons, 2, "modes footer row has exactly '?' and '<'")
   t.truthy(modesHandle.elements.comBtn ~= nil, "COM sibling on the modes root")
+  t.truthy(modesHandle.elements.emrcvrBtn ~= nil, "EMRCVR sibling on the modes root")
 
   local ok, err = pcall(h.apply, {})
   t.truthy(ok, "apply should not error: " .. tostring(err))
@@ -826,6 +887,46 @@ t.test("M.build: cat_<mode>'s exposed doSave/doReset call M._save/M.resetMode fo
   local after = textutils.unserialise(stored)
   t.eq(after.gains.pitch.kp, tuningdefaults.get().gains.pitch.kp,
     "doReset (M.resetMode(workingCfg,'PRECISION')) reverted the mutation to defaults")
+end)
+
+t.test("M.build: EMRCVR screen shows all 3 rows with -/+, and its exposed doSave persists the working cfg", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+  local nav = Nav.new("bitconfig")
+
+  -- Seed an ALREADY-MUTATED cfg (emrcvr.tripAngle off default) so doSave's serialised output is
+  -- directly observable -- same idiom as the cat_<mode> doSave/doReset test above.
+  local mutated = tuningdefaults.get()
+  mutated.emrcvr.tripAngle = 1.234
+  local stored = textutils.serialise(mutated)
+  local function read(filename) return stored end
+  local function write(filename, body) stored = body end
+  local function delete(path) stored = nil end
+
+  local h = M.build(basalt, frame, nil, nav, read, write, delete)
+  local region = h.elements.region
+
+  region:push("emrcvr"); h.apply({})
+  t.eq(region:top(), "emrcvr")
+  local emrHandle = region.built.emrcvr.handle
+
+  t.eq(#emrHandle.elements.rowSlots, 3, "exactly 3 EMRCVR rows")
+  local ids = {}
+  for _, slot in ipairs(emrHandle.elements.rowSlots) do
+    ids[slot.id] = true
+    t.truthy(slot.minus ~= nil and slot.plus ~= nil, "row " .. slot.id .. " has -/+ buttons")
+  end
+  t.truthy(ids["emrcvr.tripAngle"], "emrcvr.tripAngle row present")
+  t.truthy(ids["emrcvr.exitAngle"], "emrcvr.exitAngle row present")
+  t.truthy(ids["emrcvr.maxDrift"], "emrcvr.maxDrift row present")
+
+  t.truthy(type(emrHandle.elements.doSave) == "function", "doSave exposed")
+  emrHandle.elements.doSave()
+  local saved = textutils.unserialise(stored)
+  t.eq(saved.emrcvr.tripAngle, 1.234, "doSave persisted the seeded (mutated) workingCfg via M._save")
+
+  local ok, err = pcall(h.apply, {})
+  t.truthy(ok, "apply should not error: " .. tostring(err))
 end)
 
 t.test("M.build: '<' -- modes pops the FRAME-level nav; region screens pop the REGION's own nav", function()
