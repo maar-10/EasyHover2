@@ -51,12 +51,13 @@ t.test("lift release clears climbCmd and captures current altitude (bumpless hol
   t.near(sp.altitude, 137, 1e-9, "hold setpoint captured to current altitude")
 end)
 
-t.test("sway held ramps swayPos at cruiseSpeed, clamped to maxLead", function()
-  local p = Pilot.new(CFG); p:reset(meas())
-  local sp = p:update(1.0, {swayRight=true}, meas())   -- +1 (cruise 1 * dt 1)
-  t.near(sp.swayPos, 1.0, 1e-9, "swayPos +1")
-  sp = p:update(10, {swayRight=true}, meas())           -- would be +10, clamped to maxLead 3
-  t.near(sp.swayPos, 3.0, 1e-9, "clamped to maxLead")
+t.test("sway held commands a lateral velocity (strafeCmd)", function()
+  local p = Pilot.new({ swaySpeed = 6, headingRate = 1, climbRate = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas())
+  local sp = p:update(0.05, {swayRight=true}, meas{swayVel=2})
+  t.near(sp.strafeCmd, 6, 1e-9, "right -> +swaySpeed")
+  sp = p:update(0.05, {swayLeft=true}, meas())
+  t.near(sp.strafeCmd, -6, 1e-9, "left -> -swaySpeed")
 end)
 
 t.test("surge forward increases surgePos (fwd = main thrust)", function()
@@ -65,12 +66,14 @@ t.test("surge forward increases surgePos (fwd = main thrust)", function()
   t.near(sp.surgePos, 1.0, 1e-9, "surgePos +1")
 end)
 
-t.test("release holds setpoints where they are", function()
-  local p = Pilot.new(CFG); p:reset(meas())
-  p:update(1.0, {swayRight=true}, meas())
-  -- craft has not moved (meas.swayPos still 0); releasing keeps sp at 1
-  local sp = p:update(1.0, {}, meas{swayPos=0.5})
-  t.near(sp.swayPos, 1.0, 1e-9, "held at 1")
+t.test("sway release clears strafeCmd and holds captured swayPos under CPL", function()
+  local p = Pilot.new({ swaySpeed = 6, headingRate = 1, climbRate = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas())
+  p:setMaster(true)                                      -- CPL: arrest drift
+  p:update(0.05, {swayRight=true}, meas{swayPos=0})
+  local sp = p:update(0.05, {}, meas{swayPos=1.5})
+  t.eq(sp.strafeCmd, nil, "released -> no rate command")
+  t.near(sp.swayPos, 1.5, 1e-9, "CPL captures current swayPos (arrest)")
 end)
 
 t.test("yaw release is edge-triggered: a settled release holds heading and fights drift", function()

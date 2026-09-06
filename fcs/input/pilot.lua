@@ -15,6 +15,7 @@ function Pilot.new(cfg)
     throttle = 0,
     yawWasHeld = false,
     climbWasHeld = false,
+    swayWasHeld = false,
     driftArrest = true,
   }, Pilot)
 end
@@ -29,6 +30,7 @@ function Pilot:reset(meas)
   self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0
   self.yawWasHeld = false
   self.climbWasHeld = false
+  self.swayWasHeld = false
   return self.sp
 end
 
@@ -40,6 +42,7 @@ function Pilot:setMode(policy, feel)
   self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0   -- transition: center tilt, drop throttle
   self.yawWasHeld = false
   self.climbWasHeld = false
+  self.swayWasHeld = false
 end
 
 function Pilot:setTrimDir(dir) self.cfg.trimDir = (dir and dir < 0) and -1 or 1 end
@@ -97,18 +100,24 @@ function Pilot:update(dt, held, meas)
     sp.climbCmd = nil
   end
 
-  -- Sway / surge: leashed position setpoints. Held => ramp toward the lead cap in that direction at
-  -- the axis cruise speed; released => hold current setpoint. Surge (fore/aft, the main engine) and
-  -- sway (lateral) have SEPARATE speed/lead so forward can be much faster than sideways; both fall
-  -- back to the shared cruiseSpeed/maxLead when the split params are absent (keeps old configs valid).
-  -- DRN sets policy.translate=false: skip the leash entirely so sway/surge setpoints stay
+  -- Sway: rate command while held (the scheme's lateral-velocity controller flies to it directly);
+  -- capture swayPos on release for a bumpless handoff, then the unified drift law below governs it
+  -- (CPL arrests at the captured position; DCPL / tilting relaxes it to measured = coast). Mirrors
+  -- the altitude (climbCmd/climbWasHeld) and yaw (yawCmd/yawWasHeld) rate-command pattern above.
+  -- Surge (fore/aft, the main engine) is NOT rate-commanded -- it keeps its leashed position
+  -- setpoint / CRUISE throttle handling below, untouched.
+  -- DRN sets policy.translate=false: skip this block entirely so sway/surge setpoints stay
   -- frozen at their reset value and the craft moves by tilt only. Nil (every other mode) is
   -- ~= false, so behavior there is unchanged.
   if self.policy.translate ~= false then
-    local swaySpeed, swayLead = c.swaySpeed or c.cruiseSpeed, c.swayLead or c.maxLead
     local swd = dirOf(held, "swayLeft", "swayRight")
-    local starget = (swd ~= 0) and (meas.swayPos + swayLead * swd) or sp.swayPos
-    sp.swayPos = leash.step(sp.swayPos, starget, meas.swayPos, dt, swaySpeed, swayLead)
+    if swd ~= 0 then
+      sp.strafeCmd = (c.swaySpeed or 0) * swd
+      self.swayWasHeld = true
+    else
+      if self.swayWasHeld then sp.swayPos = meas.swayPos or sp.swayPos; self.swayWasHeld = false end
+      sp.strafeCmd = nil
+    end
 
     -- CRUISE (policy.surge=="throttle"): do not leash surge ahead of the craft. Throttle
     -- overwrites surge demand; a standing lead under CPL rails reverse on mode exit (A1).
