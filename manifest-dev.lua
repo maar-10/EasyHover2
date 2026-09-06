@@ -359,9 +359,9 @@
         },
         {
           ["dst"] = "fcs/control/translate.lua",
-          ["size"] = 1068,
+          ["size"] = 1075,
           ["src"] = "fcs/control/translate.lua",
-          ["sum"] = "dd3644b4",
+          ["sum"] = "16b9ba48",
         },
         {
           ["dst"] = "fcs/envelope.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "61453204",
+  ["version"] = "a12cc2ae",
 }

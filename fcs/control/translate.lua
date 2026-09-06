@@ -29,6 +29,6 @@ function T:terms(sp, pos, vel)
   }
 end
 function T:rate(cmd, vel, dt)
-  return self.ks * (cmd - (vel or 0))
+  return self.ks * ((cmd or 0) - (vel or 0))
 end
 return T
