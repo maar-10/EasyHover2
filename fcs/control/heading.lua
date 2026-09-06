@@ -4,6 +4,7 @@ H.__index = H
 function H.new(cfg)
   local self = setmetatable({}, H)
   self.kp = cfg.kp or 0; self.ki = cfg.ki or 0; self.kd = cfg.kd or 0
+  self.kw = cfg.kw or 0
   self.iMin = cfg.iMin or -math.huge; self.iMax = cfg.iMax or math.huge
   self.dtMax = cfg.dtMax or 0.5
   self:reset(); return self
@@ -27,5 +28,8 @@ function H:terms(sp, meas, yawRate)
     I = self.i,
     D = -self.kd * (yawRate or 0),
   }
+end
+function H:rate(cmd, yawRate, dt)
+  return self.kw * ((cmd or 0) - (yawRate or 0))
 end
 return H

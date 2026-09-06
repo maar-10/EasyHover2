@@ -347,9 +347,9 @@
         },
         {
           ["dst"] = "fcs/control/heading.lua",
-          ["size"] = 1070,
+          ["size"] = 1181,
           ["src"] = "fcs/control/heading.lua",
-          ["sum"] = "b920ca83",
+          ["sum"] = "a6998957",
         },
         {
           ["dst"] = "fcs/control/pid.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "4fdf3b69",
+  ["version"] = "a0ccb462",
 }

@@ -88,6 +88,12 @@ t.test("Heading:terms defaults yawRate to 0 like update()", function()
   t.near(tm.P + tm.I + tm.D, out, 1e-6, "P+I+D == update() return")
 end)
 
+t.test("Heading:rate commands yaw-rate error (kw * (cmd - yawRate))", function()
+  local h = Heading.new({ kp = 3, kd = 0.2, kw = 0.8 })
+  t.near(h:rate(1.5, 0.5, 0.05), 0.8 * (1.5 - 0.5), 1e-9, "kw * rate error")
+  t.near(h:rate(1.0, nil, 0.05), 0.8, 1e-9, "nil yawRate defaults to 0")
+end)
+
 -- Translate ----------------------------------------------------------------
 
 t.test("Translate:terms P+I+D sums to update() and does not mutate", function()
