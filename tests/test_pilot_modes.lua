@@ -84,14 +84,14 @@ t.test("policy.translate=false freezes sway/surge leash (drone: tilt-only transl
 end)
 
 -- Regression guard: an existing mode (no translate field, e.g. PRECISION) must keep ramping
--- the position leash exactly as before.
-t.test("existing mode (no translate field) still ramps sway/surge leash", function()
+-- the surge position leash exactly as before; sway (Task 7) now rate-commands instead.
+t.test("existing mode (no translate field): surge still leashes, sway still rate-commands", function()
   local p = Pilot.new(FEEL)
   p:setMode({ tilt = true, surge = "position" }, FEEL)
   p:reset(meas())
   local sp = p:update(0.1, { surgeFwd = true, swayRight = true }, meas())
   t.truthy(sp.surgePos > 0, "surgePos ramps forward without translate flag")
-  t.truthy(sp.swayPos > 0, "swayPos ramps right without translate flag")
+  t.near(sp.strafeCmd, FEEL.swaySpeed, 1e-9, "swayPos rate-commands right without translate flag")
 end)
 
 -- F2: the CRUISE throttle detent is a persistent accumulator (self.throttle). reset() rebuilds sp

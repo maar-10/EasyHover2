@@ -33,15 +33,14 @@ t.test("tilting relaxes horizontal hold under CPL (generalized relaxTiltDrift), 
   t.eq(sp.surgePos, 4, "tilt relaxes surge to measured")
 end)
 
-t.test("climb ramp is always on: sustained hold exceeds a single-tick nudge", function()
+t.test("climb command is a constant rate while held (rate-command, no ramp)", function()
   local p = Pilot.new(feel()); p:setMode({ tilt = false, surge = "position" }, feel()); p:setMaster(true)
   local m = meas()
-  local tap = Pilot.new(feel()); tap:setMode({ tilt = false, surge = "position" }, feel()); tap:setMaster(true)
-  local a1 = tap:update(0.05, { up = true }, m).altitude       -- first tick (tap)
-  -- hold for ~1s of ramp on a fresh pilot
-  local held = 0
-  for _ = 1, 20 do held = p:update(0.05, { up = true }, m).altitude end
-  t.truthy((held - m.altitude) > (a1 - m.altitude), "ramped climb outpaces the first-tick nudge")
+  local c1 = p:update(0.05, { up = true }, m).climbCmd         -- first tick (tap)
+  local held
+  for _ = 1, 20 do held = p:update(0.05, { up = true }, m).climbCmd end   -- sustained hold
+  t.near(c1, feel().climbRate, 1e-9, "immediate full-rate climb command")
+  t.near(held, feel().climbRate, 1e-9, "stays constant under sustained hold -- no ramp")
 end)
 
 t.test("brake button forces surge arrest even under DCPL", function()

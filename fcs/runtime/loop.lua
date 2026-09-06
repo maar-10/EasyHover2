@@ -78,13 +78,10 @@ function Loop:cycle(rawDt, m)
   -- Previous-cycle envelope saturation (same one-tick-delayed anti-windup pattern as the
   -- heave band's _heaveSat): a demand railed by its cap must stop integrating into that rail.
   local demands = self.scheme:update(self.sp, m, dt, grounded, self._sat)
-  -- FORWARD-ACCEL LEAN (fix #3, PRESERVED / DISABLED): the trim is now an attitude SETPOINT computed
-  -- in fcs/input/pilot.lua (brake + optional accel lean), which the #1 leveling loop holds. This old
-  -- output feed-forward oversteered but kept the craft out of a loop under hard acceleration; kept
-  -- for possible re-enable. luamin strips comments, so this is zero bytes in dist/. To re-enable:
-  -- uncomment this block AND ensure pilot.lua is NOT also injecting a forward-accel setpoint (or the
-  -- two double). Reads self.trimDir/trimGain/trimAuthority/trimFade* (setTrim, still plumbed).
-  --[[
+  -- FORWARD-ACCEL LEAN (fix #3, RE-ENABLED): calibrated, capped nose-down feed-forward on top of
+  -- the #1 leveling loop's own pitch output. Reads self.trimDir/trimGain/trimAuthority/trimFade*
+  -- (setTrim). Linear fade over [trimFadeStart, trimFade] |pitch|, clamped to
+  -- authority*caps.pitch; brakeTrim=false blocks the half of the ff opposite trimDir (forward-only).
   local ffRaw = (self.trimDir or 0) * (self.trimGain or 0) * (demands.surge or 0)
   local mag = math.abs(m.pitch or 0)
   local fs, fe = self.trimFadeStart or 0, self.trimFade or math.huge
@@ -102,8 +99,6 @@ function Loop:cycle(rawDt, m)
   end
   self._ffPitch = ff
   demands.pitch = (demands.pitch or 0) + ff
-  --]]
-  self._ffPitch = 0   -- lean disabled; diag/fcslog read this
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).

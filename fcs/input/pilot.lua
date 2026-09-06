@@ -1,6 +1,5 @@
 -- fcs/input/pilot.lua
 local leash = require("fcs.leash")
-local angle = require("fcs.angle")
 local brake = require("fcs.brake")
 
 local Pilot = {}
@@ -14,9 +13,9 @@ function Pilot.new(cfg)
     policy = { tilt = false, surge = "position" },
     tilt = { pitch = 0, roll = 0 },
     throttle = 0,
-    climbHeld = 0,
     yawWasHeld = false,
     climbWasHeld = false,
+    swayWasHeld = false,
     driftArrest = true,
   }, Pilot)
 end
@@ -27,10 +26,11 @@ function Pilot:reset(meas)
   -- Drop the persistent held-input accumulators too (same neutralization as setMode's transition):
   -- reset reseeds sp from measured, but update() re-derives sp.surgeThrottle/pitch/roll from these.
   -- A CRUISE throttle detent (self.throttle) surviving a disengage would otherwise slam MAIN back on
-  -- at re-engage with no W held (F2). tilt/climbHeld cleared for the same reason on any reseed.
-  self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0
+  -- at re-engage with no W held (F2). tilt cleared for the same reason on any reseed.
+  self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0
   self.yawWasHeld = false
   self.climbWasHeld = false
+  self.swayWasHeld = false
   return self.sp
 end
 
@@ -39,9 +39,10 @@ function Pilot:setPositionHold(b) self.hold = b and true or false end
 function Pilot:setMode(policy, feel)
   self.policy = policy or { tilt = false, surge = "position" }
   if feel then self.cfg = feel end
-  self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0   -- transition: center tilt, drop throttle
+  self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0   -- transition: center tilt, drop throttle
   self.yawWasHeld = false
   self.climbWasHeld = false
+  self.swayWasHeld = false
 end
 
 function Pilot:setTrimDir(dir) self.cfg.trimDir = (dir and dir < 0) and -1 or 1 end
@@ -72,56 +73,65 @@ function Pilot:_brakeSetpoint(held, meas, tilting)
 end
 
 function Pilot:update(dt, held, meas)
-  if self.hold then return self.sp end
+  if self.hold then
+    -- Finding 1 fix: positionHold can be engaged WHILE a climb/yaw/sway key is still held (no
+    -- release tick first), leaving a stale rate-command field on self.sp. If left alone, the
+    -- scheme keeps taking the rate branch for the whole duration hold is engaged instead of
+    -- holding. Clear the *Cmd fields on that transition tick and capture the CURRENT measured
+    -- pose (not the stale pre-hold sp.altitude/heading/swayPos, which the rate-command path never
+    -- updates) so the hold is bumpless.
+    if self.sp.climbCmd ~= nil or self.sp.yawCmd ~= nil or self.sp.strafeCmd ~= nil then
+      self.sp.climbCmd, self.sp.yawCmd, self.sp.strafeCmd = nil, nil, nil
+      self.sp.altitude = (meas and meas.altitude) or self.sp.altitude
+      self.sp.heading  = (meas and meas.heading)  or self.sp.heading
+      self.sp.swayPos  = (meas and meas.swayPos)  or self.sp.swayPos
+    end
+    return self.sp
+  end
   local c, sp = self.cfg, self.sp
 
-  -- Yaw: slew heading setpoint, angle-wrapped, leashed to lead the CURRENT heading by at most
-  -- leadCapHeading. The leash bounds the standing lead (hence the steady turn RATE) while held;
-  -- mirrors the altitude (leadCapVert) and position (maxLead) leashes. The post-release coast --
-  -- the craft continuing to turn out the remaining lead -- is killed separately by the release-edge
-  -- capture near the end of update() (snaps the setpoint to current heading + a small stop lead).
+  -- Yaw: rate command while held (the scheme's yaw-rate controller flies to it directly);
+  -- capture heading on release for a bumpless heading hold. Mirrors the altitude
+  -- (climbCmd/climbWasHeld) rate-command pattern above.
   local yd = dirOf(held, "yawLeft", "yawRight")
-  local yawActive = (yd ~= 0)   -- drives the release-capture below
   if yd ~= 0 then
-    sp.heading = angle.wrap(sp.heading + c.headingRate * dt * yd)
-    local cap = c.leadCapHeading
-    if cap then
-      local err = angle.wrap(sp.heading - (meas.heading or 0))
-      if err > cap then sp.heading = angle.wrap((meas.heading or 0) + cap)
-      elseif err < -cap then sp.heading = angle.wrap((meas.heading or 0) - cap) end
-    end
-  end
-
-  -- Lift: slew altitude, leashed to current altitude +/- leadCapVert. The rate ramps with hold
-  -- time (tap = base climbRate nudge, sustained hold -> climbRate*(1+climbBoost)), always on.
-  local ld = dirOf(held, "down", "up")
-  local climbRate = c.climbRate
-  if ld ~= 0 then
-    self.climbHeld = (self.climbHeld or 0) + dt
-    local ramp = math.min(1, self.climbHeld / (c.climbRampTime or 1.0))
-    climbRate = c.climbRate * (1 + (c.climbBoost or 0) * ramp)
+    sp.yawCmd = (c.headingRate or 0) * yd
+    self.yawWasHeld = true
   else
-    self.climbHeld = 0
-  end
-  if ld ~= 0 then
-    local a = sp.altitude + climbRate * dt * ld
-    local lo, hi = meas.altitude - c.leadCapVert, meas.altitude + c.leadCapVert
-    if a < lo then a = lo elseif a > hi then a = hi end
-    sp.altitude = a
+    if self.yawWasHeld then sp.heading = meas.heading or sp.heading; self.yawWasHeld = false end
+    sp.yawCmd = nil
   end
 
-  -- Sway / surge: leashed position setpoints. Held => ramp toward the lead cap in that direction at
-  -- the axis cruise speed; released => hold current setpoint. Surge (fore/aft, the main engine) and
-  -- sway (lateral) have SEPARATE speed/lead so forward can be much faster than sideways; both fall
-  -- back to the shared cruiseSpeed/maxLead when the split params are absent (keeps old configs valid).
-  -- DRN sets policy.translate=false: skip the leash entirely so sway/surge setpoints stay
+  -- Lift: rate command while held (the scheme's velocity controller flies to it directly);
+  -- capture altitude on release for a bumpless position hold. See #9 -- this replaces the
+  -- old leadCapVert leash + altStopLead release-edge capture with a direct rate command.
+  local ld = dirOf(held, "down", "up")
+  if ld ~= 0 then
+    sp.climbCmd = (c.climbRate or 0) * ld
+    self.climbWasHeld = true
+  else
+    if self.climbWasHeld then sp.altitude = meas.altitude or sp.altitude; self.climbWasHeld = false end
+    sp.climbCmd = nil
+  end
+
+  -- Sway: rate command while held (the scheme's lateral-velocity controller flies to it directly);
+  -- capture swayPos on release for a bumpless handoff, then the unified drift law below governs it
+  -- (CPL arrests at the captured position; DCPL / tilting relaxes it to measured = coast). Mirrors
+  -- the altitude (climbCmd/climbWasHeld) and yaw (yawCmd/yawWasHeld) rate-command pattern above.
+  -- Surge (fore/aft, the main engine) is NOT rate-commanded -- it keeps its leashed position
+  -- setpoint / CRUISE throttle handling below, untouched.
+  -- DRN sets policy.translate=false: skip this block entirely so sway/surge setpoints stay
   -- frozen at their reset value and the craft moves by tilt only. Nil (every other mode) is
   -- ~= false, so behavior there is unchanged.
   if self.policy.translate ~= false then
-    local swaySpeed, swayLead = c.swaySpeed or c.cruiseSpeed, c.swayLead or c.maxLead
     local swd = dirOf(held, "swayLeft", "swayRight")
-    local starget = (swd ~= 0) and (meas.swayPos + swayLead * swd) or sp.swayPos
-    sp.swayPos = leash.step(sp.swayPos, starget, meas.swayPos, dt, swaySpeed, swayLead)
+    if swd ~= 0 then
+      sp.strafeCmd = (c.swaySpeed or 0) * swd
+      self.swayWasHeld = true
+    else
+      if self.swayWasHeld then sp.swayPos = meas.swayPos or sp.swayPos; self.swayWasHeld = false end
+      sp.strafeCmd = nil
+    end
 
     -- CRUISE (policy.surge=="throttle"): do not leash surge ahead of the craft. Throttle
     -- overwrites surge demand; a standing lead under CPL rails reverse on mode exit (A1).
@@ -185,28 +195,6 @@ function Pilot:update(dt, held, meas)
     self.throttle = self.throttle + (c.cruiseThrottleRate or 1.0) * dt * d
     if self.throttle < 0 then self.throttle = 0 elseif self.throttle > maxT then self.throttle = maxT end
     sp.surgeThrottle = (held.brake and 0) or self.throttle   -- brake cuts MAIN; detent resumes on release
-  end
-
-  -- Yaw release-edge capture: on the tick the pilot lets go of yaw/rudder, drop the leashed lead
-  -- and snap the heading setpoint to the current heading plus a small predictive stop
-  -- (yawStopLead * yawRate), so the loop brakes to a halt where you released instead of coasting
-  -- the ~leadCapHeading lead out -- the old oversteer. Edge-triggered (yawWasHeld): once captured,
-  -- the setpoint stays fixed so the heading PID fights drift rather than re-tracking meas.heading.
-  if yawActive then
-    self.yawWasHeld = true
-  elseif self.yawWasHeld then
-    sp.heading = angle.wrap((meas.heading or 0) + (c.yawStopLead or 0) * (meas.yawRate or 0))
-    self.yawWasHeld = false
-  end
-
-  -- Altitude release-edge capture (fix #9): mirror the yaw capture. On release of climb/descend, drop
-  -- the leadCapVert lead and snap sp.altitude to current + a small predictive stop, so the craft holds
-  -- where you released instead of climbing the lead out (the bounce). Edge-triggered (climbWasHeld).
-  if ld ~= 0 then
-    self.climbWasHeld = true
-  elseif self.climbWasHeld then
-    sp.altitude = (meas.altitude or sp.altitude) + (c.altStopLead or 0) * (meas.vSpeed or 0)
-    self.climbWasHeld = false
   end
 
   -- Return a snapshot copy: sp is self.sp, mutated in place as internal ramp state across calls

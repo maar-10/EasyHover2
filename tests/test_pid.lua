@@ -61,3 +61,17 @@ t.test("a non-usable tick still tracks the measurement (no stale-derivative spik
   local out = p:update(0, 100.1, 0.1)        -- real one-tick move of 0.1 over dt 0.1 => rate 1.0
   t.near(out, -1.0, 1e-9)                     -- a stale lastMeas(=0) would give -(100.1/0.1) = -1001
 end)
+t.test("saturated freezes integration but NOT the derivative (D-kill fix)", function()
+  local p = Pid.new({ kp = 0, ki = 1, kd = 1, tauD = 0, dtMax = 0.5 })
+  p:update(0, 0, 0.1, false)                 -- seed lastMeas = 0
+  -- saturated tick with a real one-tick move: integral must NOT accumulate, but D MUST react
+  local out = p:update(0, 1, 0.1, true)      -- meas rose 1 over dt 0.1 => dMeas=10, D=-10; i stays 0
+  t.near(out, -10, 1e-9, "D live under saturation (integral still frozen)")
+  t.near(p.i, 0, 1e-9, "integration stayed frozen while saturated")
+end)
+t.test("saturated still skips a stale-dt derivative (bad dt overrides)", function()
+  local p = Pid.new({ kp = 0, ki = 0, kd = 1, tauD = 0, dtMax = 0.5 })
+  p:update(0, 0, 0.1, false)
+  local out = p:update(0, 100, 5.0, true)    -- dt>dtMax AND saturated: D still skipped (stale dt)
+  t.near(out, 0, 1e-9, "bad dt skips D even when saturated")
+end)

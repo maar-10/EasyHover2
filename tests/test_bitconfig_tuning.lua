@@ -252,35 +252,51 @@ t.test("tuning editor: no CPL/DCPL extra rows; trim/ramp are shared base FEEL ro
   t.truthy(not has.CPL and not has.DCPL, "CPL/DCPL are not tunable flight modes")
   local specCPL = T.specFor and T.specFor("CPL", "feel.trimGain")
   t.eq(specCPL, nil, "no CPL-scoped trimGain row")
-  -- trimGain/climbBoost/climbRampTime now resolve for a base flight mode (e.g. MAN)
+  -- trimGain resolves for a base flight mode (e.g. MAN); climbBoost/climbRampTime were RETIRED by
+  -- Task 10 (2026-09-06 rate-command batch) -- no mode resolves them any more.
   t.truthy(T.specFor("MAN", "feel.trimGain"), "trimGain tunable on a flight mode")
-  t.truthy(T.specFor("MAN", "feel.climbBoost"), "climbBoost tunable on a flight mode")
-  t.truthy(T.specFor("MAN", "feel.climbRampTime"), "climbRampTime tunable on a flight mode")
+  t.eq(T.specFor("MAN", "feel.climbBoost"), nil, "climbBoost RETIRED -- no longer tunable on any mode")
+  t.eq(T.specFor("MAN", "feel.climbRampTime"), nil, "climbRampTime RETIRED -- no longer tunable on any mode")
 end)
 
-t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 8 rows shared by every flight mode (trim/ramp/flip-guard/stop-lead), no own extras", function()
+-- Task 10 (2026-09-06 rate-command batch) FINALIZES the interim 0-fallback assertions Task 9 left
+-- here: feel.climbRampTime/feel.climbBoost (and feel.yawStopLead/feel.altStopLead, see the
+-- dedicated test further down) are RETIRED rows -- Task 10 removed them from the UI entirely, so
+-- they are no longer tunable rows at all (specFor returns nil for them on every mode). feel.trimGain
+-- is still live, and the new rate-command rows (feel.climbRate/headingRate/swaySpeed +
+-- gains.alt.kv/yaw.kw/sway.ks) are present and shared by every mode.
+t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 4 rows shared by every flight mode (trim/flip-guard), no own extras", function()
   local rows = M.rows(tuningdefaults.get(), "LDG")
-  t.eq(#rows, 42, "34 base + 8 shared trim/ramp/flip-guard/stop-lead rows")
+  t.eq(#rows, 38, "34 base + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
-  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.trimGain" }) do
-    t.truthy(ids[id], "LDG row present: " .. id)
-    t.eq(ids[id].group, "FEEL")
-    t.eq(ids[id].value, defaults.modes.LDG.feel[id:match("feel%.(.+)")])
+  t.truthy(ids["feel.trimGain"], "LDG row present: feel.trimGain")
+  t.eq(ids["feel.trimGain"].group, "FEEL")
+  t.eq(ids["feel.trimGain"].value, defaults.modes.LDG.feel.trimGain)
+  t.truthy(ids["feel.climbRate"], "LDG row present: feel.climbRate")
+  t.eq(ids["feel.climbRate"].value, defaults.modes.LDG.feel.climbRate)
+  t.truthy(ids["gains.alt.kv"], "LDG row present: gains.alt.kv")
+  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.leadCapVert",
+                        "feel.leadCapHeading", "feel.swayLead", "feel.yawStopLead", "feel.altStopLead" }) do
+    t.truthy(ids[id] == nil, "retired row GONE: " .. id)
   end
 end)
 
-t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + 5 brake rows + the 8 shared trim/ramp/flip-guard/stop-lead rows", function()
+t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows", function()
   local rows = M.rows(tuningdefaults.get(), "DRN")
-  t.eq(#rows, 49, "34 base + 2 DRN tilt extras + 5 brake rows + 8 shared trim/ramp/flip-guard/stop-lead rows")
+  t.eq(#rows, 45, "34 base + 2 DRN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
-  for _, id in ipairs({ "feel.tiltRate", "feel.tiltCap", "feel.climbRampTime", "feel.climbBoost", "feel.trimGain" }) do
+  for _, id in ipairs({ "feel.tiltRate", "feel.tiltCap", "feel.trimGain" }) do
     t.truthy(ids[id], "DRN row present: " .. id)
     t.eq(ids[id].group, "FEEL")
     t.eq(ids[id].value, defaults.modes.DRN.feel[id:match("feel%.(.+)")])
+  end
+  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.leadCapVert",
+                        "feel.leadCapHeading", "feel.swayLead", "feel.yawStopLead", "feel.altStopLead" }) do
+    t.truthy(ids[id] == nil, "retired row GONE: " .. id)
   end
 end)
 
@@ -335,7 +351,7 @@ t.test("REGRESSION: M.rows(cfg) with no mode arg == M.rows(cfg,'PRECISION')", fu
     t.eq(a[i].id, b[i].id)
     t.eq(a[i].value, b[i].value)
   end
-  t.eq(#a, 42, "34 base rows + the 8 rows shared by every flight mode (trim/ramp/flip-guard/stop-lead)")
+  t.eq(#a, 38, "34 base rows + the 4 rows shared by every flight mode (trim/flip-guard)")
 end)
 
 t.test("REGRESSION: M.apply(cfg,rowId,delta) with no mode arg == M.apply(cfg,'PRECISION',rowId,delta)", function()
@@ -360,9 +376,9 @@ t.test("M.rows(cfg,'MAN') reads from modes.MAN subtree, not top-level", function
   t.eq(pFound.value, tuningdefaults.get().gains.pitch.kp)
 end)
 
-t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake rows + the 8 shared trim/ramp/flip-guard/stop-lead rows (FEEL group)", function()
+t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "MAN")
-  t.eq(#rows, 49, "34 base + 2 MAN tilt extras + 5 brake rows + 8 shared trim/ramp/flip-guard/stop-lead rows")
+  t.eq(#rows, 45, "34 base + 2 MAN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local tiltRate, tiltCap
   for _, r in ipairs(rows) do
     if r.id == "feel.tiltRate" then tiltRate = r end
@@ -376,9 +392,9 @@ t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake
   t.eq(tiltCap.value, tuningdefaults.get().modes.MAN.feel.tiltCap)
 end)
 
-t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + 5 brake rows + the 8 shared trim/ramp/flip-guard/stop-lead rows (FEEL group)", function()
+t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "CRUISE")
-  t.eq(#rows, 49, "34 base + 2 CRUISE throttle extras + 5 brake rows + 8 shared trim/ramp/flip-guard/stop-lead rows")
+  t.eq(#rows, 45, "34 base + 2 CRUISE throttle extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local rate, max
   for _, r in ipairs(rows) do
     if r.id == "feel.cruiseThrottleRate" then rate = r end
@@ -392,9 +408,9 @@ t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max 
   t.eq(max.value, tuningdefaults.get().modes.CRUISE.feel.cruiseThrottleMax)
 end)
 
-t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 8 shared trim/ramp/flip-guard/stop-lead rows (42 rows)", function()
+t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 4 shared trim/flip-guard rows (38 rows)", function()
   local rows = M.rows(tuningdefaults.get(), "PRECISION")
-  t.eq(#rows, 42, "34 base + 8 shared trim/ramp/flip-guard/stop-lead rows")
+  t.eq(#rows, 38, "34 base + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do
     ids[r.id] = r
@@ -402,9 +418,13 @@ t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES hav
       and r.id ~= "feel.cruiseThrottleRate" and r.id ~= "feel.cruiseThrottleMax",
       "no per-mode extra leaked into PRECISION rows: " .. r.id)
   end
-  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.trimGain" }) do
+  for _, id in ipairs({ "feel.trimGain", "feel.climbRate", "feel.headingRate", "feel.swaySpeed",
+                        "gains.alt.kv", "gains.yaw.kw", "gains.sway.ks" }) do
     t.truthy(ids[id], "PRECISION row present: " .. id)
-    t.eq(ids[id].group, "FEEL")
+  end
+  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.leadCapVert",
+                        "feel.leadCapHeading", "feel.swayLead", "feel.yawStopLead", "feel.altStopLead" }) do
+    t.truthy(ids[id] == nil, "retired row GONE: " .. id)
   end
 end)
 
@@ -649,7 +669,9 @@ t.test("M.build: drilling PRECISION -> cat -> GAINS axis -> ALT shows KP/KI/KD s
   region:push("edit_PRECISION_GAINS_alt"); h.apply({})
   t.eq(region:top(), "edit_PRECISION_GAINS_alt")
   local editHandle = region.built.edit_PRECISION_GAINS_alt.handle
-  t.eq(#editHandle.elements.rowIds, 3, "ALT gains edit screen has exactly 3 rows (KP/KI/KD)")
+  -- Task 10 (2026-09-06 rate-command batch): ALT's axis screen gained a 4th row, gains.alt.kv --
+  -- the velocity-feedforward gain for the rate-commanded climb.
+  t.eq(#editHandle.elements.rowIds, 4, "ALT gains edit screen has exactly 4 rows (KP/KI/KD/KV)")
   local ids = {}
   for _, slot in ipairs(populatedSlots(editHandle.elements.rowSlots)) do
     ids[slot.id] = true
@@ -658,6 +680,7 @@ t.test("M.build: drilling PRECISION -> cat -> GAINS axis -> ALT shows KP/KI/KD s
   t.truthy(ids["gains.alt.kp"], "gains.alt.kp row present")
   t.truthy(ids["gains.alt.ki"], "gains.alt.ki row present")
   t.truthy(ids["gains.alt.kd"], "gains.alt.kd row present")
+  t.truthy(ids["gains.alt.kv"], "gains.alt.kv row present")
 end)
 
 t.test("M.build: GAINS axis screen's BASE button homes the 3 non-axis gains rows (hoverDuty/heaveMin/heaveMax)", function()
@@ -690,9 +713,8 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.eq(#region.built.edit_PRECISION_CAPS.handle.elements.rowIds, 5, "5 CAPS rows")
 
   region:pop(); h.apply({})
-  -- PRECISION's FEEL is now 16 rows (8 base + 8 shared trim/ramp/flip-guard/stop-lead) -- too many
-  -- for one flat screen (title+16+footer=18 > budget 10) -- so it now ALSO routes through
-  -- feel_menu, same as every other mode.
+  -- PRECISION's FEEL is 9 rows (5 base + 4 shared trim/flip-guard) -- it routes through feel_menu
+  -- like every other mode (Task 14 closed the earlier flat-screen exception).
   region:push("feel_menu_PRECISION"); h.apply({})
   t.eq(region:top(), "feel_menu_PRECISION")
   local precFeelMenu = region.built.feel_menu_PRECISION.handle
@@ -700,17 +722,15 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.truthy(precFeelMenu.elements.extraBtn ~= nil, "feel_menu_PRECISION has a MODE FEEL button")
 
   region:push("edit_PRECISION_FEEL_base"); h.apply({})
-  t.eq(#region.built.edit_PRECISION_FEEL_base.handle.elements.rowIds, 8, "8 base FEEL rows for PRECISION")
+  t.eq(#region.built.edit_PRECISION_FEEL_base.handle.elements.rowIds, 5, "5 base FEEL rows for PRECISION")
 
   region:pop(); h.apply({})
   region:push("edit_PRECISION_FEEL_extra"); h.apply({})
   local precFeelExtraHandle = region.built.edit_PRECISION_FEEL_extra.handle
-  t.eq(#precFeelExtraHandle.elements.rowIds, 8, "PRECISION MODE FEEL has exactly the 8 shared trim/ramp/flip-guard/stop-lead rows (no own extras)")
+  t.eq(#precFeelExtraHandle.elements.rowIds, 4, "PRECISION MODE FEEL has exactly the 4 shared trim/flip-guard rows (no own extras)")
   local precExtraIds = {}
   for _, slot in ipairs(populatedSlots(precFeelExtraHandle.elements.rowSlots)) do precExtraIds[slot.id] = true end
   t.truthy(precExtraIds["feel.trimGain"], "PRECISION MODE FEEL includes feel.trimGain")
-  t.truthy(precExtraIds["feel.climbRampTime"], "PRECISION MODE FEEL includes feel.climbRampTime")
-  t.truthy(precExtraIds["feel.climbBoost"], "PRECISION MODE FEEL includes feel.climbBoost")
   t.truthy(precExtraIds["feel.trimAuthority"], "PRECISION MODE FEEL includes feel.trimAuthority")
   t.truthy(precExtraIds["feel.trimFadeStart"], "PRECISION MODE FEEL includes feel.trimFadeStart")
   t.truthy(precExtraIds["feel.trimFade"], "PRECISION MODE FEEL includes feel.trimFade")
@@ -731,7 +751,7 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
 
   region:push("edit_MAN_FEEL_base"); h.apply({})
   local manFeelBaseHandle = region.built.edit_MAN_FEEL_base.handle
-  t.eq(#manFeelBaseHandle.elements.rowIds, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
+  t.eq(#manFeelBaseHandle.elements.rowIds, 5, "BASE FEEL has the 5 base feel rows, no per-mode extras")
   for _, slot in ipairs(populatedSlots(manFeelBaseHandle.elements.rowSlots)) do
     t.truthy(slot.id ~= "feel.tiltRate" and slot.id ~= "feel.tiltCap", "BASE FEEL excludes MAN's own extras: " .. slot.id)
   end
@@ -739,7 +759,7 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   region:pop(); h.apply({})
   region:push("edit_MAN_FEEL_extra"); h.apply({})
   local manFeelExtraHandle = region.built.edit_MAN_FEEL_extra.handle
-  t.eq(#manFeelExtraHandle.elements.rowIds, 15, "MODE FEEL has MAN's 2 own extras + 5 brake rows + the 8 rows shared by every flight mode")
+  t.eq(#manFeelExtraHandle.elements.rowIds, 11, "MODE FEEL has MAN's 2 own extras + 5 brake rows + the 4 rows shared by every flight mode")
   local extraIds = {}
   for _, slot in ipairs(populatedSlots(manFeelExtraHandle.elements.rowSlots)) do extraIds[slot.id] = true end
   t.truthy(extraIds["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
@@ -747,14 +767,12 @@ t.test("M.build: CAPS/FEEL have no axis layer -- CAPS is flat; every mode's FEEL
   t.truthy(extraIds["feel.tiltBrake.engageSpeed"], "MODE FEEL includes feel.tiltBrake.engageSpeed")
   t.truthy(extraIds["feel.tiltBrake.buttonMax"], "MODE FEEL includes feel.tiltBrake.buttonMax")
   t.truthy(extraIds["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
-  t.truthy(extraIds["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
-  t.truthy(extraIds["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
   t.truthy(extraIds["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
   t.truthy(extraIds["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
   t.truthy(extraIds["feel.trimFade"], "MODE FEEL includes shared feel.trimFade")
 end)
 
-t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own throttle extras + the 8 shared trim/ramp/flip-guard/stop-lead rows", function()
+t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own throttle extras + the 4 shared trim/flip-guard rows", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -763,7 +781,7 @@ t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own 
   region:push("feel_menu_CRUISE"); h.apply({})
   region:push("edit_CRUISE_FEEL_extra"); h.apply({})
   local extraHandle = region.built.edit_CRUISE_FEEL_extra.handle
-  t.eq(#extraHandle.elements.rowIds, 15, "MODE FEEL has CRUISE's 2 own extras + 5 brake rows + the 8 rows shared by every flight mode")
+  t.eq(#extraHandle.elements.rowIds, 11, "MODE FEEL has CRUISE's 2 own extras + 5 brake rows + the 4 rows shared by every flight mode")
   local ids = {}
   for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.cruiseThrottleRate"], "MODE FEEL includes feel.cruiseThrottleRate")
@@ -771,14 +789,12 @@ t.test("M.build: CRUISE FEEL also splits into BASE/MODE FEEL, with CRUISE's own 
   t.truthy(ids["feel.tiltBrake.engageSpeed"], "MODE FEEL includes feel.tiltBrake.engageSpeed")
   t.truthy(ids["feel.tiltBrake.buttonMax"], "MODE FEEL includes feel.tiltBrake.buttonMax")
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes shared feel.trimGain")
-  t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes shared feel.climbRampTime")
-  t.truthy(ids["feel.climbBoost"], "MODE FEEL includes shared feel.climbBoost")
   t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes shared feel.trimAuthority")
   t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes shared feel.trimFadeStart")
   t.truthy(ids["feel.trimFade"], "MODE FEEL includes shared feel.trimFade")
 end)
 
-t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 8 rows shared by every flight mode (no own extras)", function()
+t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 4 rows shared by every flight mode (no own extras)", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -787,12 +803,10 @@ t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 8 rows share
   region:push("feel_menu_LDG"); h.apply({})
   region:push("edit_LDG_FEEL_extra"); h.apply({})
   local extraHandle = region.built.edit_LDG_FEEL_extra.handle
-  t.eq(#extraHandle.elements.rowIds, 8, "MODE FEEL has exactly the 8 rows shared by every flight mode -- LDG gets no brake rows")
+  t.eq(#extraHandle.elements.rowIds, 4, "MODE FEEL has exactly the 4 rows shared by every flight mode -- LDG gets no brake rows")
   local ids = {}
   for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.trimGain"], "MODE FEEL includes feel.trimGain")
-  t.truthy(ids["feel.climbRampTime"], "MODE FEEL includes feel.climbRampTime")
-  t.truthy(ids["feel.climbBoost"], "MODE FEEL includes feel.climbBoost")
   t.truthy(ids["feel.trimAuthority"], "MODE FEEL includes feel.trimAuthority")
   t.truthy(ids["feel.trimFadeStart"], "MODE FEEL includes feel.trimFadeStart")
   t.truthy(ids["feel.trimFade"], "MODE FEEL includes feel.trimFade")
@@ -803,13 +817,13 @@ t.test("M.build: LDG FEEL splits into BASE/MODE FEEL, with only the 8 rows share
   region:pop(); h.apply({})
   region:push("edit_LDG_FEEL_base"); h.apply({})
   local baseHandle = region.built.edit_LDG_FEEL_base.handle
-  t.eq(#baseHandle.elements.rowIds, 8, "BASE FEEL has the 8 base feel rows, no per-mode extras")
+  t.eq(#baseHandle.elements.rowIds, 5, "BASE FEEL has the 5 base feel rows, no per-mode extras")
   for _, slot in ipairs(populatedSlots(baseHandle.elements.rowSlots)) do
     t.truthy(ids[slot.id] == nil, "BASE FEEL excludes LDG's shared extras: " .. slot.id)
   end
 end)
 
-t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + 5 brake rows + the 8 shared trim/ramp/flip-guard/stop-lead rows", function()
+t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows", function()
   local basalt, frame, nav, read, write, delete = newHarness()
   local h = M.build(basalt, frame, nil, nav, read, write, delete)
   local region = h.elements.region
@@ -818,7 +832,7 @@ t.test("M.build: DRN FEEL splits into BASE/MODE FEEL, with DRN's own tiltRate/ti
   region:push("feel_menu_DRN"); h.apply({})
   region:push("edit_DRN_FEEL_extra"); h.apply({})
   local extraHandle = region.built.edit_DRN_FEEL_extra.handle
-  t.eq(#extraHandle.elements.rowIds, 15, "MODE FEEL has DRN's 2 own tilt extras + 5 brake rows + the 8 rows shared by every flight mode")
+  t.eq(#extraHandle.elements.rowIds, 11, "MODE FEEL has DRN's 2 own tilt extras + 5 brake rows + the 4 rows shared by every flight mode")
   local ids = {}
   for _, slot in ipairs(populatedSlots(extraHandle.elements.rowSlots)) do ids[slot.id] = true end
   t.truthy(ids["feel.tiltRate"], "MODE FEEL includes feel.tiltRate")
@@ -1047,14 +1061,13 @@ t.test("brake row apply writes the nested per-mode path, clamped to step/min/max
 end)
 
 -- ===== Construction probe: windowed edit screen paging (real CraftOS-PC Basalt) =====
--- edit_CRUISE_FEEL_extra is now 15 rows (2 CRUISE throttle extras + 5 brake rows + 8 shared
--- trim/ramp/flip-guard/stop-lead rows) -- too many for ANY realistic monitor's stepper budget, so
--- it must page. Built on an explicit SHORT/NARROW child frame (mirrors the fit-regression test's
--- own 14x12 convention above), but at height=8 -- narrow enough that N (the actual windowed slot
--- count) lands below 7, so offset-0 genuinely hides some of the brake rows (which sit right after
--- CRUISE's own 2 throttle rows, i.e. rows 3-7 of the 15) and paging down surfaces them -- verified
--- against the real configkit.actionRow width math (see buildEditScreen's header comment) rather
--- than assumed.
+-- edit_CRUISE_FEEL_extra is now 11 rows (2 CRUISE throttle extras + 5 brake rows + 4 shared
+-- trim/flip-guard rows) -- too many for a narrow monitor's stepper budget, so it must page. Built
+-- on an explicit SHORT/NARROW child frame (mirrors the fit-regression test's own 14x12 convention
+-- above), but at height=8 -- narrow enough that N (the actual windowed slot count) lands below 7,
+-- so offset-0 genuinely hides some of the brake rows (which sit right after CRUISE's own 2
+-- throttle rows, i.e. rows 3-7 of the 11) and paging down surfaces them -- verified against the
+-- real configkit.actionRow width math (see buildEditScreen's header comment) rather than assumed.
 t.test("M.build: edit_CRUISE_FEEL_extra windows to <= height-2 slots and pages a hidden brake row into view", function()
   local basalt = BasaltApp.ensureBasalt()
   local root = basalt.createFrame()
@@ -1077,10 +1090,10 @@ t.test("M.build: edit_CRUISE_FEEL_extra windows to <= height-2 slots and pages a
   local extraHandle = region.built.edit_CRUISE_FEEL_extra.handle
   local els = extraHandle.elements
 
-  t.eq(#els.rowIds, 15, "15 rows: 2 CRUISE own extras + 5 brake rows + 8 shared")
-  -- (a) windowed, not all 15 laid out -- at most N = height-2 stepper slots
+  t.eq(#els.rowIds, 11, "11 rows: 2 CRUISE own extras + 5 brake rows + 4 shared")
+  -- (a) windowed, not all 11 laid out -- at most N = height-2 stepper slots
   t.truthy(#els.rowSlots <= frameH - 2, "rowSlots windowed to <= height-2, got " .. #els.rowSlots)
-  t.truthy(#els.rowSlots < 15, "fewer slots than the full 15-row set (actually paging)")
+  t.truthy(#els.rowSlots < 11, "fewer slots than the full 11-row set (actually paging)")
   t.truthy(els.lastRowY <= frameH, "footer/lastRowY fits inside the frame")
 
   -- (b) rows overflow -> scrollUp/scrollDown handles present
@@ -1142,21 +1155,53 @@ t.test("FIX 1: a fitting edit screen (edit_CRUISE_CAPS) lays out exactly #rowIds
   t.eq(capsHandle.elements.lastRowY, 2 + 5, "footer lands right after the last row (y0=2 + 5 rows)")
 end)
 
--- ===== Task 3 (2026-09-05 rate-tuning-snappy): live-tunable YAW/ALT STOP LEAD rows (fix #6/#9) =====
+-- ===== Task 10 (2026-09-06 rate-command batch): live-tune rows for the new rate-command knobs; =====
+-- ===== retired leash rows are GONE. This test REPLACES the old Task 3 (2026-09-05              =====
+-- ===== rate-tuning-snappy) "yaw/alt stop-lead rows present" test -- those rows (and             =====
+-- ===== leadCapVert/leadCapHeading/swayLead/climbRampTime/climbBoost) no longer exist at all.     =====
 
-t.test("yaw/alt stop-lead rows present in MODE FEEL for all modes + apply writes path", function()
+t.test("live-tune rows: CLIMB RATE/YAW RATE/STRAFE RATE/ALT KV/YAW KW/SWAY KS/TRIM GAIN present with correct label/group/range, for every flight mode", function()
   local T = require("ui.basalt.bitconfig.tuning")
+  local EXPECT = {
+    { id = "feel.climbRate",   label = "CLIMB RATE",  group = "FEEL",  min = 0, max = 20 },
+    { id = "feel.headingRate", label = "YAW RATE",    group = "FEEL",  min = 0, max = 3 },
+    { id = "feel.swaySpeed",   label = "STRAFE RATE", group = "FEEL",  min = 0, max = 20 },
+    { id = "gains.alt.kv",     label = "ALT KV",      group = "GAINS", min = 0, max = 1 },
+    { id = "gains.yaw.kw",     label = "YAW KW",      group = "GAINS", min = 0, max = 1 },
+    { id = "gains.sway.ks",    label = "SWAY KS",     group = "GAINS", min = 0, max = 1 },
+    { id = "feel.trimGain",    label = "TRIM GAIN",   group = "FEEL",  min = 0, max = 1 },
+  }
   for _, mode in ipairs({ "PRECISION", "MAN", "CRUISE", "LDG", "DRN" }) do
-    local ids = {}
-    for _, r in ipairs(T.rows({}, mode)) do ids[r.id] = true end
-    t.truthy(ids["feel.yawStopLead"], mode .. " has YAW STOP LEAD")
-    t.truthy(ids["feel.altStopLead"], mode .. " has ALT STOP LEAD")
+    for _, e in ipairs(EXPECT) do
+      local spec = T.specFor(mode, e.id)
+      t.truthy(spec, mode .. " has row " .. e.id)
+      t.eq(spec.label, e.label, e.id .. " label")
+      t.eq(spec.group, e.group, e.id .. " group")
+      t.near(spec.min, e.min, 1e-9, e.id .. " min")
+      t.near(spec.max, e.max, 1e-9, e.id .. " max")
+    end
   end
-  -- apply writes the per-mode path (PRECISION = top-level), clamped to step
-  local cfg = T.apply({}, "PRECISION", "feel.altStopLead", 1)  -- default 0.10, step 0.01 -> 0.11
-  t.near(cfg.feel.altStopLead, 0.11, 1e-9)
-  local cfg2 = T.apply({}, "CRUISE", "feel.yawStopLead", -1)   -- default 0.05, step 0.01 -> 0.04
-  t.near(cfg2.modes.CRUISE.feel.yawStopLead, 0.04, 1e-9)
+end)
+
+t.test("retired leash rows (VERT LEAD CAP/ALT STOP LEAD/HDG LEAD CAP/YAW STOP LEAD/SWAY LEAD/CLIMB BOOST/RAMP TIME) are GONE for every mode", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local RETIRED = { "feel.leadCapVert", "feel.altStopLead", "feel.leadCapHeading",
+                     "feel.yawStopLead", "feel.swayLead", "feel.climbRampTime", "feel.climbBoost" }
+  for _, mode in ipairs({ "PRECISION", "MAN", "CRUISE", "LDG", "DRN" }) do
+    for _, id in ipairs(RETIRED) do
+      t.eq(T.specFor(mode, id), nil, mode .. " has no row for retired " .. id)
+    end
+  end
+end)
+
+t.test("apply on the new rate-command rows writes the per-mode path, clamped to step/min/max", function()
+  local T = require("ui.basalt.bitconfig.tuning")
+  local cfg = T.apply({}, "PRECISION", "feel.climbRate", 1)  -- default 8.0, step 0.1 -> 8.1
+  t.near(cfg.feel.climbRate, 8.1, 1e-9)
+  local cfg2 = T.apply({}, "CRUISE", "gains.yaw.kw", 1000)   -- clamps at max 1
+  t.near(cfg2.modes.CRUISE.gains.yaw.kw, 1, 1e-9)
+  local cfg3 = T.apply({}, "MAN", "gains.alt.kv", -1000)     -- clamps at min 0
+  t.near(cfg3.modes.MAN.gains.alt.kv, 0, 1e-9)
 end)
 
 return true

@@ -6,6 +6,7 @@ Scheme.__index = Scheme
 function Scheme.new(cfg)
   local self = setmetatable({ hoverDuty = cfg.hoverDuty or 0.5,
     heaveMin = cfg.heaveMin, heaveMax = cfg.heaveMax }, Scheme)
+  self.kv = (cfg.alt and cfg.alt.kv) or 0
   self.altPid = Pid.new(cfg.alt or {})
   self.pitchPid = Pid.new(cfg.pitch or {})
   self.rollPid = Pid.new(cfg.roll or {})
@@ -25,20 +26,42 @@ function Scheme:update(sp, m, dt, freeze, sat)
   -- integrator keeps accumulating while heave is railed, then overshoots the altitude on the way
   -- back down (climb-stop bounce).
   sat = sat or {}
-  local heave = self.hoverDuty + self.altPid:update(sp.altitude, m.altitude, dt,
-    freeze or self._heaveSat or sat.heave)
+  -- Altitude: rate (velocity controller) while the pilot's climbCmd is present, else position hold.
+  local heave
+  if sp.climbCmd ~= nil then
+    self.altPid:reset()   -- keep the hold PID clean for a bumpless release handoff
+    heave = self.hoverDuty + self.kv * (sp.climbCmd - (m.vSpeed or 0))
+  else
+    heave = self.hoverDuty + self.altPid:update(sp.altitude, m.altitude, dt,
+      freeze or self._heaveSat or sat.heave)
+  end
   -- Band the collective so lift thrusters never saturate to 0 or 1 -- shared-duty bang-bang
   -- loses ALL pitch/roll differential authority at the rails. Attitude survival > climb speed.
   local banded = false
   if self.heaveMin and heave < self.heaveMin then heave = self.heaveMin; banded = true end
   if self.heaveMax and heave > self.heaveMax then heave = self.heaveMax; banded = true end
   self._heaveSat = banded
+  -- Yaw: rate (yaw-rate command) vs heading-hold.
+  local yaw
+  if sp.yawCmd ~= nil then
+    self.headingPid:reset()
+    yaw = self.headingPid:rate(sp.yawCmd, m.yawRate, dt)
+  else
+    yaw = self.headingPid:update(sp.heading or 0, m.heading or 0, m.yawRate or 0, dt, freeze or sat.yaw)
+  end
+  -- Sway: rate (strafe velocity command) vs position-hold.
+  local sway
+  if sp.strafeCmd ~= nil then
+    self.swayTc:reset()
+    sway = self.swayTc:rate(sp.strafeCmd, m.swayVel, dt)
+  else
+    sway = self.swayTc:update(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, dt, freeze or sat.sway)
+  end
   return {
     heave = heave,
     pitch = self.pitchPid:update(sp.pitch or 0, m.pitch, dt, freeze or sat.pitch),
     roll = self.rollPid:update(sp.roll or 0, m.roll, dt, freeze or sat.roll),
-    yaw = self.headingPid:update(sp.heading or 0, m.heading or 0, m.yawRate or 0, dt, freeze or sat.yaw),
-    sway = self.swayTc:update(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, dt, freeze or sat.sway),
+    yaw = yaw, sway = sway,
     surge = self.surgeTc:update(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, dt, freeze or sat.surge),
   }
 end
