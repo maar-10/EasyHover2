@@ -605,9 +605,9 @@
         },
         {
           ["dst"] = "tools/flight.lua",
-          ["size"] = 13468,
+          ["size"] = 13591,
           ["src"] = "dist/tools/flight.lua",
-          ["sum"] = "b31257d4",
+          ["sum"] = "5e51dd7e",
         },
         {
           ["dst"] = "tools/hover_test.lua",
@@ -1073,9 +1073,9 @@
         },
         {
           ["dst"] = "ui/basalt/bitconfig/tuning.lua",
-          ["size"] = 18112,
+          ["size"] = 19774,
           ["src"] = "dist/ui/basalt/bitconfig/tuning.lua",
-          ["sum"] = "4661f72e",
+          ["sum"] = "47c29eaa",
         },
         {
           ["dst"] = "ui/basalt/bitconfig/uical.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "769ce964",
+  ["version"] = "90698621",
 }
