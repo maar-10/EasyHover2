@@ -107,3 +107,23 @@ t.test("position hold freezes setpoints and ignores held", function()
   t.near(sp.heading, 0.2, 1e-9, "heading frozen")
   t.near(sp.swayPos, 1.0, 1e-9, "sway frozen")
 end)
+
+-- Regression: engaging positionHold WHILE a rate key is still held (no release tick first) must
+-- not leave stale climbCmd/yawCmd/strafeCmd on self.sp -- the scheme keeps taking the rate branch
+-- forever otherwise (Finding 1). The hold must also be bumpless: since the rate-command path left
+-- sp.altitude/heading/swayPos STALE during the maneuver, the captured hold target must be the
+-- CURRENT measured pose, not that stale pre-hold value.
+t.test("position hold engaged mid-hold clears stale *Cmd and captures the CURRENT pose (bumpless)", function()
+  local p = Pilot.new(CFG); p:reset(meas{altitude=10, heading=0, swayPos=0})
+  -- Hold climb/yaw/sway for a tick with no release tick before engaging hold: *Cmd fields are set.
+  p:update(0.05, {up=true, yawRight=true, swayRight=true}, meas{altitude=10, heading=0, swayPos=0})
+  p:setPositionHold(true)
+  local sp = p:update(0.05, {up=true, yawRight=true, swayRight=true},
+    meas{altitude=50, heading=1.2, swayPos=7})
+  t.eq(sp.climbCmd, nil, "hold must clear stale climbCmd")
+  t.eq(sp.yawCmd, nil, "hold must clear stale yawCmd")
+  t.eq(sp.strafeCmd, nil, "hold must clear stale strafeCmd")
+  t.near(sp.altitude, 50, 1e-9, "bumpless: captured to CURRENT altitude, not the stale pre-hold value")
+  t.near(sp.heading, 1.2, 1e-9, "bumpless: captured to CURRENT heading")
+  t.near(sp.swayPos, 7, 1e-9, "bumpless: captured to CURRENT swayPos")
+end)

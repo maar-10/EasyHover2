@@ -62,3 +62,12 @@ t.test("loop: DAMPED trip still zeroes pitch (ff irrelevant)", function()
   local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
   t.eq(r.mode, "DAMPED"); t.near(r.demands.pitch, 0, 1e-9, "osc trip zeroes pitch")
 end)
+
+t.test("loop: ffPitch stays 0 when disarmed (diag)", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0.1, surge = 1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
+  lp:setTrim(-1, 0.3, 1.0, 0.25, 0.6, true)
+  lp:arm(true); lp:cycle(0.05, { onGround = false, pitch = 0 })
+  lp:arm(false); lp:cycle(0.05, { onGround = false, pitch = 0 })
+  t.eq(lp:diag({}, { pitch = 0 }).ffPitch, 0, "ffPitch cleared while disarmed")
+end)

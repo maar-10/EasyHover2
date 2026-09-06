@@ -73,7 +73,21 @@ function Pilot:_brakeSetpoint(held, meas, tilting)
 end
 
 function Pilot:update(dt, held, meas)
-  if self.hold then return self.sp end
+  if self.hold then
+    -- Finding 1 fix: positionHold can be engaged WHILE a climb/yaw/sway key is still held (no
+    -- release tick first), leaving a stale rate-command field on self.sp. If left alone, the
+    -- scheme keeps taking the rate branch for the whole duration hold is engaged instead of
+    -- holding. Clear the *Cmd fields on that transition tick and capture the CURRENT measured
+    -- pose (not the stale pre-hold sp.altitude/heading/swayPos, which the rate-command path never
+    -- updates) so the hold is bumpless.
+    if self.sp.climbCmd ~= nil or self.sp.yawCmd ~= nil or self.sp.strafeCmd ~= nil then
+      self.sp.climbCmd, self.sp.yawCmd, self.sp.strafeCmd = nil, nil, nil
+      self.sp.altitude = (meas and meas.altitude) or self.sp.altitude
+      self.sp.heading  = (meas and meas.heading)  or self.sp.heading
+      self.sp.swayPos  = (meas and meas.swayPos)  or self.sp.swayPos
+    end
+    return self.sp
+  end
   local c, sp = self.cfg, self.sp
 
   -- Yaw: rate command while held (the scheme's yaw-rate controller flies to it directly);
