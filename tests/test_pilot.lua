@@ -34,11 +34,22 @@ t.test("yaw held is leashed to leadCapHeading ahead of current heading", functio
   t.near(sp.heading, 0.65, 1e-9, "leads current(0.30) by at most the cap")
 end)
 
-t.test("lift held ramps altitude, leashed to meas.alt +/- leadCapVert", function()
-  local p = Pilot.new(CFG); p:reset(meas{altitude=10})
-  -- climbRate 0.5 * dt 10 = +5 requested, but leashed to alt(10)+leadCapVert(2)=12
-  local sp = p:update(10, {up=true}, meas{altitude=10})
-  t.near(sp.altitude, 12, 1e-9, "clamped to +leadCapVert")
+t.test("lift held commands a climb RATE (climbCmd), not a leashed setpoint", function()
+  local p = Pilot.new({ climbRate = 8, headingRate = 1, swaySpeed = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas{altitude=100})
+  local sp = p:update(0.05, {up=true}, meas{altitude=100, vSpeed=3})
+  t.near(sp.climbCmd, 8, 1e-9, "up held -> climbCmd = +climbRate")
+  sp = p:update(0.05, {down=true}, meas{altitude=100})
+  t.near(sp.climbCmd, -8, 1e-9, "down held -> climbCmd = -climbRate")
+end)
+
+t.test("lift release clears climbCmd and captures current altitude (bumpless hold)", function()
+  local p = Pilot.new({ climbRate = 8, headingRate = 1, swaySpeed = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas{altitude=100})
+  p:update(0.05, {up=true}, meas{altitude=100})
+  local sp = p:update(0.05, {}, meas{altitude=137})
+  t.eq(sp.climbCmd, nil, "released -> no rate command")
+  t.near(sp.altitude, 137, 1e-9, "hold setpoint captured to current altitude")
 end)
 
 t.test("sway held ramps swayPos at cruiseSpeed, clamped to maxLead", function()
@@ -89,22 +100,6 @@ t.test("yaw release is edge-triggered: a settled release holds heading and fight
   -- not re-capture to the drifted heading.
   local r2 = p:update(0.1, {}, { altitude=10, heading=0.5, swayPos=0, surgePos=0, yawRate=0.1 })
   t.near(r2.heading, 0.3, 1e-9, "held at 0.3, not re-tracking the 0.5 drift")
-end)
-
-t.test("altitude release captures current alt + predictive stop, dropping the leashed lead (fix #9)", function()
-  local CFG3 = { headingRate = 1.0, leadCapHeading = 0.35, climbRate = 0.5, leadCapVert = 2.0,
-    cruiseSpeed = 1.0, maxLead = 3.0, altStopLead = 0.1 }
-  local p = Pilot.new(CFG3); p:reset(meas())
-  -- hold climb: sp.altitude leads meas.altitude(10) by leadCapVert(2) -> 12
-  -- (dt=10 so the requested climb (climbRate*dt=5) overshoots the cap and gets clamped)
-  local held = p:update(10.0, {up=true},
-    { altitude=10, heading=0, swayPos=0, surgePos=0, vSpeed=1, yawRate=0 })
-  t.near(held.altitude, 12, 1e-9, "held: leashed +leadCapVert ahead")
-  -- release at meas.altitude=11, vSpeed=1 -> capture 11 + 0.1*1 = 11.1 (NOT the 12 lead)
-  local rel = p:update(0.1, {},
-    { altitude=11, heading=0, swayPos=0, surgePos=0, vSpeed=1, yawRate=0 })
-  t.near(rel.altitude, 11.1, 1e-9, "release: current + predictive stop, not the leashed lead")
-  t.truthy(rel.altitude < held.altitude, "setpoint drops behind the held lead -> no bounce")
 end)
 
 t.test("altitude release is edge-triggered: settled release holds alt, fights drift (fix #9)", function()

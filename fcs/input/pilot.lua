@@ -14,7 +14,6 @@ function Pilot.new(cfg)
     policy = { tilt = false, surge = "position" },
     tilt = { pitch = 0, roll = 0 },
     throttle = 0,
-    climbHeld = 0,
     yawWasHeld = false,
     climbWasHeld = false,
     driftArrest = true,
@@ -27,8 +26,8 @@ function Pilot:reset(meas)
   -- Drop the persistent held-input accumulators too (same neutralization as setMode's transition):
   -- reset reseeds sp from measured, but update() re-derives sp.surgeThrottle/pitch/roll from these.
   -- A CRUISE throttle detent (self.throttle) surviving a disengage would otherwise slam MAIN back on
-  -- at re-engage with no W held (F2). tilt/climbHeld cleared for the same reason on any reseed.
-  self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0
+  -- at re-engage with no W held (F2). tilt cleared for the same reason on any reseed.
+  self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0
   self.yawWasHeld = false
   self.climbWasHeld = false
   return self.sp
@@ -39,7 +38,7 @@ function Pilot:setPositionHold(b) self.hold = b and true or false end
 function Pilot:setMode(policy, feel)
   self.policy = policy or { tilt = false, surge = "position" }
   if feel then self.cfg = feel end
-  self.tilt.pitch, self.tilt.roll, self.throttle, self.climbHeld = 0, 0, 0, 0   -- transition: center tilt, drop throttle
+  self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0   -- transition: center tilt, drop throttle
   self.yawWasHeld = false
   self.climbWasHeld = false
 end
@@ -92,22 +91,16 @@ function Pilot:update(dt, held, meas)
     end
   end
 
-  -- Lift: slew altitude, leashed to current altitude +/- leadCapVert. The rate ramps with hold
-  -- time (tap = base climbRate nudge, sustained hold -> climbRate*(1+climbBoost)), always on.
+  -- Lift: rate command while held (the scheme's velocity controller flies to it directly);
+  -- capture altitude on release for a bumpless position hold. See #9 -- this replaces the
+  -- old leadCapVert leash + altStopLead release-edge capture with a direct rate command.
   local ld = dirOf(held, "down", "up")
-  local climbRate = c.climbRate
   if ld ~= 0 then
-    self.climbHeld = (self.climbHeld or 0) + dt
-    local ramp = math.min(1, self.climbHeld / (c.climbRampTime or 1.0))
-    climbRate = c.climbRate * (1 + (c.climbBoost or 0) * ramp)
+    sp.climbCmd = (c.climbRate or 0) * ld
+    self.climbWasHeld = true
   else
-    self.climbHeld = 0
-  end
-  if ld ~= 0 then
-    local a = sp.altitude + climbRate * dt * ld
-    local lo, hi = meas.altitude - c.leadCapVert, meas.altitude + c.leadCapVert
-    if a < lo then a = lo elseif a > hi then a = hi end
-    sp.altitude = a
+    if self.climbWasHeld then sp.altitude = meas.altitude or sp.altitude; self.climbWasHeld = false end
+    sp.climbCmd = nil
   end
 
   -- Sway / surge: leashed position setpoints. Held => ramp toward the lead cap in that direction at
@@ -197,16 +190,6 @@ function Pilot:update(dt, held, meas)
   elseif self.yawWasHeld then
     sp.heading = angle.wrap((meas.heading or 0) + (c.yawStopLead or 0) * (meas.yawRate or 0))
     self.yawWasHeld = false
-  end
-
-  -- Altitude release-edge capture (fix #9): mirror the yaw capture. On release of climb/descend, drop
-  -- the leadCapVert lead and snap sp.altitude to current + a small predictive stop, so the craft holds
-  -- where you released instead of climbing the lead out (the bounce). Edge-triggered (climbWasHeld).
-  if ld ~= 0 then
-    self.climbWasHeld = true
-  elseif self.climbWasHeld then
-    sp.altitude = (meas.altitude or sp.altitude) + (c.altStopLead or 0) * (meas.vSpeed or 0)
-    self.climbWasHeld = false
   end
 
   -- Return a snapshot copy: sp is self.sp, mutated in place as internal ramp state across calls
