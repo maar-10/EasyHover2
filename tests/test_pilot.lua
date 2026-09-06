@@ -15,23 +15,22 @@ t.test("reset seeds setpoints to current craft state", function()
   t.eq(sp.swayPos, 1); t.eq(sp.surgePos, -2)
 end)
 
-t.test("yaw held ramps heading by headingRate*dt, wrapped", function()
-  local p = Pilot.new(CFG); p:reset(meas())
-  local sp = p:update(0.5, {yawRight=true}, meas())
-  t.near(sp.heading, 0.5, 1e-9, "heading +0.5")
-  sp = p:update(0.5, {yawLeft=true}, meas())
-  t.near(sp.heading, 0.0, 1e-9, "back to 0")
+t.test("yaw held commands a yaw RATE (yawCmd = headingRate * dir)", function()
+  local p = Pilot.new({ headingRate = 1.2, climbRate = 1, swaySpeed = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas())
+  local sp = p:update(0.05, {yawRight=true}, meas{heading=0})
+  t.near(sp.yawCmd, 1.2, 1e-9, "right -> +headingRate")
+  sp = p:update(0.05, {yawLeft=true}, meas{heading=0})
+  t.near(sp.yawCmd, -1.2, 1e-9, "left -> -headingRate")
 end)
 
-t.test("yaw held is leashed to leadCapHeading ahead of current heading", function()
-  local p = Pilot.new({ headingRate = 1.0, leadCapHeading = 0.35,
-    climbRate = 0.5, leadCapVert = 2.0, cruiseSpeed = 1.0, maxLead = 3.0 }); p:reset(meas())
-  -- would ramp +3 rad, but must clamp to meas.heading(0) + leadCapHeading(0.35)
-  local sp = p:update(3.0, {yawRight=true}, meas{heading=0})
-  t.near(sp.heading, 0.35, 1e-9, "clamped to +leadCapHeading")
-  -- as the craft yaws to catch up, the setpoint may lead again but stays within the cap
-  sp = p:update(3.0, {yawRight=true}, meas{heading=0.30})
-  t.near(sp.heading, 0.65, 1e-9, "leads current(0.30) by at most the cap")
+t.test("yaw release clears yawCmd and captures current heading", function()
+  local p = Pilot.new({ headingRate = 1.2, climbRate = 1, swaySpeed = 1, cruiseSpeed = 1, maxLead = 3 })
+  p:reset(meas())
+  p:update(0.05, {yawRight=true}, meas{heading=0.3})
+  local sp = p:update(0.05, {}, meas{heading=0.5})
+  t.eq(sp.yawCmd, nil, "released -> no rate command")
+  t.near(sp.heading, 0.5, 1e-9, "heading captured to current")
 end)
 
 t.test("lift held commands a climb RATE (climbCmd), not a leashed setpoint", function()
@@ -72,21 +71,6 @@ t.test("release holds setpoints where they are", function()
   -- craft has not moved (meas.swayPos still 0); releasing keeps sp at 1
   local sp = p:update(1.0, {}, meas{swayPos=0.5})
   t.near(sp.swayPos, 1.0, 1e-9, "held at 1")
-end)
-
-t.test("yaw release captures current heading + predictive stop, dropping the leashed lead", function()
-  local CFG2 = { headingRate = 1.0, leadCapHeading = 0.35, climbRate = 0.5, leadCapVert = 2.0,
-    cruiseSpeed = 1.0, maxLead = 3.0, yawStopLead = 0.1 }
-  local p = Pilot.new(CFG2); p:reset(meas())
-  -- hold yaw right: setpoint leads meas.heading(0) by leadCapHeading(0.35)
-  local held = p:update(3.0, {yawRight=true},
-    { altitude=10, heading=0, swayPos=0, surgePos=0, yawRate=0.5 })
-  t.near(held.heading, 0.35, 1e-9, "held: leashed 0.35 ahead of current")
-  -- release at meas.heading=0.2, yawRate=0.5 -> capture 0.2 + 0.1*0.5 = 0.25 (NOT the 0.35 lead)
-  local rel = p:update(0.1, {},
-    { altitude=10, heading=0.2, swayPos=0, surgePos=0, yawRate=0.5 })
-  t.near(rel.heading, 0.25, 1e-9, "release: current + predictive stop, not the leashed lead")
-  t.truthy(rel.heading < held.heading, "setpoint drops behind the held lead -> no oversteer")
 end)
 
 t.test("yaw release is edge-triggered: a settled release holds heading and fights drift", function()

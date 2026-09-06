@@ -1,6 +1,5 @@
 -- fcs/input/pilot.lua
 local leash = require("fcs.leash")
-local angle = require("fcs.angle")
 local brake = require("fcs.brake")
 
 local Pilot = {}
@@ -74,21 +73,16 @@ function Pilot:update(dt, held, meas)
   if self.hold then return self.sp end
   local c, sp = self.cfg, self.sp
 
-  -- Yaw: slew heading setpoint, angle-wrapped, leashed to lead the CURRENT heading by at most
-  -- leadCapHeading. The leash bounds the standing lead (hence the steady turn RATE) while held;
-  -- mirrors the altitude (leadCapVert) and position (maxLead) leashes. The post-release coast --
-  -- the craft continuing to turn out the remaining lead -- is killed separately by the release-edge
-  -- capture near the end of update() (snaps the setpoint to current heading + a small stop lead).
+  -- Yaw: rate command while held (the scheme's yaw-rate controller flies to it directly);
+  -- capture heading on release for a bumpless heading hold. Mirrors the altitude
+  -- (climbCmd/climbWasHeld) rate-command pattern above.
   local yd = dirOf(held, "yawLeft", "yawRight")
-  local yawActive = (yd ~= 0)   -- drives the release-capture below
   if yd ~= 0 then
-    sp.heading = angle.wrap(sp.heading + c.headingRate * dt * yd)
-    local cap = c.leadCapHeading
-    if cap then
-      local err = angle.wrap(sp.heading - (meas.heading or 0))
-      if err > cap then sp.heading = angle.wrap((meas.heading or 0) + cap)
-      elseif err < -cap then sp.heading = angle.wrap((meas.heading or 0) - cap) end
-    end
+    sp.yawCmd = (c.headingRate or 0) * yd
+    self.yawWasHeld = true
+  else
+    if self.yawWasHeld then sp.heading = meas.heading or sp.heading; self.yawWasHeld = false end
+    sp.yawCmd = nil
   end
 
   -- Lift: rate command while held (the scheme's velocity controller flies to it directly);
@@ -178,18 +172,6 @@ function Pilot:update(dt, held, meas)
     self.throttle = self.throttle + (c.cruiseThrottleRate or 1.0) * dt * d
     if self.throttle < 0 then self.throttle = 0 elseif self.throttle > maxT then self.throttle = maxT end
     sp.surgeThrottle = (held.brake and 0) or self.throttle   -- brake cuts MAIN; detent resumes on release
-  end
-
-  -- Yaw release-edge capture: on the tick the pilot lets go of yaw/rudder, drop the leashed lead
-  -- and snap the heading setpoint to the current heading plus a small predictive stop
-  -- (yawStopLead * yawRate), so the loop brakes to a halt where you released instead of coasting
-  -- the ~leadCapHeading lead out -- the old oversteer. Edge-triggered (yawWasHeld): once captured,
-  -- the setpoint stays fixed so the heading PID fights drift rather than re-tracking meas.heading.
-  if yawActive then
-    self.yawWasHeld = true
-  elseif self.yawWasHeld then
-    sp.heading = angle.wrap((meas.heading or 0) + (c.yawStopLead or 0) * (meas.yawRate or 0))
-    self.yawWasHeld = false
   end
 
   -- Return a snapshot copy: sp is self.sp, mutated in place as internal ramp state across calls
