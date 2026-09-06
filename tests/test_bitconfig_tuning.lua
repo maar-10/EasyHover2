@@ -258,16 +258,22 @@ t.test("tuning editor: no CPL/DCPL extra rows; trim/ramp are shared base FEEL ro
   t.truthy(T.specFor("MAN", "feel.climbRampTime"), "climbRampTime tunable on a flight mode")
 end)
 
+-- feel.climbRampTime/feel.climbBoost were RETIRED from tuningdefaults.lua (2026-09-06 rate-command
+-- batch) -- these bitconfig rows still exist pending Task 10's UI row swap, but with no default any
+-- more they read back as 0 rather than tracking a per-mode value. feel.trimGain is still live.
 t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 8 rows shared by every flight mode (trim/ramp/flip-guard/stop-lead), no own extras", function()
   local rows = M.rows(tuningdefaults.get(), "LDG")
   t.eq(#rows, 42, "34 base + 8 shared trim/ramp/flip-guard/stop-lead rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
-  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.trimGain" }) do
+  t.truthy(ids["feel.trimGain"], "LDG row present: feel.trimGain")
+  t.eq(ids["feel.trimGain"].group, "FEEL")
+  t.eq(ids["feel.trimGain"].value, defaults.modes.LDG.feel.trimGain)
+  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost" }) do
     t.truthy(ids[id], "LDG row present: " .. id)
     t.eq(ids[id].group, "FEEL")
-    t.eq(ids[id].value, defaults.modes.LDG.feel[id:match("feel%.(.+)")])
+    t.eq(ids[id].value, 0, id .. " retired -> falls back to 0")
   end
 end)
 
@@ -277,10 +283,15 @@ t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap +
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
-  for _, id in ipairs({ "feel.tiltRate", "feel.tiltCap", "feel.climbRampTime", "feel.climbBoost", "feel.trimGain" }) do
+  for _, id in ipairs({ "feel.tiltRate", "feel.tiltCap", "feel.trimGain" }) do
     t.truthy(ids[id], "DRN row present: " .. id)
     t.eq(ids[id].group, "FEEL")
     t.eq(ids[id].value, defaults.modes.DRN.feel[id:match("feel%.(.+)")])
+  end
+  for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost" }) do
+    t.truthy(ids[id], "DRN row present: " .. id)
+    t.eq(ids[id].group, "FEEL")
+    t.eq(ids[id].value, 0, id .. " retired -> falls back to 0")
   end
 end)
 
@@ -1152,11 +1163,13 @@ t.test("yaw/alt stop-lead rows present in MODE FEEL for all modes + apply writes
     t.truthy(ids["feel.yawStopLead"], mode .. " has YAW STOP LEAD")
     t.truthy(ids["feel.altStopLead"], mode .. " has ALT STOP LEAD")
   end
-  -- apply writes the per-mode path (PRECISION = top-level), clamped to step
-  local cfg = T.apply({}, "PRECISION", "feel.altStopLead", 1)  -- default 0.10, step 0.01 -> 0.11
-  t.near(cfg.feel.altStopLead, 0.11, 1e-9)
-  local cfg2 = T.apply({}, "CRUISE", "feel.yawStopLead", -1)   -- default 0.05, step 0.01 -> 0.04
-  t.near(cfg2.modes.CRUISE.feel.yawStopLead, 0.04, 1e-9)
+  -- apply writes the per-mode path (PRECISION = top-level), clamped to step. altStopLead/yawStopLead
+  -- were RETIRED from tuningdefaults.lua (2026-09-06 rate-command batch) -- these rows still exist
+  -- here pending Task 10's UI row swap, but with no default any more they fall back to 0.
+  local cfg = T.apply({}, "PRECISION", "feel.altStopLead", 1)  -- no default (retired) -> 0, step 0.01 -> 0.01
+  t.near(cfg.feel.altStopLead, 0.01, 1e-9)
+  local cfg2 = T.apply({}, "CRUISE", "feel.yawStopLead", -1)   -- no default (retired) -> 0, clamped at min 0
+  t.near(cfg2.modes.CRUISE.feel.yawStopLead, 0.0, 1e-9)
 end)
 
 return true

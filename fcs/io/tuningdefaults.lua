@@ -12,31 +12,33 @@ end
 local DEFAULTS = {
   gains = {
     hoverDuty = 0.26,
-    -- iBand: conditional-integration anti-windup. The vertical leash lets the setpoint lead the craft
-    -- by up to leadCapVert(10) blocks during a climb, so err_alt is large the whole climb WITHOUT heave
-    -- railing -- the integrator used to wind to iMax and then float the craft past the target (a long,
-    -- oscillatory drop after climb). Integrate only within 3 blocks of the setpoint: P/D drive the
-    -- climb, I only trims the steady-state hover residual near the target.
-    -- Vertical authority (2026-09-04): steady climb v ~= kp*leadCapVert/kd. Base kp raised 0.02->0.035
-    -- (+leadCapVert 8->10) for ~2.3 blk/s in PRE/MAN/DRN; the log showed ~55% unused heave. CRUISE
-    -- overrides these harder below; LDG pins them back to stay a gentle landing mode.
-    -- Rate-tuning batch (2026-09-05, fix #8): kp raised again 0.035->0.06 for a snappier PRE/MAN/DRN
-    -- climb response; see feel.leadCapVert below for the paired authority bump.
-    alt   = { kp = 0.06, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0 },
+    -- iBand: conditional-integration anti-windup, kept from the earlier lead-based climb scheme:
+    -- integrate only within 3 blocks of the setpoint so P/D drive the climb and I only trims the
+    -- steady-state hover residual near the target (prevents the old long, oscillatory drop after
+    -- climb caused by the integrator winding up over a wide, sustained altitude error).
+    -- Rate-command batch (2026-09-06): the pilot/scheme now command a velocity directly (feel.climbRate
+    -- is the ACHIEVED climb rate, not a setpoint-lead slew) via the new kv term below, instead of
+    -- leaning on a wide setpoint lead (feel.leadCapVert, retired) to imply speed through P*lead. kp/kd
+    -- here still drive the position-hold/error-correction path; kv is the added velocity feedforward.
+    alt   = { kp = 0.06, ki = 0.01, kd = 0.15, tauD = 0.35, iMax = 0.3, iMin = -0.3, iBand = 3.0,
+              kv = 0.06 },
     -- Attitude leveling integral (2026-09-04, fix #1): ki+iBand cancels standing banks/pitch that
     -- P+D alone leaves as a held equilibrium (log: 5-24deg banks held for dozens of s). iBand=0.35rad
     -- (~20deg) integrates to level the standing error but not during hard maneuvers (anti-windup);
     -- iMax caps it well above the measured ~0.014 disturbance. MAN/DRN pin ki=0 (pilot flies attitude).
-    pitch = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
+    -- Rate-command batch (2026-09-06): kp raised 0.10->0.15 (+caps.pitch 0.2->0.3) in PRE/CRU so the
+    -- pitch stabilizer has the extra authority to hold level against the re-enabled accel trim
+    -- residual; MAN/LDG/DRN pin kp back to 0.10 (pilot-flown attitude, no accel residual to fight).
+    pitch = { kp = 0.15, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     roll  = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
-    yaw   = { kp = 0.95, ki = 0, kd = 1.8 },   -- kd 1.0->1.8: damp the heavy craft's release ring
-    sway  = { kp = 0.2, ki = 0, kd = 0.25 },
+    yaw   = { kp = 0.95, ki = 0, kd = 1.8, kw = 0.8 },   -- kd 1.0->1.8: damp the heavy craft's release ring
+    sway  = { kp = 0.2, ki = 0, kd = 0.25, ks = 0.4 },
     surge = { kp = 0.15, ki = 0, kd = 0.25 },
     heaveMin = 0.05,
     heaveMax = 0.85,
   },
   pwmPeriod = 0.3,
-  caps = { pitch = 0.2, roll = 0.2, yaw = 0.6, sway = 0.9, surge = 1.0 },
+  caps = { pitch = 0.3, roll = 0.2, yaw = 0.6, sway = 0.9, surge = 1.0 },
   -- Oscillation detector: a crossing counts only past +/-deadband (rad) so level-flight sensor
   -- dither can't false-trip; a trip auto-releases after calmTime (s) of calm. Per-axis (pitch/roll).
   osc = { window = 1.0, minChanges = 6, deadband = 0.02, calmTime = 1.0 },
@@ -54,24 +56,20 @@ local DEFAULTS = {
   profile = { climbHeight = 6, climbRate = 0.6, holdTime = 20, descendRate = 0.7,
               landEps = 0.4, watchdog = 60, overshootMargin = 2, leadCap = 1.0 },
   feel = {
-    -- Rate-tuning batch (2026-09-05, fix #5-#9): aggressive yaw/strafe/climb defaults for a snappier
-    -- feel across PRE/MAN/DRN. CRUISE overrides yaw/strafe harder below; LDG pins yaw back to today's
-    -- values (see the LDG block) so this base bump doesn't reach the gentle landing mode.
-    headingRate    = 4.5,    -- 2.2->4.5: faster turn-rate response (fix #5)
-    leadCapHeading = 1.1,    -- 0.45->1.1: more setpoint lead for a snappier turn (fix #5)
-    yawStopLead    = 0.05,   -- s of yaw-rate led into the release capture; LOWER = harder stop (fix #6)
+    -- Rate-command batch (2026-09-06): these are now ACHIEVED-rate targets the pilot/scheme command
+    -- and hold directly (via the gains.*.k{v,w,s} velocity-gain terms above), not setpoint-lead slew
+    -- rates -- so the numbers are real physical rates again (rad/s, blk/s), not the inflated
+    -- lead-implied speeds the old leash scheme needed. leadCapVert/altStopLead/leadCapHeading/
+    -- yawStopLead/swayLead (the old setpoint-lead leash + release-edge capture) are RETIRED -- the
+    -- direct rate command replaces them; see fcs/input/pilot.lua.
+    headingRate    = 1.2,    -- rad/s achieved turn rate
 
-    climbRate      = 5.0,
-    leadCapVert    = 14.0,   -- 10.0->14.0: paired with the alt.kp bump above (fix #8)
-    altStopLead    = 0.10,   -- predictive altitude stop-lead for the climb release capture (fix #9)
+    climbRate      = 8.0,    -- blk/s achieved climb rate
     surgeSpeed     = 10.0,
-    surgeLead      = 20.0,
-    swaySpeed      = 5.0,
-    swayLead       = 10.0,
+    surgeLead      = 20.0,   -- surge stays lead-based (not rate-commanded, see fcs/control/translate.lua)
+    swaySpeed      = 6.0,    -- blk/s achieved strafe rate
 
-    climbRampTime  = 1.0,   -- lift ramp: hold time to reach full climbBoost (rampable climb, all modes)
-    climbBoost     = 2.0,   -- sustained-hold climb rate multiplier (tap = 1x, hold ramps to 1+boost)
-    trimGain       = 0.35,  -- forward-trim feedforward gain: demands.pitch += trimDir*trimGain*demands.surge
+    trimGain       = 0.30,  -- forward-trim feedforward gain: demands.pitch += trimDir*trimGain*demands.surge
     -- Flip-guard bounds (spec 2026-09-04): fade the trim out as the craft departs level, and cap the
     -- feedforward at a fraction of caps.pitch so it can never starve the pitch stabilizer.
     trimFadeStart  = 0.25,  -- rad: full trim below this |pitch| (normal accel tilt stays fully assisted)
@@ -115,47 +113,54 @@ DEFAULTS.modes.MAN.gains.pitch.ki = 0
 DEFAULTS.modes.MAN.gains.roll.ki  = 0
 -- Tilt-brake (fix #3): MAN pilots directly, so enable speed-scaled brake tilt.
 DEFAULTS.modes.MAN.feel.tiltBrake.enabled = true
+-- MAN pilots pitch directly (no accel residual to fight) -- pin back to 0.10, unaffected by the
+-- PRE/CRU pitch-authority bump above (2026-09-06).
+DEFAULTS.modes.MAN.gains.pitch.kp = 0.10
+DEFAULTS.modes.MAN.feel.climbRate = 6.0
 -- Surge-throttle feel (CRUISE): W ramps up, release holds, S ramps down; 0..1 of MAIN.
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleRate = 1.0
 DEFAULTS.modes.CRUISE.feel.cruiseThrottleMax  = 1.0
--- Fast cruise climb/descend (log 2026-09-04: vertical was authority-limited ~1 blk/s with masses of
--- unused heave). v ~= kp*leadCapVert/kd; peak heave ~= hover + kp*leadCapVert. ~6-7 blk/s here
--- (peak heave ~0.80, brief rail on accel; lower kd = livelier, more overshoot on level-off).
+-- Fast cruise climb/descend: aggressive alt kp/kd, unchanged by the rate-command batch (still the
+-- position-hold/error-correction path; gains.alt.kv above is the added velocity feedforward).
 DEFAULTS.modes.CRUISE.gains.alt.kp     = 0.045
 DEFAULTS.modes.CRUISE.gains.alt.kd     = 0.08
-DEFAULTS.modes.CRUISE.feel.leadCapVert = 12.0
 DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
 -- CRU keeps the symmetric trim: the cruiser leans back to brake hard (wanted).
 DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
 -- Tilt-brake (fix #3): CRU's active braking, speed-scaled.
 DEFAULTS.modes.CRUISE.feel.tiltBrake.enabled = true
--- Rate-tuning batch (2026-09-05, fix #5/#7): CRUISE gets the fastest yaw turn-rate and lateral strafe
--- of any mode -- it's the mode built for covering distance fast.
-DEFAULTS.modes.CRUISE.feel.headingRate    = 5.5
-DEFAULTS.modes.CRUISE.feel.leadCapHeading = 1.5
-DEFAULTS.modes.CRUISE.feel.swaySpeed      = 10.0
-DEFAULTS.modes.CRUISE.feel.swayLead       = 20.0
+-- CRUISE gets the fastest yaw turn-rate and lateral strafe of any mode -- it's the mode built for
+-- covering distance fast (rate-command batch, 2026-09-06: real achieved rad/s and blk/s now).
+DEFAULTS.modes.CRUISE.feel.headingRate = 1.5
+DEFAULTS.modes.CRUISE.feel.swaySpeed   = 10.0
+DEFAULTS.modes.CRUISE.gains.yaw.kw     = 0.9
+DEFAULTS.modes.CRUISE.gains.sway.ks    = 0.5
+-- gains.pitch.kp/caps.pitch inherit the raised PRE base (0.15/0.3) via the deep-copies above --
+-- CRU gets the same pitch-authority bump for the same reason (accel trim residual).
 
 DEFAULTS.modes.LDG = {
   gains = deep(DEFAULTS.gains),
   caps  = { pitch = 0.2, roll = 0.2, yaw = 0.4, sway = 0.3, surge = 0.25 },
   feel  = deep(DEFAULTS.feel),
 }
--- Gentle landing feel: slow the setpoint-ramp speeds so approach/descent is precise.
+-- Gentle landing feel: slow the achieved rates so approach/descent is precise.
 DEFAULTS.modes.LDG.feel.surgeSpeed = 3.0
 DEFAULTS.modes.LDG.feel.surgeLead  = 6.0
-DEFAULTS.modes.LDG.feel.swaySpeed  = 2.0
-DEFAULTS.modes.LDG.feel.swayLead   = 4.0
+DEFAULTS.modes.LDG.feel.swaySpeed  = 3.0
 DEFAULTS.modes.LDG.feel.climbRate  = 2.5
--- LDG stays a GENTLE landing mode: pin vertical authority to the pre-2026-09-04 base so the raised
--- base kp/leadCapVert don't apply here (LDG only wants the slow climbRate slew above).
+-- LDG stays a GENTLE landing mode: pin vertical authority to stay off the raised PRE/CRU base.
 DEFAULTS.modes.LDG.gains.alt.kp     = 0.02
 DEFAULTS.modes.LDG.gains.alt.kd     = 0.15
-DEFAULTS.modes.LDG.feel.leadCapVert = 8.0
--- Rate-tuning batch (2026-09-05): pin yaw back to today's values too -- LDG stays as-tuned; the base
--- yaw bump (fix #5) must not reach the gentle landing mode.
-DEFAULTS.modes.LDG.feel.headingRate    = 2.2
-DEFAULTS.modes.LDG.feel.leadCapHeading = 0.45
+DEFAULTS.modes.LDG.gains.alt.kv     = 0.04
+-- Pin yaw/sway velocity gains and turn rate gentle too -- LDG stays as-tuned; the PRE/CRU bumps
+-- must not reach the gentle landing mode.
+DEFAULTS.modes.LDG.feel.headingRate = 0.6
+DEFAULTS.modes.LDG.gains.yaw.kw     = 0.5
+DEFAULTS.modes.LDG.gains.sway.ks    = 0.3
+-- LDG pilots/lands gently: no accel-trim residual to fight, and no forward-trim feedforward wanted
+-- on the ground -- pin trimGain to 0 (base is now 0.30) and pitch kp back to 0.10 (base is 0.15).
+DEFAULTS.modes.LDG.feel.trimGain    = 0
+DEFAULTS.modes.LDG.gains.pitch.kp   = 0.10
 
 DEFAULTS.modes.DRN = {
   gains = deep(DEFAULTS.gains),
@@ -170,6 +175,9 @@ DEFAULTS.modes.DRN.feel.tiltCap  = 0.5
 DEFAULTS.modes.DRN.feel.brakeTrim = true
 DEFAULTS.modes.DRN.gains.pitch.ki = 0   -- fix #1: DRN flies attitude directly, no leveling integral
 DEFAULTS.modes.DRN.gains.roll.ki  = 0
+-- DRN pilots pitch directly (no accel residual to fight) -- pin back to 0.10, same reasoning as MAN.
+DEFAULTS.modes.DRN.gains.pitch.kp = 0.10
+DEFAULTS.modes.DRN.feel.climbRate = 6.0
 -- Tilt-brake (fix #3): DRN pilots directly, so enable speed-scaled brake tilt.
 DEFAULTS.modes.DRN.feel.tiltBrake.enabled = true
 

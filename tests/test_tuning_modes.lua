@@ -11,7 +11,7 @@ end)
 
 t.test("forMode MAN relaxes tilt and adds tilt feel", function()
   local m = tuning.forMode("MAN")
-  t.truthy(m.caps.pitch > 0.2, "MAN pitch cap relaxed above default 0.2")
+  t.truthy(m.caps.pitch > 0.3, "MAN pitch cap relaxed above the base 0.3")
   t.truthy(m.feel.tiltRate and m.feel.tiltCap, "MAN has tilt feel params")
 end)
 
@@ -20,22 +20,14 @@ t.test("forMode CRUISE adds surge-throttle feel", function()
   t.truthy(c.feel.cruiseThrottleMax and c.feel.cruiseThrottleRate, "CRUISE has throttle feel")
 end)
 
-t.test("yaw defaults detuned for a crisp release stop (lower turn rate + more damping)", function()
-  -- Higher-momentum heavy craft overshoots on release. Halve the turn rate (leadCapHeading) and
-  -- raise yaw kd so the craft stops near release instead of ringing back 20-30deg.
-  -- (2026-09-05, fix #5: leadCapHeading raised again 0.45->1.1 for a snappier turn; kd unchanged.)
+t.test("yaw kd detuned for a crisp release stop (heavy craft, damping only)", function()
+  -- Higher-momentum heavy craft overshoots on release; raise yaw kd so the craft stops near
+  -- release instead of ringing back 20-30deg. Turn RATE itself is now feel.headingRate, the
+  -- achieved rad/s (rate-command batch, 2026-09-06) -- see the "rate-command defaults" test below.
   local p = tuning.forMode("PRECISION")
   t.near(p.gains.yaw.kd, 1.8, 1e-9, "yaw kd raised for damping")
-  t.near(p.feel.leadCapHeading, 1.1, 1e-9, "yaw turn rate (lead cap) raised again to 1.1 (fix #5)")
   local man = tuning.forMode("MAN")
   t.near(man.gains.yaw.kd, 1.8, 1e-9, "MAN inherits the damped yaw")
-  t.near(man.feel.leadCapHeading, 1.1, 1e-9, "MAN inherits the turn rate")
-end)
-
-t.test("yawStopLead is a live feel knob across the tilt modes (snappy-yaw release stop)", function()
-  t.truthy(tuning.forMode("PRECISION").feel.yawStopLead ~= nil, "PRECISION has yawStopLead")
-  t.truthy(tuning.forMode("MAN").feel.yawStopLead ~= nil, "MAN has yawStopLead")
-  t.truthy(tuning.forMode("CPL").feel.yawStopLead ~= nil, "CPL has yawStopLead")
 end)
 
 t.test("mode records are independent (mutating MAN never touches PRECISION/CRUISE)", function()
@@ -64,8 +56,7 @@ t.test("forMode LDG has gentle landing feel overrides", function()
   local ldg = tuning.forMode("LDG")
   t.near(ldg.feel.surgeSpeed, 3.0, 1e-9, "LDG surgeSpeed")
   t.near(ldg.feel.surgeLead, 6.0, 1e-9, "LDG surgeLead")
-  t.near(ldg.feel.swaySpeed, 2.0, 1e-9, "LDG swaySpeed")
-  t.near(ldg.feel.swayLead, 4.0, 1e-9, "LDG swayLead")
+  t.near(ldg.feel.swaySpeed, 3.0, 1e-9, "LDG swaySpeed")
   t.near(ldg.feel.climbRate, 2.5, 1e-9, "LDG climbRate")
 end)
 
@@ -82,11 +73,9 @@ t.test("forMode DRN has tilt feel", function()
   t.near(drn.feel.tiltCap, 0.5, 1e-9, "DRN tiltCap")
 end)
 
-t.test("tuning: trim/ramp feel is shared on the base feel (all flight modes inherit)", function()
+t.test("tuning: trim feel is shared on the base feel (all flight modes inherit)", function()
   local D = require("fcs.io.tuningdefaults").get()
-  t.eq(D.feel.trimGain, 0.35, "base trimGain")
-  t.eq(D.feel.climbRampTime, 1.0, "base climbRampTime")
-  t.eq(D.feel.climbBoost, 2.0, "base climbBoost")
+  t.eq(D.feel.trimGain, 0.30, "base trimGain")
   -- CPL/DCPL are no longer flight-mode tuning records
   t.eq(D.modes.CPL, nil, "no CPL mode record")
   t.eq(D.modes.DCPL, nil, "no DCPL mode record")
@@ -110,25 +99,18 @@ t.test("trim flip-guard: fade/floor feel defaults present and inherited by every
   t.near(d.modes.DRN.feel.trimFade, 0.6,      1e-9, "DRN inherits")
 end)
 
-t.test("faster climb/descend: per-mode vertical authority (kp/leadCapVert/kd/climbRate)", function()
-  -- steady climb v ~= kp*leadCapVert/kd. PRE(base)+MAN/DRN moderate; CRUISE aggressive; LDG pinned gentle.
+t.test("vertical authority: per-mode alt kp/kd (position-hold path, unchanged by rate-command)", function()
   for _, mode in ipairs({ "PRECISION", "MAN", "DRN" }) do
     local m = tuning.forMode(mode)
-    t.near(m.gains.alt.kp, 0.06, 1e-9, mode.." alt kp raised again (0.035->0.06, fix #8)")
+    t.near(m.gains.alt.kp, 0.06, 1e-9, mode.." alt kp")
     t.near(m.gains.alt.kd, 0.15,  1e-9, mode.." alt kd unchanged")
-    t.near(m.feel.leadCapVert, 14.0, 1e-9, mode.." leadCapVert raised again (10->14, fix #8)")
-    t.near(m.feel.climbRate,   5.0,  1e-9, mode.." climbRate raised (4.5->5)")
   end
   local cru = tuning.forMode("CRUISE")
   t.near(cru.gains.alt.kp, 0.045, 1e-9, "CRU alt kp aggressive")
   t.near(cru.gains.alt.kd, 0.08,  1e-9, "CRU alt kd lowered (livelier)")
-  t.near(cru.feel.leadCapVert, 12.0, 1e-9, "CRU leadCapVert")
-  t.near(cru.feel.climbRate,   12.0, 1e-9, "CRU climbRate keeps setpoint ahead")
   local ldg = tuning.forMode("LDG")
   t.near(ldg.gains.alt.kp, 0.02, 1e-9, "LDG alt kp pinned gentle (not the raised base)")
   t.near(ldg.gains.alt.kd, 0.15, 1e-9, "LDG alt kd pinned")
-  t.near(ldg.feel.leadCapVert, 8.0, 1e-9, "LDG leadCapVert pinned to 8")
-  t.near(ldg.feel.climbRate,   2.5, 1e-9, "LDG climbRate stays gentle")
 end)
 
 t.test("brakeTrim: symmetric (tilt-to-brake) only in CRU/DRN, forward-only elsewhere", function()
@@ -155,28 +137,39 @@ t.test("attitude leveling integral resolves per mode (fix #1)", function()
   t.near(tuning.forMode("DRN").gains.roll.ki,  0, 1e-9, "DRN roll ki off")
 end)
 
-t.test("rate-tuning defaults resolve per mode (fix #5-#9)", function()
-  local function feel(m) return tuning.forMode(m).feel end
-  local function gains(m) return tuning.forMode(m).gains end
-  -- base (PRECISION reads top-level)
-  local pf, pg = feel("PRECISION"), gains("PRECISION")
-  t.near(pf.headingRate, 4.5, 1e-9); t.near(pf.leadCapHeading, 1.1, 1e-9)
-  t.near(pf.yawStopLead, 0.05, 1e-9); t.near(pf.altStopLead, 0.10, 1e-9)
-  t.near(pf.leadCapVert, 14.0, 1e-9); t.near(pg.alt.kp, 0.06, 1e-9)
-  -- MAN/DRN inherit the base bumps
-  for _, m in ipairs({ "MAN", "DRN" }) do
-    t.near(feel(m).headingRate, 4.5, 1e-9); t.near(feel(m).altStopLead, 0.10, 1e-9)
-    t.near(gains(m).alt.kp, 0.06, 1e-9)
+t.test("rate-command defaults resolve per mode (2026-09-06)", function()
+  local function fe(m) return tuning.forMode(m).feel end
+  local function ga(m) return tuning.forMode(m).gains end
+  t.near(fe("PRECISION").climbRate, 8, 1e-9); t.near(fe("PRECISION").headingRate, 1.2, 1e-9)
+  t.near(fe("PRECISION").swaySpeed, 6, 1e-9)
+  t.near(ga("PRECISION").alt.kv, 0.06, 1e-9); t.near(ga("PRECISION").yaw.kw, 0.8, 1e-9)
+  t.near(ga("PRECISION").sway.ks, 0.4, 1e-9)
+  t.near(fe("CRUISE").climbRate, 12, 1e-9); t.near(fe("CRUISE").headingRate, 1.5, 1e-9)
+  t.near(fe("CRUISE").swaySpeed, 10, 1e-9); t.near(ga("CRUISE").yaw.kw, 0.9, 1e-9)
+  t.near(fe("LDG").climbRate, 2.5, 1e-9); t.near(fe("LDG").headingRate, 0.6, 1e-9)
+  t.near(fe("MAN").climbRate, 6, 1e-9); t.near(fe("DRN").climbRate, 6, 1e-9)
+end)
+
+t.test("per-mode trimGain: enabled everywhere except LDG", function()
+  for _, m in ipairs({ "PRECISION", "MAN", "CRUISE", "DRN" }) do
+    t.truthy(tuning.forMode(m).feel.trimGain > 0, m.." accel trim enabled")
   end
-  -- CRU: fastest yaw + strafe; keeps its own climb
-  local cf, cg = feel("CRUISE"), gains("CRUISE")
-  t.near(cf.headingRate, 5.5, 1e-9); t.near(cf.leadCapHeading, 1.5, 1e-9)
-  t.near(cf.swaySpeed, 10.0, 1e-9); t.near(cf.swayLead, 20.0, 1e-9)
-  t.near(cg.alt.kp, 0.045, 1e-9); t.near(cf.leadCapVert, 12.0, 1e-9)
-  -- LDG unchanged
-  local lf, lg = feel("LDG"), gains("LDG")
-  t.near(lf.headingRate, 2.2, 1e-9); t.near(lf.leadCapHeading, 0.45, 1e-9)
-  t.near(lg.alt.kp, 0.02, 1e-9); t.near(lf.leadCapVert, 8.0, 1e-9)
+  t.near(tuning.forMode("LDG").feel.trimGain, 0, 1e-9, "LDG accel trim off (gentle)")
+end)
+
+t.test("CRU/PRE pitch authority bumped for accel residual", function()
+  t.near(tuning.forMode("CRUISE").gains.pitch.kp, 0.15, 1e-9)
+  t.near(tuning.forMode("CRUISE").caps.pitch, 0.3, 1e-9)
+  t.near(tuning.forMode("PRECISION").gains.pitch.kp, 0.15, 1e-9)
+  t.near(tuning.forMode("PRECISION").caps.pitch, 0.3, 1e-9)
+end)
+
+t.test("retired leash keys are gone", function()
+  local d = require("fcs.io.tuningdefaults").get()
+  for _, k in ipairs({ "leadCapVert", "altStopLead", "leadCapHeading", "yawStopLead", "swayLead",
+                       "climbBoost", "climbRampTime" }) do
+    t.eq(d.feel[k], nil, "base feel."..k.." retired")
+  end
 end)
 
 t.test("attitude leveling: level-hold roll gains integrate a standing bank; MAN does not", function()

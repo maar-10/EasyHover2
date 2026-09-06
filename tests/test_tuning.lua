@@ -9,7 +9,7 @@ t.test("tuning exposes the flight-tuned gains", function()
 end)
 t.test("attitude has a leveling integral (fix #1): kp/kd held, ki+iBand added to cancel standing banks", function()
   -- ki was 0 (P+D only) which held 5-24deg standing banks; ki+iBand added 2026-09-04 to level them.
-  t.near(T.gains.pitch.kp, 0.10, 1e-9); t.near(T.gains.pitch.kd, 0.22, 1e-9)
+  t.near(T.gains.pitch.kp, 0.15, 1e-9); t.near(T.gains.pitch.kd, 0.22, 1e-9)
   t.near(T.gains.pitch.ki, 0.05, 1e-9); t.near(T.gains.pitch.iBand, 0.35, 1e-9)
   t.near(T.gains.roll.kp, 0.10, 1e-9); t.near(T.gains.roll.ki, 0.05, 1e-9); t.near(T.gains.roll.iBand, 0.35, 1e-9)
 end)
@@ -18,7 +18,7 @@ t.test("heave authority band keeps lift off the rails", function()
 end)
 t.test("tuning exposes actuator + safety params", function()
   t.near(T.pwmPeriod, 0.3, 1e-9)
-  t.near(T.caps.pitch, 0.2, 1e-9)
+  t.near(T.caps.pitch, 0.3, 1e-9)
   t.eq(T.osc.minChanges, 6)
   t.near(T.osc.deadband, 0.02, 1e-9)   -- ~1.1deg: above the level-flight sensor noise floor
   t.near(T.osc.calmTime, 1.0, 1e-9)    -- s of calm before a trip auto-releases
