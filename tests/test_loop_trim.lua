@@ -11,135 +11,54 @@ local function fakeMixer() return { mix = function(_, d) return d end } end
 local function fakeBackend() return { sensors = function() return { onGround = false } end } end
 local function fakePwm() return { apply = function() end } end
 
--- Forward-accel lean feed-forward is RETIRED (fix #3, PRESERVED/DISABLED in loop.lua): the trim is
--- now an attitude SETPOINT computed in fcs/input/pilot.lua that the leveling loop holds. Loop:cycle
--- must no longer add any ff bias to demands.pitch, regardless of setTrim config, and diag().ffPitch
--- must always read 0. setTrim itself stays plumbed (harmless dormant state) -- these tests only pin
--- that its stored params are no longer APPLIED.
+-- Forward-accel lean feed-forward is RE-ENABLED (fix #3): a calibrated, capped nose-down bias
+-- added to demands.pitch as dir*gain*demands.surge, faded out linearly over
+-- [trimFadeStart, trimFade] |pitch| and clamped to authority*caps.pitch. When brakeTrim is false
+-- the half of the ff opposite `dir` (i.e. the brake-side lean) is blocked (forward-only).
 
-t.test("loop trim: setTrim config no longer biases demands.pitch (lean off); surge untouched", function()
-  local lp = Loop.new({ scheme = fakeScheme({ heave = 0.5, pitch = 0.1, roll = 0, yaw = 0, sway = 0, surge = 0.8 }),
+t.test("loop trim: nose-down ff scales with demands.surge (lean on)", function()
+  local lp = Loop.new({ scheme = fakeScheme({ heave = 0.5, pitch = 0.0, roll = 0, yaw = 0, sway = 0, surge = 0.8 }),
     mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
-  lp:setTrim(-1, 0.35)
+  lp:setTrim(-1, 0.3, 1.0, 0.25, 0.6, true)   -- dir -1 (nose-down), gain 0.3, authority 1, fade 0.25..0.6
   lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false })
-  t.near(r.demands.pitch, 0.1, 1e-9, "pitch equals the scheme's own output -- no ff added")
-  t.eq(r.demands.surge, 0.8, "surge demand unchanged (no braking)")
-  t.near(lp._ffPitch or 0, 0, 1e-9, "ffPitch zero (lean off)")
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })   -- |pitch|<fadeStart => full ff
+  t.near(r.demands.pitch, -0.3 * 0.8, 1e-9, "pitch = ff = dir*gain*surge (nose-down)")
+  t.near(lp:diag({}, { pitch = 0 }).ffPitch, -0.3 * 0.8, 1e-9, "diag reports applied ff")
 end)
 
-t.test("loop trim: zero gain is (still) a no-op", function()
-  local lp = Loop.new({ scheme = fakeScheme({ heave = 0.5, pitch = 0.1, surge = 0.8 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
-  lp:setTrim(-1, 0); lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false })
-  t.near(r.demands.pitch, 0.1, 1e-9, "no trim when gain 0")
-end)
-
-t.test("loop trim: authority-floor config no longer biases pitch (lean off)", function()
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)   -- raw would have been -0.35; floor would have been 0.4*0.2=0.08
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0, 1e-9, "pitch equals the scheme's own output (0) -- no ff, no floor applied")
-end)
-
-t.test("loop trim: huge-surge config no longer biases pitch (lean off, stabilizer output passes through)", function()
-  -- Previously the exact case that flipped the craft (raw -0.35 vs stabilizer +0.2). Now there is no
-  -- ff at all, so the scheme's own stabilizer output passes through untouched.
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0.2, surge = 1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0.2, 1e-9, "pitch equals the scheme's stabilizer output unmodified")
-  t.truthy(r.demands.pitch > 0, "pitch demand stays net nose-up (no flip -- there is no ff to flip it)")
-end)
-
-t.test("loop trim: fade config is inert (lean off) at every pitch magnitude", function()
-  local function pitchAt(pitchMag)
-    local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
-      mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 10, surge = 1 } })
-    lp:setTrim(-1, 0.4, 1.0, 0.25, 0.6)
-    lp:arm(true)
-    return lp:cycle(0.05, { onGround = false, pitch = pitchMag }).demands.pitch
-  end
-  t.near(pitchAt(0.10), 0, 1e-9, "no ff inside old deadzone")
-  t.near(pitchAt(0.25), 0, 1e-9, "no ff at old fade start")
-  t.near(pitchAt(0.425), 0, 1e-9, "no ff at old fade midpoint")
-  t.near(pitchAt(0.60), 0, 1e-9, "no ff at old fade end")
-  t.near(pitchAt(0.80), 0, 1e-9, "no ff beyond old fade end")
-end)
-
-t.test("loop diag: ffPitch is always 0 regardless of trim config or demands", function()
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  local d = lp:diag({}, { pitch = 0 })
-  t.near(d.ffPitch, 0, 1e-9, "diag reports zero ff (lean off)")
-  t.near(r.demands.pitch, 0, 1e-9, "scheme pitch (0) passes through with no bias")
-end)
-
-t.test("loop trim: DAMPED trip zeroes pitch (independent of retired trim)", function()
+t.test("loop trim: gain 0 is a no-op (LDG)", function()
   local lp = Loop.new({ scheme = fakeScheme({ pitch = 0.1, surge = 1.0 }),
     mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
-  lp.osc = { update = function() return true end, reset = function() end }  -- force a trip
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.eq(r.mode, "DAMPED")
-  t.near(r.demands.pitch, 0, 1e-9, "osc trip zeroes pitch")
+  lp:setTrim(-1, 0, 1.0, 0.25, 0.6, false); lp:arm(true)
+  t.near(lp:cycle(0.05, { onGround = false, pitch = 0 }).demands.pitch, 0.1, 1e-9, "no ff when gain 0")
 end)
 
-t.test("loop diag: ffPitch stays 0 when disarmed (and was already 0 while armed)", function()
+t.test("loop trim: authority cap limits ff to authority*caps.pitch", function()
   local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
     mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)
-  lp:arm(true)
-  lp:cycle(0.05, { onGround = false, pitch = 0 })
-  lp:arm(false)
-  lp:cycle(0.05, { onGround = false, pitch = 0 })   -- disarmed cycle
-  t.near(lp:diag({}, { pitch = 0 }).ffPitch, 0, 1e-9, "ffPitch stays 0 while disarmed")
+  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, true); lp:arm(true)  -- raw -0.35, cap 0.4*0.2=0.08
+  t.near(lp:cycle(0.05, { onGround = false, pitch = 0 }).demands.pitch, -0.08, 1e-9, "ff clamped to -authority*cap")
 end)
 
--- brakeTrim config (symmetric vs forward-only) no longer has any effect since the ff itself is
--- retired: both branches must produce the same (unbiased) pitch demand.
-t.test("loop trim forward-only (brakeTrim=false): no ff to block or keep -- pitch unbiased", function()
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, false)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0, 1e-9, "no ff applied regardless of brakeTrim")
-  t.near(lp:diag({}, { pitch = 0 }).ffPitch, 0, 1e-9, "ffPitch reflects the retired lean (0)")
-end)
-
-t.test("loop trim forward-only (brakeTrim=false), forward surge: no ff -- pitch unbiased", function()
+t.test("loop trim: fade zeroes ff by trimFade (|pitch|>=fade)", function()
   local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = 1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, false)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0, 1e-9, "no forward-lean applied -- lean is retired")
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 10, surge = 1 } })
+  lp:setTrim(-1, 0.4, 1.0, 0.25, 0.6, true); lp:arm(true)
+  t.near(lp:cycle(0.05, { onGround = false, pitch = 0.60 }).demands.pitch, 0, 1e-9, "ff fully faded at trimFade")
 end)
 
-t.test("loop trim symmetric (brakeTrim=true): no ff -- pitch unbiased (CRU/DRN)", function()
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6, true)
-  lp:arm(true)
-  local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0, 1e-9, "no brake lean applied even when brakeTrim true -- lean is retired")
+t.test("loop trim forward-only (brakeTrim=false) blocks the brake half", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),   -- surge<0 = braking
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
+  lp:setTrim(-1, 0.3, 1.0, 0.25, 0.6, false); lp:arm(true)  -- dir -1, brake would give +0.3 -> blocked
+  t.near(lp:cycle(0.05, { onGround = false, pitch = 0 }).demands.pitch, 0, 1e-9, "forward-only blocks brake-side ff")
 end)
 
-t.test("loop trim: 5-arg setTrim (brakeTrim nil->true) is also inert -- no ff applied", function()
-  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0, surge = -1.0 }),
-    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.2, surge = 1 } })
-  lp:setTrim(-1, 0.35, 0.4, 0.25, 0.6)   -- no brakeTrim arg -> defaults true, but ff is retired
-  lp:arm(true)
+t.test("loop: DAMPED trip still zeroes pitch (ff irrelevant)", function()
+  local lp = Loop.new({ scheme = fakeScheme({ pitch = 0.1, surge = 1.0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 1, surge = 1 } })
+  lp.osc = { update = function() return true end, reset = function() end }
+  lp:setTrim(-1, 0.3, 1.0, 0.25, 0.6, true); lp:arm(true)
   local r = lp:cycle(0.05, { onGround = false, pitch = 0 })
-  t.near(r.demands.pitch, 0, 1e-9, "5-arg call still adds no ff")
+  t.eq(r.mode, "DAMPED"); t.near(r.demands.pitch, 0, 1e-9, "osc trip zeroes pitch")
 end)
