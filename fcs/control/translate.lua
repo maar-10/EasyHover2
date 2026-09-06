@@ -3,6 +3,7 @@ T.__index = T
 function T.new(cfg)
   local self = setmetatable({}, T)
   self.kp = cfg.kp or 0; self.ki = cfg.ki or 0; self.kd = cfg.kd or 0
+  self.ks = cfg.ks or 0
   self.iMin = cfg.iMin or -math.huge; self.iMax = cfg.iMax or math.huge
   self.dtMax = cfg.dtMax or 0.5
   self:reset(); return self
@@ -26,5 +27,8 @@ function T:terms(sp, pos, vel)
     I = self.i,
     D = -self.kd * (vel or 0),
   }
+end
+function T:rate(cmd, vel, dt)
+  return self.ks * (cmd - (vel or 0))
 end
 return T
