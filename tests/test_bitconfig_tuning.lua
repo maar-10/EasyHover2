@@ -265,9 +265,9 @@ end)
 -- they are no longer tunable rows at all (specFor returns nil for them on every mode). feel.trimGain
 -- is still live, and the new rate-command rows (feel.climbRate/headingRate/swaySpeed +
 -- gains.alt.kv/yaw.kw/sway.ks) are present and shared by every mode.
-t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 4 rows shared by every flight mode (trim/flip-guard), no own extras", function()
+t.test("M.rows(cfg,'LDG') includes the 31 base rows + the 4 rows shared by every flight mode (trim/flip-guard), no own extras", function()
   local rows = M.rows(tuningdefaults.get(), "LDG")
-  t.eq(#rows, 38, "34 base + 4 shared trim/flip-guard rows")
+  t.eq(#rows, 35, "31 base + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
@@ -283,9 +283,9 @@ t.test("M.rows(cfg,'LDG') includes the 34 base rows + the 4 rows shared by every
   end
 end)
 
-t.test("M.rows(cfg,'DRN') includes the 34 base rows + its own tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows", function()
+t.test("M.rows(cfg,'DRN') includes the 31 base rows + its own tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows", function()
   local rows = M.rows(tuningdefaults.get(), "DRN")
-  t.eq(#rows, 45, "34 base + 2 DRN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
+  t.eq(#rows, 42, "31 base + 2 DRN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do ids[r.id] = r end
   local defaults = tuningdefaults.get()
@@ -351,7 +351,7 @@ t.test("REGRESSION: M.rows(cfg) with no mode arg == M.rows(cfg,'PRECISION')", fu
     t.eq(a[i].id, b[i].id)
     t.eq(a[i].value, b[i].value)
   end
-  t.eq(#a, 38, "34 base rows + the 4 rows shared by every flight mode (trim/flip-guard)")
+  t.eq(#a, 35, "31 base rows + the 4 rows shared by every flight mode (trim/flip-guard)")
 end)
 
 t.test("REGRESSION: M.apply(cfg,rowId,delta) with no mode arg == M.apply(cfg,'PRECISION',rowId,delta)", function()
@@ -376,9 +376,9 @@ t.test("M.rows(cfg,'MAN') reads from modes.MAN subtree, not top-level", function
   t.eq(pFound.value, tuningdefaults.get().gains.pitch.kp)
 end)
 
-t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
+t.test("M.rows(cfg,'MAN') includes the 31 base rows + tiltRate/tiltCap + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "MAN")
-  t.eq(#rows, 45, "34 base + 2 MAN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
+  t.eq(#rows, 42, "31 base + 2 MAN tilt extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local tiltRate, tiltCap
   for _, r in ipairs(rows) do
     if r.id == "feel.tiltRate" then tiltRate = r end
@@ -392,9 +392,9 @@ t.test("M.rows(cfg,'MAN') includes the 34 base rows + tiltRate/tiltCap + 5 brake
   t.eq(tiltCap.value, tuningdefaults.get().modes.MAN.feel.tiltCap)
 end)
 
-t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
+t.test("M.rows(cfg,'CRUISE') includes the 31 base rows + cruiseThrottleRate/Max + 5 brake rows + the 4 shared trim/flip-guard rows (FEEL group)", function()
   local rows = M.rows(tuningdefaults.get(), "CRUISE")
-  t.eq(#rows, 45, "34 base + 2 CRUISE throttle extras + 5 brake rows + 4 shared trim/flip-guard rows")
+  t.eq(#rows, 42, "31 base + 2 CRUISE throttle extras + 5 brake rows + 4 shared trim/flip-guard rows")
   local rate, max
   for _, r in ipairs(rows) do
     if r.id == "feel.cruiseThrottleRate" then rate = r end
@@ -408,9 +408,9 @@ t.test("M.rows(cfg,'CRUISE') includes the 34 base rows + cruiseThrottleRate/Max 
   t.eq(max.value, tuningdefaults.get().modes.CRUISE.feel.cruiseThrottleMax)
 end)
 
-t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 4 shared trim/flip-guard rows (38 rows)", function()
+t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES have the 4 shared trim/flip-guard rows (35 rows)", function()
   local rows = M.rows(tuningdefaults.get(), "PRECISION")
-  t.eq(#rows, 38, "34 base + 4 shared trim/flip-guard rows")
+  t.eq(#rows, 35, "31 base + 4 shared trim/flip-guard rows")
   local ids = {}
   for _, r in ipairs(rows) do
     ids[r.id] = r
@@ -419,8 +419,13 @@ t.test("M.rows(cfg,'PRECISION') has no tilt/cruise-throttle extras, but DOES hav
       "no per-mode extra leaked into PRECISION rows: " .. r.id)
   end
   for _, id in ipairs({ "feel.trimGain", "feel.climbRate", "feel.headingRate", "feel.swaySpeed",
-                        "gains.alt.kv", "gains.yaw.kw", "gains.sway.ks" }) do
+                        "gains.alt.kv", "gains.yaw.kw", "gains.sway.ks", "gains.sway.ka",
+                        "gains.surge.ks", "gains.surge.ka" }) do
     t.truthy(ids[id], "PRECISION row present: " .. id)
+  end
+  for _, id in ipairs({ "gains.sway.kp", "gains.sway.ki", "gains.sway.kd",
+                        "gains.surge.kp", "gains.surge.ki", "gains.surge.kd" }) do
+    t.truthy(ids[id] == nil, "retired translate PD row GONE: " .. id)
   end
   for _, id in ipairs({ "feel.climbRampTime", "feel.climbBoost", "feel.leadCapVert",
                         "feel.leadCapHeading", "feel.swayLead", "feel.yawStopLead", "feel.altStopLead" }) do
@@ -1169,6 +1174,9 @@ t.test("live-tune rows: CLIMB RATE/YAW RATE/STRAFE RATE/ALT KV/YAW KW/SWAY KS/TR
     { id = "gains.alt.kv",     label = "ALT KV",      group = "GAINS", min = 0, max = 1 },
     { id = "gains.yaw.kw",     label = "YAW KW",      group = "GAINS", min = 0, max = 1 },
     { id = "gains.sway.ks",    label = "SWAY KS",     group = "GAINS", min = 0, max = 1 },
+    { id = "gains.sway.ka",    label = "SWAY KA",  group = "GAINS", min = 0, max = 5 },
+    { id = "gains.surge.ka",   label = "SURGE KA", group = "GAINS", min = 0, max = 5 },
+    { id = "gains.surge.ks",   label = "SURGE KS", group = "GAINS", min = 0, max = 1 },
     { id = "feel.trimGain",    label = "TRIM GAIN",   group = "FEEL",  min = 0, max = 1 },
   }
   for _, mode in ipairs({ "PRECISION", "MAN", "CRUISE", "LDG", "DRN" }) do

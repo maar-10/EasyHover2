@@ -46,3 +46,22 @@ t.test("tiltBrake enabled for CRU/MAN/DRN, disabled for PRE/LDG, with curve defa
   t.eq(D.modes.DRN.feel.tiltBrake.enabled, true, "DRN enabled")
   t.eq(D.modes.LDG.feel.tiltBrake.enabled, false, "LDG disabled")
 end)
+
+t.test("sway/surge gains are the velocity-limited-hold pair {ks, ka}", function()
+  local g = require("fcs.io.tuningdefaults").get().gains
+  t.near(g.sway.ks, 0.4, 1e-9, "base sway ks")
+  t.near(g.sway.ka, 1.0, 1e-9, "base sway ka")
+  t.near(g.surge.ks, 0.4, 1e-9, "base surge ks")
+  t.near(g.surge.ka, 1.0, 1e-9, "base surge ka")
+  t.truthy(g.sway.kp == nil and g.sway.kd == nil, "old sway PD gains dropped")
+  t.truthy(g.surge.kp == nil and g.surge.kd == nil, "old surge PD gains dropped")
+end)
+
+t.test("per-mode sway/surge ks overrides (CRU hotter, LDG gentler)", function()
+  local m = require("fcs.io.tuningdefaults").get().modes
+  t.near(m.CRUISE.gains.sway.ks, 0.5, 1e-9, "CRU sway ks")
+  t.near(m.CRUISE.gains.surge.ks, 0.4, 1e-9, "CRU surge ks")
+  t.near(m.LDG.gains.sway.ks, 0.3, 1e-9, "LDG sway ks")
+  t.near(m.LDG.gains.surge.ks, 0.3, 1e-9, "LDG surge ks")
+  t.near(m.LDG.gains.sway.ka, 1.0, 1e-9, "LDG sway ka inherits base")
+end)

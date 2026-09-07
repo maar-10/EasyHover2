@@ -127,3 +127,24 @@ t.test("position hold engaged mid-hold clears stale *Cmd and captures the CURREN
   t.near(sp.heading, 1.2, 1e-9, "bumpless: captured to CURRENT heading")
   t.near(sp.swayPos, 7, 1e-9, "bumpless: captured to CURRENT swayPos")
 end)
+
+t.test("pilot publishes swayVmax/surgeVmax from feel on every setpoint", function()
+  -- maxLead is required here (unrelated to this test's assertions): default policy is the
+  -- "position" surge mode, which leashes surgePos via fcs/leash.lua and needs a numeric
+  -- maxLead/surgeLead to bound it -- every other non-hold test in this file supplies one too.
+  local p = Pilot.new({ swaySpeed = 6, surgeSpeed = 10, headingRate = 1, climbRate = 8, maxLead = 3 })
+  p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  local sp = p:update(0.05, {}, { altitude = 0, heading = 0, swayPos = 0, surgePos = 0,
+    swayVel = 0, surgeVel = 0, yawRate = 0, vSpeed = 0 })
+  t.near(sp.swayVmax, 6, 1e-9, "swayVmax = feel.swaySpeed")
+  t.near(sp.surgeVmax, 10, 1e-9, "surgeVmax = feel.surgeSpeed")
+end)
+
+t.test("pilot publishes swayVmax/surgeVmax even while positionHold is engaged", function()
+  local p = Pilot.new({ swaySpeed = 3, surgeSpeed = 3 })
+  p:reset({ altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  p:setPositionHold(true)
+  local sp = p:update(0.05, {}, { altitude = 0, heading = 0, swayPos = 0, surgePos = 0 })
+  t.near(sp.swayVmax, 3, 1e-9, "swayVmax present in hold path")
+  t.near(sp.surgeVmax, 3, 1e-9, "surgeVmax present in hold path")
+end)

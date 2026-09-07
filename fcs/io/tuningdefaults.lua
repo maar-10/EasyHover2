@@ -32,8 +32,8 @@ local DEFAULTS = {
     pitch = { kp = 0.15, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     roll  = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     yaw   = { kp = 0.95, ki = 0, kd = 1.8, kw = 0.8 },   -- kd 1.0->1.8: damp the heavy craft's release ring
-    sway  = { kp = 0.2, ki = 0, kd = 0.25, ks = 0.4 },
-    surge = { kp = 0.15, ki = 0, kd = 0.25 },
+    sway  = { ks = 0.4, ka = 1.0 },
+    surge = { ks = 0.4, ka = 1.0 },
     heaveMin = 0.05,
     heaveMax = 0.85,
   },
@@ -157,6 +157,7 @@ DEFAULTS.modes.LDG.gains.alt.kv     = 0.04
 DEFAULTS.modes.LDG.feel.headingRate = 0.6
 DEFAULTS.modes.LDG.gains.yaw.kw     = 0.5
 DEFAULTS.modes.LDG.gains.sway.ks    = 0.3
+DEFAULTS.modes.LDG.gains.surge.ks   = 0.3
 -- LDG pilots/lands gently: no accel-trim residual to fight, and no forward-trim feedforward wanted
 -- on the ground -- pin trimGain to 0 (base is now 0.30) and pitch kp back to 0.10 (base is 0.15).
 DEFAULTS.modes.LDG.feel.trimGain    = 0

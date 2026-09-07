@@ -96,27 +96,20 @@ end)
 
 -- Translate ----------------------------------------------------------------
 
-t.test("Translate:terms P+I+D sums to update() and does not mutate", function()
-  local tr = Translate.new({ kp = 1.5, ki = 0.3, kd = 0.25 })
-  local out = tr:update(4, 1, 0.5, 0.1, false) -- sp=4, pos=1, vel=0.5, dt=0.1
-  local i0 = tr.i
-  local tm = tr:terms(4, 1, 0.5)
-  t.near(tm.P + tm.I + tm.D, out, 1e-6, "P+I+D == update() return")
-  t.near(tm.err, 3, 1e-9, "err == sp - pos")
-  t.eq(tm.I, tr.i, "terms.I == controller.i")
-  t.near(tm.P, tr.kp * 3, 1e-9, "P == kp*err")
-  t.near(tm.D, -tr.kd * 0.5, 1e-9, "D == -kd*vel")
-  local tm2 = tr:terms(4, 1, 0.5)
-  t.eq(tr.i, i0, "terms must not mutate i")
-  t.eq(tm2.I, tm.I, "second terms call is stable")
+t.test("Translate:terms P+I+D sums to hold() and does not mutate", function()
+  local tr = Translate.new({ ks = 0.4, ka = 1.5 })
+  local out = tr:hold(4, 1, 0.5, 6)   -- sp=4, pos=1, vel=0.5, vmax=6
+  local tm = tr:terms(4, 1, 0.5, 6)
+  t.near(tm.P + tm.I + tm.D, out, 1e-9, "P+I+D == hold")
+  local tm2 = tr:terms(4, 1, 0.5, 6)
+  t.near(tm2.P + tm2.I + tm2.D, out, 1e-9, "terms is pure/repeatable")
 end)
 
-t.test("Translate:terms defaults vel to 0 like update()", function()
-  local tr = Translate.new({ kp = 1, ki = 0, kd = 0.4 })
-  local out = tr:update(2, 0, nil, 0.1, false)
-  local tm = tr:terms(2, 0, nil)
-  t.near(tm.D, 0, 1e-9, "D == 0 when vel is nil")
-  t.near(tm.P + tm.I + tm.D, out, 1e-6, "P+I+D == update() return")
+t.test("Translate:terms defaults vel to 0 like hold()", function()
+  local tr = Translate.new({ ks = 0.4, ka = 1.0 })
+  local out = tr:hold(2, 0, nil, 6)
+  local tm = tr:terms(2, 0, nil, 6)
+  t.near(tm.P + tm.I + tm.D, out, 1e-9, "nil vel treated as 0 in both")
 end)
 
 t.test("Translate:rate commands velocity error (ks * (cmd - vel))", function()

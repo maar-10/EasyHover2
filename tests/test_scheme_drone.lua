@@ -4,7 +4,7 @@ local Drone = require("fcs.schemes.drone")
 
 t.test("DRN: attitude/alt pass through AND horizontal loop stabilizes a position error", function()
   local d = Drone.new({ hoverDuty = 0.26, alt = {}, pitch = {}, roll = {}, yaw = {},
-                        sway = { kp = 0.2 }, surge = { kp = 0.15 } })
+                        sway = { ks = 0.4, ka = 1.0 }, surge = { ks = 0.4, ka = 1.0 } })
   local sp = { pitch = 0.1, roll = -0.1, heading = 0, altitude = 5, swayPos = 10, surgePos = 10 }
   local m  = { pitch = 0, roll = 0, heading = 0, altitude = 5, swayPos = 0, surgePos = 0,
               swayVel = 0, surgeVel = 0, yawRate = 0 }

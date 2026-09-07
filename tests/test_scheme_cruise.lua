@@ -4,7 +4,7 @@ local Cruise = require("fcs.schemes.cruise")
 local Level  = require("fcs.schemes.level_flight")
 local cfg = { hoverDuty = 0.26, alt = {kp=0.02,ki=0.01,kd=0.15,tauD=0.35},
   pitch = {kp=0.1,kd=0.22}, roll = {kp=0.1,kd=0.22}, yaw = {kp=0.95,kd=1.0},
-  sway = {kp=0.2,kd=0.25}, surge = {kp=0.15,kd=0.25}, heaveMin = 0.05, heaveMax = 0.85 }
+  sway = { ks = 0.4, ka = 1.0 }, surge = { ks = 0.4, ka = 1.0 }, heaveMin = 0.05, heaveMax = 0.85 }
 
 t.test("CRUISE holds surge at the throttle setpoint, other axes match level", function()
   local cru, lvl = Cruise.new(cfg), Level.new(cfg)
@@ -40,7 +40,7 @@ end)
 t.test("cruise arrests at throttle 0: forward drift -> negative surge demand", function()
   local Cruise = require("fcs.schemes.cruise")
   local g = { hoverDuty=0.26, alt={}, pitch={}, roll={}, yaw={},
-              sway={kp=0.2,kd=0.25}, surge={kp=0.15,kd=0.25}, heaveMin=0.05, heaveMax=0.85 }
+              sway={ ks = 0.4, ka = 1.0 }, surge={ ks = 0.4, ka = 1.0 }, heaveMin=0.05, heaveMax=0.85 }
   local sc = Cruise.new(g); sc:reset()
   -- throttle 0, craft drifting forward (surgeVel>0), setpoint held behind it -> brake (surge<0)
   local sp = { surgeThrottle = 0, surgePos = 0, altitude = 0, heading = 0, swayPos = 0 }
@@ -52,7 +52,7 @@ end)
 
 t.test("cruise forward: throttle>0 bypasses the position loop", function()
   local Cruise = require("fcs.schemes.cruise")
-  local g = { hoverDuty=0.26, alt={}, pitch={}, roll={}, yaw={}, sway={}, surge={kp=0.15,kd=0.25} }
+  local g = { hoverDuty=0.26, alt={}, pitch={}, roll={}, yaw={}, sway={}, surge={ ks = 0.4, ka = 1.0 } }
   local sc = Cruise.new(g); sc:reset()
   local sp = { surgeThrottle = 0.7, surgePos = 0, altitude=0, heading=0, swayPos=0 }
   local m  = { surgePos = 99, surgeVel = 40, swayPos=0, swayVel=0, altitude=0, heading=0,

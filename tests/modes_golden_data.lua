@@ -57,6 +57,11 @@ local BATTERY = {
 -- tools/capture_precision_golden.lua inside CraftOS-PC:
 --   [2] FL 0.439450->0.436950, FR 0.433300->0.430800, RL 0.449700->0.452200, RR 0.443550->0.446050
 --   [3] FL 0.262050->0.267050, FR 0.278450->0.283450, RL 0.241550->0.236550, RR 0.257950->0.252950
+-- INTENTIONAL update 2026-09-07 (velocity-limited-hold, spec 2026-09-07): sway/surge holds
+-- switched from saturating PD to the ks/ka velocity-limited cascade; base gains sway/surge
+-- = {ks=0.4, ka=1.0}. Only cases [2] and [3] (nonzero sway/surge pos/vel) move: their MAIN
+-- (surge) and YAW-thruster (sway via mixLateral) duties. Cases [1][4] (zero sway/surge) are
+-- byte-identical. Regenerated via tools/capture_precision_golden.lua inside CraftOS-PC.
 local EXPECT = {
   [1] = { FL=0.260000000, FR=0.260000000, FRL=0.000000000, FRR=0.000000000, MAIN=0.000000000,
           RL=0.260000000, RR=0.260000000, YFL=0.000000000, YFR=-0.000000000, YRL=0.000000000, YRR=0.000000000 },
@@ -64,10 +69,10 @@ local EXPECT = {
   -- The golden does ONE :update after :reset (i starts at 0), so only the first-tick integral shifts
   -- the two cases with attitude error -- [2] (pitch 0.05, roll -0.03) and [3] (pitch -0.1, roll 0.08) --
   -- by ki*err*dt on the lift thrusters only; MAIN/YAW and the zero-attitude cases [1][4] are unchanged.
-  [2] = { FL=0.436950000, FR=0.430800000, FRL=0.000000000, FRR=0.000000000, MAIN=0.175000000,
-          RL=0.452200000, RR=0.446050000, YFL=0.000000000, YFR=0.620000000, YRL=0.120000000, YRR=0.000000000 },
-  [3] = { FL=0.267050000, FR=0.283450000, FRL=0.000000000, FRR=0.000000000, MAIN=0.200000000,
-          RL=0.236550000, RR=0.252950000, YFL=1.000000000, YFR=0.000000000, YRL=0.000000000, YRR=0.360000000 },
+  [2] = { FL=0.436950000, FR=0.430800000, FRL=0.000000000, FRR=0.000000000, MAIN=0.440000000,
+          RL=0.452200000, RR=0.446050000, YFL=0.000000000, YFR=0.850000000, YRL=0.000000000, YRR=0.110000000 },
+  [3] = { FL=0.267050000, FR=0.283450000, FRL=0.000000000, FRR=0.000000000, MAIN=0.640000000,
+          RL=0.236550000, RR=0.252950000, YFL=1.000000000, YFR=0.000000000, YRL=0.085000000, YRR=0.000000000 },
   [4] = { FL=0.260000000, FR=0.260000000, FRL=0.000000000, FRR=0.000000000, MAIN=0.000000000,
           RL=0.260000000, RR=0.260000000, YFL=0.000000000, YFR=-0.000000000, YRL=0.000000000, YRR=0.000000000 },
 }
