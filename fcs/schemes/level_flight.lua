@@ -49,20 +49,20 @@ function Scheme:update(sp, m, dt, freeze, sat)
   else
     yaw = self.headingPid:update(sp.heading or 0, m.heading or 0, m.yawRate or 0, dt, freeze or sat.yaw)
   end
-  -- Sway: rate (strafe velocity command) vs position-hold.
+  -- Sway: rate (strafe velocity command) vs velocity-limited position-hold.
   local sway
   if sp.strafeCmd ~= nil then
     self.swayTc:reset()
     sway = self.swayTc:rate(sp.strafeCmd, m.swayVel, dt)
   else
-    sway = self.swayTc:update(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, dt, freeze or sat.sway)
+    sway = self.swayTc:hold(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax)
   end
   return {
     heave = heave,
     pitch = self.pitchPid:update(sp.pitch or 0, m.pitch, dt, freeze or sat.pitch),
     roll = self.rollPid:update(sp.roll or 0, m.roll, dt, freeze or sat.roll),
     yaw = yaw, sway = sway,
-    surge = self.surgeTc:update(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, dt, freeze or sat.surge),
+    surge = self.surgeTc:hold(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax),
   }
 end
 -- Pure read: assembles the 6 per-axis {err,P,I,D} term tables by delegating to each
@@ -73,8 +73,8 @@ function Scheme:terms(sp, m)
     pitch = self.pitchPid:terms(sp.pitch or 0, m.pitch or 0),
     roll  = self.rollPid:terms(sp.roll or 0, m.roll or 0),
     yaw   = self.headingPid:terms(sp.heading or 0, m.heading or 0, m.yawRate or 0),
-    sway  = self.swayTc:terms(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0),
-    surge = self.surgeTc:terms(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0),
+    sway  = self.swayTc:terms(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax),
+    surge = self.surgeTc:terms(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax),
   }
 end
 return Scheme

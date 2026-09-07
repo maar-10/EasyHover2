@@ -539,9 +539,9 @@
         },
         {
           ["dst"] = "fcs/schemes/level_flight.lua",
-          ["size"] = 3681,
+          ["size"] = 3699,
           ["src"] = "fcs/schemes/level_flight.lua",
-          ["sum"] = "1241da3d",
+          ["sum"] = "a3077729",
         },
         {
           ["dst"] = "fcs/schemes/manual.lua",
@@ -1482,5 +1482,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "2fa4af92",
+  ["version"] = "5af7db83",
 }
