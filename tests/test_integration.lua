@@ -16,8 +16,8 @@ local function build(opts)
     pitch = { kp = 0.3, ki = 0, kd = 0.4, tauD = 0.2 },
     roll = { kp = 0.3, ki = 0, kd = 0.4, tauD = 0.2 },
     yaw = { kp = 0.8, ki = 0, kd = 1.4 },
-    sway = { kp = 0.5, ki = 0, kd = 0.5 },
-    surge = { kp = 0.3, ki = 0, kd = 0.5 } })
+    sway = { ks = 0.5, ka = 1.0 },
+    surge = { ks = 0.4, ka = 1.0 } })
   local loop = Loop.new({ scheme = sc, mixer = Mixer.new(),
     pwm = Pwm.new({ period = 0.3, backend = sim }), sd = SigmaDelta.new({ backend = sim }),
     backend = sim, dtMax = 0.5, caps = opts.caps, osc = opts.osc })
@@ -152,7 +152,7 @@ t.test("runtime routes lift to PWM and non-lift to sigma-delta", function()
   local sc = Scheme.new({ hoverDuty=0.66,
     alt={kp=0.04,ki=0.02,kd=0.30,tauD=0.2,iMax=0.3,iMin=-0.3},
     pitch={kp=0.3,ki=0,kd=0.4,tauD=0.2}, roll={kp=0.3,ki=0,kd=0.4,tauD=0.2},
-    yaw={kp=0.8,ki=0,kd=1.4}, sway={kp=0.3,ki=0,kd=0.5}, surge={kp=0.3,ki=0,kd=0.5} })
+    yaw={kp=0.8,ki=0,kd=1.4}, sway={ ks = 0.4, ka = 1.0 }, surge={ ks = 0.4, ka = 1.0 } })
   local loop = Loop.new({ scheme=sc, mixer=Mixer.new(),
     pwm=Pwm.new({ period=0.3, backend=sim }),
     sd=SigmaDelta.new({ backend=sim }), backend=sim, dtMax=0.5 })
@@ -172,7 +172,7 @@ t.test("sigma-delta holds heading tightly on the hard (un-crutched) plant", func
   local sc = Scheme.new({ hoverDuty=0.66,
     alt={kp=0.04,ki=0.02,kd=0.30,tauD=0.2,iMax=0.3,iMin=-0.3},
     pitch={kp=0.3,ki=0,kd=0.4,tauD=0.2}, roll={kp=0.3,ki=0,kd=0.4,tauD=0.2},
-    yaw={kp=0.8,ki=0,kd=1.4}, sway={kp=0.3,ki=0,kd=0.5}, surge={kp=0.3,ki=0,kd=0.5} })
+    yaw={kp=0.8,ki=0,kd=1.4}, sway={ ks = 0.4, ka = 1.0 }, surge={ ks = 0.4, ka = 1.0 } })
   local loop = Loop.new({ scheme=sc, mixer=Mixer.new(),
     pwm=Pwm.new({ period=0.3, backend=sim }),
     sd=SigmaDelta.new({ backend=sim }), backend=sim, dtMax=0.5 })
@@ -188,8 +188,8 @@ t.test("scheme emits sway/surge force toward a position setpoint", function()
     pitch = { kp = 0.3, ki = 0, kd = 0.4, tauD = 0.2 },
     roll  = { kp = 0.3, ki = 0, kd = 0.4, tauD = 0.2 },
     yaw   = { kp = 0.5, ki = 0, kd = 0.2 },
-    sway  = { kp = 0.3, ki = 0, kd = 0.4 },
-    surge = { kp = 0.3, ki = 0, kd = 0.4 } })
+    sway  = { ks = 0.4, ka = 1.0 },
+    surge = { ks = 0.4, ka = 1.0 } })
   local m = { altitude=10, vSpeed=0, pitch=0, pitchRate=0, roll=0, rollRate=0,
     heading=0, yawRate=0, swayPos=0, swayVel=0, surgePos=0, surgeVel=0 }
   local d = sc:update({ altitude=10, pitch=0, roll=0, heading=0, swayPos=1, surgePos=-1 }, m, 0.1)
@@ -213,7 +213,7 @@ end)
 t.test("freeze flag stops integral windup across the scheme", function()
   local sc = Scheme.new({ hoverDuty = 0.66,
     alt = { kp = 0, ki = 1, kd = 0 }, pitch = { kp=0,ki=0,kd=0 }, roll = { kp=0,ki=0,kd=0 },
-    yaw = { kp=0,ki=0,kd=0 }, sway = { kp=0,ki=0,kd=0 }, surge = { kp=0,ki=0,kd=0 } })
+    yaw = { kp=0,ki=0,kd=0 }, sway = { ks = 0, ka = 0 }, surge = { ks = 0, ka = 0 } })
   local m = { altitude=0, vSpeed=0, pitch=0, pitchRate=0, roll=0, rollRate=0,
     heading=0, yawRate=0, swayPos=0, swayVel=0, surgePos=0, surgeVel=0 }
   local sp = { altitude=10, pitch=0, roll=0, heading=0, swayPos=0, surgePos=0 }
@@ -241,7 +241,7 @@ t.test("no integral windup while on the ground (no takeoff lurch)", function()
   function stub:setThruster(id, s) end
   local sc = Scheme.new({ hoverDuty = 0.66,
     alt = { kp = 0, ki = 0.05, kd = 0 }, pitch = { kp=0,ki=0,kd=0 }, roll = { kp=0,ki=0,kd=0 },
-    yaw = { kp=0,ki=0,kd=0 }, sway = { kp=0,ki=0,kd=0 }, surge = { kp=0,ki=0,kd=0 } })
+    yaw = { kp=0,ki=0,kd=0 }, sway = { ks = 0, ka = 0 }, surge = { ks = 0, ka = 0 } })
   local loop = Loop.new({ scheme = sc, mixer = Mixer.new(),
     pwm = Pwm.new({ period = 0.3, backend = stub }), backend = stub, dtMax = 0.5 })
   loop:arm(true)
@@ -325,8 +325,8 @@ t.test("rate-command climb does not rail the collective (no limit-cycle), and re
     pitch = { kp = 0.15, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     roll  = { kp = 0.10, ki = 0.05, kd = 0.22, tauD = 0.2, iMax = 0.10, iMin = -0.10, iBand = 0.35 },
     yaw   = { kp = 0.95, ki = 0, kd = 1.8 },
-    sway  = { kp = 0.2, ki = 0, kd = 0.25 },
-    surge = { kp = 0.15, ki = 0, kd = 0.25 },
+    sway  = { ks = 0.4, ka = 1.0 },
+    surge = { ks = 0.4, ka = 1.0 },
   })
   -- CRU-like pilot feel: climbRate is CRUISE's actual production value (feel.climbRate=12,
   -- tuningdefaults.lua); surgeSpeed/surgeLead are required so the surge leash (fcs/leash.lua,
@@ -411,7 +411,7 @@ t.test("ground gate releases: GROUND -> NORMAL when the craft leaves the ground"
   local sc = Scheme.new({ hoverDuty = 0.66,
     alt = { kp = 0.04, ki = 0.02, kd = 0.30, tauD = 0.2, iMax = 0.3, iMin = -0.3 },
     pitch = { kp=0.3, ki=0, kd=0.4, tauD=0.2 }, roll = { kp=0.3, ki=0, kd=0.4, tauD=0.2 },
-    yaw = { kp=0.5, ki=0, kd=0.2 }, sway = { kp=0.5, ki=0, kd=0.5 }, surge = { kp=0.3, ki=0, kd=0.5 } })
+    yaw = { kp=0.5, ki=0, kd=0.2 }, sway = { ks = 0.5, ka = 1.0 }, surge = { ks = 0.4, ka = 1.0 } })
   local loop = Loop.new({ scheme = sc, mixer = Mixer.new(),
     pwm = Pwm.new({ period = 0.3, backend = stub }), backend = stub, dtMax = 0.5 })
   loop:arm(true)

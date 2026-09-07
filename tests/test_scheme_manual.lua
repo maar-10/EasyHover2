@@ -4,7 +4,7 @@ local Manual = require("fcs.schemes.manual")
 local Level  = require("fcs.schemes.level_flight")
 local cfg = { hoverDuty = 0.26, alt = {kp=0.02,ki=0.01,kd=0.15,tauD=0.35},
   pitch = {kp=0.1,kd=0.22}, roll = {kp=0.1,kd=0.22}, yaw = {kp=0.95,kd=1.0},
-  sway = {kp=0.2,kd=0.25}, surge = {kp=0.15,kd=0.25}, heaveMin = 0.05, heaveMax = 0.85 }
+  sway = { ks = 0.4, ka = 1.0 }, surge = { ks = 0.4, ka = 1.0 }, heaveMin = 0.05, heaveMax = 0.85 }
 
 t.test("MAN now passes lateral through (full Level loop) while keeping heave/pitch/roll/yaw", function()
   local man, lvl = Manual.new(cfg), Level.new(cfg)
