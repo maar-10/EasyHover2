@@ -152,20 +152,23 @@ end
 addRow("gains.hoverDuty", "HOVER DUTY", "GAINS", 0.01, 0, 1)
 addRow("gains.heaveMin",  "HEAVE MIN",  "GAINS", 0.01, 0, 1)
 addRow("gains.heaveMax",  "HEAVE MAX",  "GAINS", 0.01, 0, 1)
-for _, axis in ipairs(AXES) do
+-- PID axes: kp/ki/kd. sway/surge are NOT PID -- they use the velocity-limited hold
+-- (ks/ka), added explicitly below (spec 2026-09-07).
+for _, axis in ipairs({ "alt", "pitch", "roll", "yaw" }) do
   local al = AXIS_LABEL[axis]
   addRow("gains." .. axis .. ".kp", al .. " KP", "GAINS", 0.01, 0, 5)
   addRow("gains." .. axis .. ".ki", al .. " KI", "GAINS", 0.01, 0, 1)
   addRow("gains." .. axis .. ".kd", al .. " KD", "GAINS", 0.01, 0, 5)
 end
--- Rate-command batch (2026-09-06, Task 10): velocity-feedforward gains for the 3 rate-commanded
--- axes (alt/yaw/sway) -- each mode commands feel.climbRate/headingRate/swaySpeed as an ACHIEVED
--- rate, applied through these kv/kw/ks terms (see fcs/io/tuningdefaults.lua's DEFAULTS.gains.*).
--- Live-tunable here alongside that axis's kp/ki/kd -- gainsAxisFilter groups by "gains.<axis>."
--- prefix, so these land as a 4th row on that same ALT/YAW/SWAY axis screen.
-addRow("gains.alt.kv",  "ALT KV",  "GAINS", 0.01, 0, 1)
-addRow("gains.yaw.kw",  "YAW KW",  "GAINS", 0.01, 0, 1)
-addRow("gains.sway.ks", "SWAY KS", "GAINS", 0.01, 0, 1)
+-- Rate/velocity gains grouped onto their axis screen by the "gains.<axis>." prefix.
+addRow("gains.alt.kv",   "ALT KV",   "GAINS", 0.01, 0, 1)
+addRow("gains.yaw.kw",   "YAW KW",   "GAINS", 0.01, 0, 1)
+-- Translate axes: velocity-limited hold pair. ka = position->velocity stiffness,
+-- ks = velocity->duty (also the pilot rate-follow gain). vmax comes from feel.swaySpeed.
+addRow("gains.sway.ka",  "SWAY KA",  "GAINS", 0.01, 0, 5)
+addRow("gains.sway.ks",  "SWAY KS",  "GAINS", 0.01, 0, 1)
+addRow("gains.surge.ka", "SURGE KA", "GAINS", 0.01, 0, 5)
+addRow("gains.surge.ks", "SURGE KS", "GAINS", 0.01, 0, 1)
 
 addRow("caps.pitch", "PITCH CAP", "CAPS", 0.05, 0, 2)
 addRow("caps.roll",  "ROLL CAP",  "CAPS", 0.05, 0, 2)
