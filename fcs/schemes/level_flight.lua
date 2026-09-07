@@ -1,6 +1,11 @@
 local Pid = require("fcs.control.pid")
 local Heading = require("fcs.control.heading")
 local Translate = require("fcs.control.translate")
+-- Safety floor for the velocity-limited hold: any setpoint source that omits
+-- swayVmax/surgeVmax (comAuto trim, EMRCVR handback) still gets a BOUNDED velocity
+-- target, so the hold's non-divergence guarantee is universal, not pilot-only.
+-- The pilot always publishes the per-mode feel speed; this is only the fallback.
+local DEFAULT_HOLD_VMAX = 6.0
 local Scheme = {}
 Scheme.__index = Scheme
 function Scheme.new(cfg)
@@ -55,14 +60,14 @@ function Scheme:update(sp, m, dt, freeze, sat)
     self.swayTc:reset()
     sway = self.swayTc:rate(sp.strafeCmd, m.swayVel, dt)
   else
-    sway = self.swayTc:hold(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax)
+    sway = self.swayTc:hold(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax or DEFAULT_HOLD_VMAX)
   end
   return {
     heave = heave,
     pitch = self.pitchPid:update(sp.pitch or 0, m.pitch, dt, freeze or sat.pitch),
     roll = self.rollPid:update(sp.roll or 0, m.roll, dt, freeze or sat.roll),
     yaw = yaw, sway = sway,
-    surge = self.surgeTc:hold(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax),
+    surge = self.surgeTc:hold(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax or DEFAULT_HOLD_VMAX),
   }
 end
 -- Pure read: assembles the 6 per-axis {err,P,I,D} term tables by delegating to each
@@ -73,8 +78,8 @@ function Scheme:terms(sp, m)
     pitch = self.pitchPid:terms(sp.pitch or 0, m.pitch or 0),
     roll  = self.rollPid:terms(sp.roll or 0, m.roll or 0),
     yaw   = self.headingPid:terms(sp.heading or 0, m.heading or 0, m.yawRate or 0),
-    sway  = self.swayTc:terms(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax),
-    surge = self.surgeTc:terms(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax),
+    sway  = self.swayTc:terms(sp.swayPos or 0, m.swayPos or 0, m.swayVel or 0, sp.swayVmax or DEFAULT_HOLD_VMAX),
+    surge = self.surgeTc:terms(sp.surgePos or 0, m.surgePos or 0, m.surgeVel or 0, sp.surgeVmax or DEFAULT_HOLD_VMAX),
   }
 end
 return Scheme

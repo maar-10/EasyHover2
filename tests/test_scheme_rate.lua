@@ -46,3 +46,16 @@ t.test("scheme hold honors sp.swayVmax / sp.surgeVmax speed cap", function()
   t.near(d.sway, 0.5 * 3, 1e-9, "sway clamped to vmax=3")
   t.near(d.surge, 0.5 * 3, 1e-9, "surge clamped to vmax=3")
 end)
+
+t.test("scheme falls back to DEFAULT_HOLD_VMAX when sp omits swayVmax/surgeVmax", function()
+  -- Non-pilot setpoint sources (comAuto trim, EMRCVR handback) don't publish
+  -- swayVmax/surgeVmax. With a large displacement the hold must still clamp to the
+  -- scheme's safety-floor DEFAULT_HOLD_VMAX (6.0), NOT go unbounded (0.5*20=10).
+  local sc = Level.new({ hoverDuty = 0.26, alt = {}, pitch = {}, roll = {}, yaw = {},
+    sway = { ks = 0.5, ka = 1.0 }, surge = { ks = 0.5, ka = 1.0 } })
+  local d = sc:update({ altitude = 0, swayPos = 20, surgePos = 20 },
+    { altitude = 0, swayPos = 0, surgePos = 0, swayVel = 0, surgeVel = 0,
+      heading = 0, yawRate = 0, pitch = 0, roll = 0 }, 0.05, false, {})
+  t.near(d.sway, 3.0, 1e-9, "sway clamped to the DEFAULT_HOLD_VMAX=6.0 floor (0.5*6.0=3.0), not unbounded 0.5*20=10")
+  t.near(d.surge, 3.0, 1e-9, "surge clamped to the DEFAULT_HOLD_VMAX=6.0 floor (0.5*6.0=3.0), not unbounded 0.5*20=10")
+end)

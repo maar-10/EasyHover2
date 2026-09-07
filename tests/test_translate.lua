@@ -29,7 +29,7 @@ t.test("hold is stateless: repeated calls return the same value, no reset needed
   t.near(a, b, 1e-9)
 end)
 
-t.test("hold converges monotonically from a large displacement (no divergence)", function()
+t.test("hold converges without overshoot (does not diverge) from a large displacement", function()
   -- Discrete sim: single-integrator-ish plant vel += a*out*dt, pos += vel*dt.
   -- vmax bounds speed so |pos| never grows after the first approach.
   local c = Translate.new({ ks = 0.3, ka = 1.0 })
