@@ -73,6 +73,11 @@ function Pilot:_brakeSetpoint(held, meas, tilting)
 end
 
 function Pilot:update(dt, held, meas)
+  -- Publish the per-mode hold speed caps on the setpoint so the scheme's velocity-
+  -- limited hold (spec 2026-09-07) bounds its return-to-station speed. Sourced from
+  -- the same feel.swaySpeed/surgeSpeed the rate command uses -- no separate knob.
+  self.sp.swayVmax  = self.cfg.swaySpeed
+  self.sp.surgeVmax = self.cfg.surgeSpeed
   if self.hold then
     -- Finding 1 fix: positionHold can be engaged WHILE a climb/yaw/sway key is still held (no
     -- release tick first), leaving a stale rate-command field on self.sp. If left alone, the
