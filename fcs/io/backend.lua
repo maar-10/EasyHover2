@@ -29,6 +29,10 @@ function Backend:setThrusterLevel(id, level)
   local p = self:_periph(self.config.thrusters[id])
   if p then p.setPower(level) end   -- 0..15; wrapped peripherals take NO self
 end
+function Backend:setThrusterNormalized(id, throttle)
+  local p = self:_periph(self.config.thrusters[id])
+  if p then p.setPowerNormalized(throttle) end   -- 0..1 continuous; wrapped peripherals take NO self
+end
 function Backend:_read(name, method, ...)
   local p = self:_periph(name)
   if not p then return nil end

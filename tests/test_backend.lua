@@ -164,3 +164,18 @@ t.test("setThrusterLevel on an unbound id is a harmless no-op", function()
   b:setThrusterLevel("FL", 7)   -- must not error
   t.truthy(true)
 end)
+t.test("setThrusterNormalized writes setPowerNormalized on the bound peripheral", function()
+  local got = {}
+  local shim = { wrap = function(name)
+    if name == "phys_yfl" then return { setPowerNormalized = function(v) got.v = v end } end
+    return nil
+  end }
+  local b = Backend.new(shim, { thrusters = { YFL = "phys_yfl" }, sensors = {} })
+  b:setThrusterNormalized("YFL", 0.42)
+  t.near(got.v, 0.42, 1e-9, "throttle passed through to setPowerNormalized")
+end)
+t.test("setThrusterNormalized is a no-op when the id is unbound", function()
+  local shim = { wrap = function() return nil end }
+  local b = Backend.new(shim, { thrusters = {}, sensors = {} })
+  b:setThrusterNormalized("YFL", 0.5)   -- must not error
+end)
