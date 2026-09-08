@@ -91,3 +91,28 @@ t.test("rectangle: longer FWD span than LAT span uses independent arms", functio
   t.near(off.fwd, 1.2, 1e-5)
   t.near(off.right, 0.4, 1e-5)
 end)
+
+t.test("keepwarm OFF (warm=false) reproduces the plain mix byte-for-byte", function()
+  local m = Mixer.new(); m:setKeepWarm({ floor = 0.08, surgeFront = 0.07, mainRatio = 0.05 })
+  local a = m:mix({ heave = 0.5, pitch = 0, roll = 0, sway = 0.2, yaw = 0.1, surge = -0.3 }, false)
+  local b = m:mix({ heave = 0.5, pitch = 0, roll = 0, sway = 0.2, yaw = 0.1, surge = -0.3 })  -- no warm arg
+  for _, id in ipairs({ "YFL","YFR","YRL","YRR","MAIN","FRL","FRR" }) do
+    t.near(a[id], b[id], 1e-9, id .. " identical with warm=false")
+  end
+end)
+t.test("keepwarm ON keeps every yaw-ring thruster >= floor", function()
+  local m = Mixer.new(); m:setKeepWarm({ floor = 0.08, surgeFront = 0.07, mainRatio = 0.05 })
+  local out = m:mix({ heave = 0.5, sway = 0.2, yaw = 0.0, surge = 0 }, true)
+  for _, id in ipairs({ "YFL","YFR","YRL","YRR" }) do
+    t.truthy(out[id] >= 0.08 - 1e-9, id .. " warm (>= floor)")
+  end
+end)
+t.test("keepwarm ON preserves net sway force and net yaw torque", function()
+  local m = Mixer.new(); m:setKeepWarm({ floor = 0.08, surgeFront = 0.07, mainRatio = 0.05 })
+  local function netSway(o) return (o.YFL + o.YRL) - (o.YFR + o.YRR) end   -- SWAY_DIR
+  local function netYaw(o)  return (o.YFL - o.YFR) - (o.YRL - o.YRR) end   -- YAW_DIR (+,-,-,+)
+  local cold = m:mix({ heave = 0.5, sway = 0.15, yaw = 0.1, surge = 0 }, false)
+  local warm = m:mix({ heave = 0.5, sway = 0.15, yaw = 0.1, surge = 0 }, true)
+  t.near(netSway(warm), netSway(cold), 1e-9, "net sway unchanged")
+  t.near(netYaw(warm),  netYaw(cold),  1e-9, "net yaw unchanged")
+end)

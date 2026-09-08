@@ -1,6 +1,9 @@
 local Mixer = {}
 Mixer.__index = Mixer
-function Mixer.new() return setmetatable({ com = { fwd = 0, right = 0, spanFwd = 0, spanRight = 0 } }, Mixer) end
+function Mixer.new() return setmetatable({
+  com = { fwd = 0, right = 0, spanFwd = 0, spanRight = 0 },
+  keepWarm = { floor = 0, surgeFront = 0, mainRatio = 0 }
+}, Mixer) end
 function Mixer:setCom(com)
   com = com or {}
   local legacy = tonumber(com.span)
@@ -9,6 +12,16 @@ function Mixer:setCom(com)
     right = tonumber(com.right) or 0,
     spanFwd = tonumber(com.spanFwd) or legacy or 0,
     spanRight = tonumber(com.spanRight) or legacy or 0,
+  }
+  return self
+end
+
+function Mixer:setKeepWarm(cfg)
+  cfg = cfg or {}
+  self.keepWarm = {
+    floor = tonumber(cfg.floor) or 0,
+    surgeFront = tonumber(cfg.surgeFront) or 0,
+    mainRatio = tonumber(cfg.mainRatio) or 0,
   }
   return self
 end
@@ -29,22 +42,28 @@ local function clamp(v) if v < 0 then return 0 elseif v > 1 then return 1 else r
 local YAW_DIR = { YFL = 1, YFR = -1, YRL = -1, YRR = 1 }
 local SWAY_DIR = { YFL = 1, YFR = -1, YRL = 1, YRR = -1 }
 local YAWREAR_DIR = { YRL = -1, YRR = 1 }   -- rear pair only; YFL/YFR absent => 0
-function Mixer:mixLateral(sway, yaw, yawRear)
+function Mixer:mixLateral(sway, yaw, yawRear, floor)
+  floor = floor or 0
   local out = {}
   for id, ydir in pairs(YAW_DIR) do
-    out[id] = clamp((SWAY_DIR[id] or 0) * (sway or 0)
-                  + ydir * (yaw or 0)
-                  + (YAWREAR_DIR[id] or 0) * (yawRear or 0))
+    local raw = (SWAY_DIR[id] or 0) * (sway or 0)
+              + ydir * (yaw or 0)
+              + (YAWREAR_DIR[id] or 0) * (yawRear or 0)
+    out[id] = clamp((raw > 0 and raw or 0) + floor)   -- max(0,raw)+floor ; uniform floor is net-neutral
   end
   return out
 end
 function Mixer:mixYaw(yaw) return self:mixLateral(0, yaw) end
-function Mixer:mixSurge(surge)
+function Mixer:mixSurge(surge, floorFront, mainRatio)
   surge = surge or 0
+  floorFront = floorFront or 0
+  local floorMain = floorFront * (mainRatio or 0)
+  local fwd = surge > 0 and surge or 0
+  local rev = surge < 0 and -surge or 0
   return {
-    MAIN = surge > 0 and clamp(surge) or 0,
-    FRL  = surge < 0 and clamp(-surge) or 0,
-    FRR  = surge < 0 and clamp(-surge) or 0,
+    MAIN = clamp(fwd + floorMain),
+    FRL  = clamp(rev + floorFront),
+    FRR  = clamp(rev + floorFront),
   }
 end
 -- Attitude-priority ("airmode") lift mix. The pitch/roll differential is the attitude torque
@@ -89,11 +108,15 @@ local function mixLift(h, p, r, com)
   if lo < 0 then offset = -lo elseif hi > 1 then offset = 1 - hi end
   return clamp(FL + offset), clamp(FR + offset), clamp(RL + offset), clamp(RR + offset)
 end
-function Mixer:mix(d)
+function Mixer:mix(d, warm)
   local FL, FR, RL, RR = mixLift(d.heave or 0, d.pitch or 0, d.roll or 0, self.com)
   local out = { FL = FL, FR = FR, RL = RL, RR = RR }
-  for id, duty in pairs(self:mixLateral(d.sway, d.yaw, d.yawRear)) do out[id] = duty end
-  for id, duty in pairs(self:mixSurge(d.surge)) do out[id] = duty end
+  local kw = warm and self.keepWarm or nil
+  local floor      = kw and kw.floor      or 0
+  local frontFloor = kw and kw.surgeFront or 0
+  local mainRatio  = kw and kw.mainRatio  or 0
+  for id, duty in pairs(self:mixLateral(d.sway, d.yaw, d.yawRear, floor)) do out[id] = duty end
+  for id, duty in pairs(self:mixSurge(d.surge, frontFloor, mainRatio)) do out[id] = duty end
   return out
 end
 return Mixer
