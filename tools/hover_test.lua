@@ -6,6 +6,7 @@ local hwconfig = require("fcs.io.hwconfig")
 local tuning   = require("fcs.tuning")
 local Backend  = require("fcs.io.backend")
 local Level    = require("fcs.actuate.level")
+local KeepWarm = require("fcs.actuate.keepwarm")
 local Loop     = require("fcs.runtime.loop")
 local Registry = require("fcs.modes.registry")
 local Profile  = require("fcs.bringup.profile")
@@ -30,7 +31,7 @@ local function buildLoop(backend)
   local d = reg.byId[reg.default]
   local loop = Loop.new({ scheme = d.scheme, mixer = d.mixer, caps = d.caps,
     pwm = Level.new({ backend = backend, steps = 15 }),
-    sd = nil,
+    sd = KeepWarm.new({ backend = backend }),
     backend = backend, dtMax = tuning.dtMax, osc = tuning.osc,
     hoverDuty = tuning.gains.hoverDuty })   -- DAMPED holds vertical here, not just zeroes attitude
   return loop, reg
