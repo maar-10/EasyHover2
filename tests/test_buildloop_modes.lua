@@ -39,3 +39,18 @@ t.test("buildLoop routes lift to Level and the rest group to a keep-warm actuato
   t.truthy(next(seen.level) ~= nil, "lift thrusters written via setThrusterLevel")
   t.truthy(seen.warm.YFL ~= nil or seen.warm.MAIN ~= nil, "rest thrusters written via setPowerNormalized")
 end)
+
+t.test("buildLoop wires the decouple config into the loop", function()
+  local hover = require("tools.hover_test")
+  local backend = {
+    setThrusterLevel = function() end, setThrusterNormalized = function() end,
+    sensors = function() return { onGround = false } end,
+    liftIds = function() return { "FL","FR","RL","RR" } end,
+    lateralIds = function() return { "YFL","YFR","YRL","YRR" } end,
+    mainIds = function() return { "MAIN" } end, frontalIds = function() return { "FRL","FRR" } end,
+  }
+  local loop = hover.buildLoop(backend)
+  local tuning = require("fcs.tuning")
+  t.near(loop.decoupleSwayRoll, tuning.decouple.swayRoll, 1e-9, "swayRoll from tuning")
+  t.near(loop.decoupleSurgePitch, tuning.decouple.surgePitch, 1e-9, "surgePitch from tuning")
+end)

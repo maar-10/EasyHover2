@@ -34,6 +34,7 @@ local function buildLoop(backend)
     sd = KeepWarm.new({ backend = backend }),
     backend = backend, dtMax = tuning.dtMax, osc = tuning.osc,
     hoverDuty = tuning.gains.hoverDuty })   -- DAMPED holds vertical here, not just zeroes attitude
+  if tuning.decouple then loop:setDecouple(tuning.decouple) end
   return loop, reg
 end
 

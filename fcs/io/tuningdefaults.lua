@@ -57,6 +57,10 @@ local DEFAULTS = {
   -- mainRatio = 2*wFront/wMain balances the surge idle net-zero; source-derived for a 3x3x3 MAIN
   -- (thrust ~40.5) vs two 1x1 frontals (~1 each): 2/40.5 ~ 0.049. Tune in-world if the craft differs.
   keepWarm = { floor = 0.08, surgeFront = 0.07, mainRatio = 0.049 },
+  -- Translation->attitude decoupling feedforward gains (flight bf9a45213f). GLOBAL (a physical
+  -- thruster-vs-CoM property). Signs CANCEL the measured coupling (roll=-0.10*sway, pitch=+0.05*surge).
+  -- Conservative starting values, hard-bounded by authority*caps in the loop; tune from the next log.
+  decouple = { swayRoll = 0.10, surgePitch = -0.05, authority = 0.3 },
   park = { groundClear = 1.0, parkDriftEps = 0.15, parkTiltBand = 0.12 },
   profile = { climbHeight = 6, climbRate = 0.6, holdTime = 20, descendRate = 0.7,
               landEps = 0.4, watchdog = 60, overshootMargin = 2, leadCap = 1.0 },
@@ -166,7 +170,10 @@ DEFAULTS.modes.LDG.gains.surge.ks   = 0.3
 -- LDG pilots/lands gently: no accel-trim residual to fight, and no forward-trim feedforward wanted
 -- on the ground -- pin trimGain to 0 (base is now 0.30) and pitch kp back to 0.10 (base is 0.15).
 DEFAULTS.modes.LDG.feel.trimGain    = 0
-DEFAULTS.modes.LDG.gains.pitch.kp   = 0.10
+DEFAULTS.modes.LDG.gains.pitch.kp   = 0.16
+DEFAULTS.modes.LDG.gains.pitch.kd   = 0.28
+DEFAULTS.modes.LDG.gains.roll.kp    = 0.16
+DEFAULTS.modes.LDG.gains.roll.kd    = 0.28
 
 DEFAULTS.modes.DRN = {
   gains = deep(DEFAULTS.gains),
