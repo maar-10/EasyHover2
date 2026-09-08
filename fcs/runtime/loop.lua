@@ -23,6 +23,12 @@ function Loop:setTrim(dir, gain, authority, fadeStart, fade, brakeTrim)
   -- blocked). Boolean, so an explicit nil check -- nil defaults true (legacy symmetric behavior).
   if brakeTrim == nil then self.brakeTrim = true else self.brakeTrim = brakeTrim end
 end
+function Loop:setDecouple(cfg)
+  cfg = cfg or {}
+  self.decoupleSwayRoll = cfg.swayRoll or 0
+  self.decoupleSurgePitch = cfg.surgePitch or 0
+  self.decoupleAuthority = cfg.authority or 1
+end
 function Loop:setActive(d)
   self.scheme, self.mixer, self.caps = d.scheme, d.mixer, d.caps or self.caps
   self.scheme:reset()
@@ -99,6 +105,18 @@ function Loop:cycle(rawDt, m)
   end
   self._ffPitch = ff
   demands.pitch = (demands.pitch or 0) + ff
+  -- Translation->attitude decoupling (flight bf9a45213f): the yaw-ring (sway) and surge thrusters
+  -- fire off the CoM, so commanding them torques the craft -- roll from sway, pitch from surge.
+  -- Pre-inject the counter-torque. Hard-bounded to authority*caps (like the trim flip-guard) so a
+  -- mis-tuned gain can never dominate the attitude loop. Gains default 0 => no-op.
+  local dcRoll = (self.decoupleSwayRoll or 0) * (demands.sway or 0)
+  local dcPitch = (self.decoupleSurgePitch or 0) * (demands.surge or 0)
+  local rCap = ((self.caps and self.caps.roll) or math.huge) * (self.decoupleAuthority or 1)
+  local pCap = ((self.caps and self.caps.pitch) or math.huge) * (self.decoupleAuthority or 1)
+  if dcRoll > rCap then dcRoll = rCap elseif dcRoll < -rCap then dcRoll = -rCap end
+  if dcPitch > pCap then dcPitch = pCap elseif dcPitch < -pCap then dcPitch = -pCap end
+  demands.roll = (demands.roll or 0) + dcRoll
+  demands.pitch = (demands.pitch or 0) + dcPitch
   -- The oscillation detector is per-axis and auto-recovering, so mode tracks it every tick:
   -- a trip latches DAMPED, and it falls back to GROUND/NORMAL on its own once the signal is
   -- calm (no longer sticky; clearDamped() still force-resets the detector).

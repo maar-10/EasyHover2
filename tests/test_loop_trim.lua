@@ -71,3 +71,27 @@ t.test("loop: ffPitch stays 0 when disarmed (diag)", function()
   lp:arm(false); lp:cycle(0.05, { onGround = false, pitch = 0 })
   t.eq(lp:diag({}, { pitch = 0 }).ffPitch, 0, "ffPitch cleared while disarmed")
 end)
+
+-- Translation->attitude decoupling FF (flight bf9a45213f): sway/surge thrusters fire off the CoM,
+-- torquing the craft. setDecouple installs a bounded feedforward that pre-injects the counter-
+-- torque: demands.roll += swayRoll*demands.sway, demands.pitch += surgePitch*demands.surge, each
+-- hard-clamped to authority*caps.{roll,pitch}. Gains default 0 => no-op (exact current behavior).
+
+t.test("decouple FF adds bounded roll/pitch from sway/surge demand", function()
+  local lp = Loop.new({ scheme = fakeScheme({ heave = 0.3, pitch = 0, roll = 0, yaw = 0, sway = 0.2, surge = 0.2 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.3, roll = 0.3 } })
+  lp:setDecouple({ swayRoll = 0.10, surgePitch = -0.05, authority = 0.3 })
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0, roll = 0 })
+  t.near(r.demands.roll, 0.10 * 0.2, 1e-9, "roll += swayRoll*sway")
+  t.near(r.demands.pitch, -0.05 * 0.2, 1e-9, "pitch += surgePitch*surge")
+end)
+
+t.test("decouple FF is clamped to authority*caps", function()
+  local lp = Loop.new({ scheme = fakeScheme({ heave = 0.3, pitch = 0, roll = 0, yaw = 0, sway = 1.0, surge = 0 }),
+    mixer = fakeMixer(), pwm = fakePwm(), backend = fakeBackend(), caps = { pitch = 0.3, roll = 0.2 } })
+  lp:setDecouple({ swayRoll = 0.9, surgePitch = 0, authority = 0.5 })   -- 0.9*1.0=0.9, cap=0.5*0.2=0.1
+  lp:arm(true)
+  local r = lp:cycle(0.05, { onGround = false, pitch = 0, roll = 0 })
+  t.near(r.demands.roll, 0.1, 1e-9, "roll decouple clamped to authority*caps.roll")
+end)
