@@ -116,7 +116,8 @@ function Loop:cycle(rawDt, m)
   local clamped, sat = envelope.clamp(demands, self.caps)
   demands = clamped
   self._sat = sat   -- consumed by the scheme NEXT tick
-  local duties = self.mixer:mix(demands)
+  local warm = self.armed and (m.onGround ~= true) and self.mode == "NORMAL"
+  local duties = self.mixer:mix(demands, warm)
   self:apply(duties, dt)
   return { mode = self.mode, m = m, demands = demands, duties = duties }
 end

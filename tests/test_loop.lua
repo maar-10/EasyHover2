@@ -168,6 +168,28 @@ t.test("previous cycle's envelope clipping reaches the scheme as the sat table",
   t.eq(seen.roll, nil)
 end)
 
+-- ---- warm flag: keep-warm floor gated on armed+airborne+NORMAL ----
+local function makeLoop(opts)
+  opts = opts or {}
+  local b = fakeBackend()
+  local loop = Loop.new({ scheme = fakeScheme(), mixer = opts.mixer or Mixer.new(),
+    pwm = fakePwm(), sd = opts.sd, backend = b, dtMax = 0.5 })
+  return loop, b
+end
+
+t.test("loop passes warm=true only when armed, airborne and NORMAL", function()
+  local seen = {}
+  local spyMixer = { mix = function(_, d, warm) seen[#seen+1] = warm; return {} end }
+  local loop = makeLoop({ mixer = spyMixer })   -- helper above; NORMAL osc, armed
+  loop:arm(true)
+  loop:cycle(0.05, { onGround = false, pitch = 0, roll = 0, heading = 0, yawRate = 0,
+                     altitude = 10, vSpeed = 0, swayPos = 0, surgePos = 0, swayVel = 0, surgeVel = 0 })
+  t.eq(seen[#seen], true, "airborne+armed+NORMAL -> warm")
+  loop:cycle(0.05, { onGround = true, pitch = 0, roll = 0, heading = 0, yawRate = 0,
+                     altitude = 10, vSpeed = 0, swayPos = 0, surgePos = 0, swayVel = 0, surgeVel = 0 })
+  t.eq(seen[#seen], false, "grounded -> not warm")
+end)
+
 t.test("loop: setFuelScale forwards to pwm and sd", function()
   local pwmX, sdX
   local loop = Loop.new({ scheme = fakeScheme(), mixer = Mixer.new(), caps = {}, backend = fakeBackend(),
