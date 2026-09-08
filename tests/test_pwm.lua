@@ -21,3 +21,13 @@ t.test("writes happen only on change", function()
   for _ = 1, 10 do p:apply({ a = 1.0 }, 0.05) end
   t.eq(b.writes, 1)                          -- turned on once, never re-written
 end)
+t.test("planWrites returns closures for changed thruster state without dispatching", function()
+  local b = recBackend(); local p = Pwm.new({ period = 1, backend = b })
+  local w = p:planWrites({ a = 1.0, z = 0.0 }, 0.05)
+  t.eq(#w, 2, "two changed states planned")
+  t.eq(b.writes, 0, "nothing written yet (not dispatched)")
+  for i = 1, #w do w[i]() end            -- execute the closures
+  t.truthy(b.on.a == true); t.truthy(b.on.z == false)
+  local w2 = p:planWrites({ a = 1.0, z = 0.0 }, 0.05)  -- unchanged -> no closures
+  t.eq(#w2, 0, "unchanged state plans no write")
+end)

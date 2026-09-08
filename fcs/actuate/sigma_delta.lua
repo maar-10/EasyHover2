@@ -1,7 +1,21 @@
+-- Same dispatch shape as fcs/actuate/level.lua: planWrites(duties, dt) returns write closures
+-- without dispatching (updating this actuator's state as it collects), apply() dispatches them.
+local function defaultDispatch(fns)
+  local n = #fns
+  if n == 0 then return end
+  if n == 1 then fns[1](); return end
+  if parallel and parallel.waitForAll then
+    parallel.waitForAll(table.unpack(fns, 1, n))
+  else
+    for i = 1, n do fns[i]() end
+  end
+end
+
 local SD = {}
 SD.__index = SD
 function SD.new(cfg)
-  return setmetatable({ backend = cfg.backend, acc = {}, on = {}, fuelScale = cfg.fuelScale or 1.0 }, SD)
+  return setmetatable({ backend = cfg.backend, acc = {}, on = {}, fuelScale = cfg.fuelScale or 1.0,
+    dispatch = cfg.dispatch or defaultDispatch }, SD)
 end
 function SD:state(id) return self.on[id] == true end
 
@@ -11,7 +25,9 @@ function SD:setFuelScale(x)
   if type(x) == "number" and x > 0 then self.fuelScale = x end
 end
 
-function SD:apply(duties, dt)
+function SD:planWrites(duties, dt)
+  dt = dt or 0
+  local writes = {}
   for id, duty in pairs(duties) do
     local a = (self.acc[id] or 0) + (duty or 0) * self.fuelScale * dt
     local want
@@ -19,8 +35,12 @@ function SD:apply(duties, dt)
     self.acc[id] = a
     if self.on[id] ~= want then
       self.on[id] = want
-      self.backend:setThruster(id, want)
+      writes[#writes + 1] = function() self.backend:setThruster(id, want) end
     end
   end
+  return writes
+end
+function SD:apply(duties, dt)
+  self.dispatch(self:planWrites(duties, dt))
 end
 return SD
