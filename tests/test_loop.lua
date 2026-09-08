@@ -198,3 +198,20 @@ t.test("loop: setFuelScale forwards to pwm and sd", function()
   loop:setFuelScale(0.4)
   t.near(pwmX, 0.4, 1e-9, "pwm got scale"); t.near(sdX, 0.4, 1e-9, "sd got scale")
 end)
+
+t.test("apply dispatches lift + rest thruster writes in a single batch", function()
+  local batches = {}
+  local dispatch = function(fns) batches[#batches + 1] = #fns; for i = 1, #fns do fns[i]() end end
+  local wroteLevel, wroteNorm = {}, {}
+  local pwm = { dispatch = dispatch,
+    planWrites = function(_, d) local w = {}; for id, v in pairs(d) do w[#w+1] = function() wroteLevel[id] = v end end; return w end }
+  local sd = {
+    planWrites = function(_, d) local w = {}; for id, v in pairs(d) do w[#w+1] = function() wroteNorm[id] = v end end; return w end }
+  local Loop = require("fcs.runtime.loop")
+  local loop = Loop.new({ scheme = { reset = function() end }, mixer = {}, pwm = pwm, sd = sd, backend = {} })
+  loop:apply({ FL = 0.5, FR = 0.5, RL = 0.5, RR = 0.5, YFL = 0.1, MAIN = 0.2 }, 0.05)
+  t.eq(#batches, 1, "exactly ONE dispatch batch for the whole cycle")
+  t.eq(batches[1], 6, "all six writes (4 lift + 2 rest) in the one batch")
+  t.eq(wroteLevel.FL, 0.5, "lift routed to pwm.planWrites")
+  t.eq(wroteNorm.YFL, 0.1, "rest routed to sd.planWrites")
+end)

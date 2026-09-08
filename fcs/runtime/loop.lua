@@ -55,8 +55,16 @@ function Loop:apply(duties, dt)
   for id, duty in pairs(duties) do
     if self.isLift[id] then lift[id] = duty else rest[id] = duty end
   end
-  self.pwm:apply(lift, dt)
-  self.sd:apply(rest, dt)
+  -- ONE combined concurrent dispatch: two separate waitForAll batches cost two server ticks
+  -- (~100ms) and halved the loop rate; collecting both actuators' write closures into a single
+  -- dispatch restores ~1 tick/cycle. Concurrent batching (Flight #6) is preserved.
+  -- dt is passed through (Level/KeepWarm's planWrites(duties) ignores the extra arg; the
+  -- dt-integrating actuators -- fcs/actuate/pwm.lua's phase and sigma_delta.lua's accumulator
+  -- -- need it to advance correctly).
+  local fns = self.pwm:planWrites(lift, dt)
+  local rw = self.sd:planWrites(rest, dt)
+  for i = 1, #rw do fns[#fns + 1] = rw[i] end
+  self.pwm.dispatch(fns)
 end
 function Loop:cycle(rawDt, m)
   -- §6 dt discipline: clamp AND skip. A cycle that overran (mainThread stall, lag spike) must
