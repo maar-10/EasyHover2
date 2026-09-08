@@ -33,7 +33,7 @@ end
 
 local function clamp(v) if v < 0 then return 0 elseif v > 1 then return 1 else return v end end
 
-function KeepWarm:apply(duties, dt)
+function KeepWarm:planWrites(duties)
   local writes = {}
   for id, duty in pairs(duties) do
     local throttle = clamp((duty or 0) * self.fuelScale)
@@ -43,7 +43,11 @@ function KeepWarm:apply(duties, dt)
       writes[#writes + 1] = function() self.backend:setThrusterNormalized(id, throttle) end
     end
   end
-  self.dispatch(writes)
+  return writes
+end
+
+function KeepWarm:apply(duties, dt)
+  self.dispatch(self:planWrites(duties))
 end
 
 return KeepWarm

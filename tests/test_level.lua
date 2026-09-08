@@ -75,3 +75,13 @@ t.test("level: setFuelScale ignores nil/non-positive values", function()
   a:apply({ t1 = 0.26 }, 0.05)
   t.eq(b.level.t1, 4, "invalid scale calls leave default 1.0 in effect")
 end)
+t.test("planWrites returns closures for changed levels without dispatching", function()
+  local b = fakeBackend(); local a = Level.new({ backend = b, steps = 15 })
+  local w = a:planWrites({ FL = 1.0, FR = 0.0 })
+  t.eq(#w, 2, "two changed levels planned")
+  t.eq(b.writes, 0, "nothing written yet (not dispatched)")
+  for i = 1, #w do w[i]() end            -- execute the closures
+  t.eq(b.level.FL, 15); t.eq(b.level.FR, 0)
+  local w2 = a:planWrites({ FL = 1.0 })  -- unchanged -> no closure
+  t.eq(#w2, 0, "unchanged level plans no write")
+end)

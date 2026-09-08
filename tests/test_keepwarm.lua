@@ -55,3 +55,13 @@ t.test("default write tolerance is 0.04 (coarser writes -> fewer mainThread call
   a:apply({ YFL = 0.23 }, 0.05); t.eq(b.writes, 1)     -- +0.03 < 0.04 default -> no write
   a:apply({ YFL = 0.25 }, 0.05); t.eq(b.writes, 2)     -- +0.05 from last-written 0.20 -> write
 end)
+t.test("planWrites returns closures for changed throttles without dispatching", function()
+  local b = fakeBackend(); local a = KeepWarm.new({ backend = b, tol = 0.01 })
+  local w = a:planWrites({ YFL = 0.5, MAIN = 0.0 })
+  t.eq(#w, 2, "two changed throttles planned")
+  t.eq(b.writes, 0, "nothing written yet")
+  for i = 1, #w do w[i]() end
+  t.near(b.thr.YFL, 0.5, 1e-9); t.near(b.thr.MAIN, 0.0, 1e-9)
+  local w2 = a:planWrites({ YFL = 0.505 })   -- within tol -> no closure
+  t.eq(#w2, 0, "within-tol change plans no write")
+end)

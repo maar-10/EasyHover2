@@ -42,7 +42,7 @@ local function quantize(v, steps)
   if v < 0 then return 0 elseif v > steps then return steps else return v end
 end
 
-function Level:apply(duties, dt)
+function Level:planWrites(duties)
   local writes = {}
   for id, duty in pairs(duties) do
     local level = quantize((duty or 0) * self.fuelScale * self.steps, self.steps)
@@ -51,7 +51,11 @@ function Level:apply(duties, dt)
       writes[#writes + 1] = function() self.backend:setThrusterLevel(id, level) end
     end
   end
-  self.dispatch(writes)
+  return writes
+end
+
+function Level:apply(duties, dt)
+  self.dispatch(self:planWrites(duties))
 end
 
 return Level
