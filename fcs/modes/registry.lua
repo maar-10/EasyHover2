@@ -27,6 +27,7 @@ local SPECS = {
 function M.build(tuning)
   local mixer = Mixer.new()
   if tuning.com then mixer:setCom(tuning.com) end
+  if tuning.keepWarm and mixer.setKeepWarm then mixer:setKeepWarm(tuning.keepWarm) end
   local order, byId = {}, {}
   for _, s in ipairs(SPECS) do
     local cfg = tuning.forMode(s.id)

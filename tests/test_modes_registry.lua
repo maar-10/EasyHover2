@@ -69,3 +69,12 @@ t.test("PRECISION descriptor reproduces the golden baseline", function()
     end
   end
 end)
+
+t.test("registry applies keepWarm config to the shared mixer", function()
+  local Registry = require("fcs.modes.registry")
+  local tuning = require("fcs.tuning")
+  local reg = Registry.build(tuning)
+  local mixer = reg.byId[reg.default].mixer
+  t.truthy(mixer.keepWarm and mixer.keepWarm.floor >= 0, "keepWarm applied to shared mixer")
+  t.near(mixer.keepWarm.mainRatio, tuning.keepWarm.mainRatio, 1e-9, "mainRatio from tuning")
+end)

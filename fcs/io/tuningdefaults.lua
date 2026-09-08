@@ -52,6 +52,11 @@ local DEFAULTS = {
   dtMax = 0.5,
   attLimit = 0.6,
   com = { fwd = 0, right = 0, spanFwd = 0, spanRight = 0 },
+  -- Keep-warm idle floors for the unidirectional lateral/surge thrusters. GLOBAL (the Create
+  -- Propulsion 0.5s spool ramp is a hardware property, identical in every mode). floor 0 disables.
+  -- mainRatio = 2*wFront/wMain balances the surge idle net-zero; source-derived for a 3x3x3 MAIN
+  -- (thrust ~40.5) vs two 1x1 frontals (~1 each): 2/40.5 ~ 0.049. Tune in-world if the craft differs.
+  keepWarm = { floor = 0.08, surgeFront = 0.07, mainRatio = 0.049 },
   park = { groundClear = 1.0, parkDriftEps = 0.15, parkTiltBand = 0.12 },
   profile = { climbHeight = 6, climbRate = 0.6, holdTime = 20, descendRate = 0.7,
               landEps = 0.4, watchdog = 60, overshootMargin = 2, leadCap = 1.0 },
