@@ -1,8 +1,9 @@
 -- Continuous keep-warm thruster actuator. Drives setPowerNormalized(0..1) so a thruster held
 -- at a small idle floor stays SPOOLED (Create Propulsion spools 0->full over 0.5s on every
 -- 0->on edge; a warm bank has no spool lag on a reversal). Writes only when the fuel-scaled
--- throttle moves beyond `tol` (a steady hover -> almost no writes), dispatched concurrently so
--- N changes cost ~1 server tick (same reasoning as fcs/actuate/level.lua). Same interface as Level.
+-- throttle moves beyond `tol` (default 0.04; a steady hover -> almost no writes), dispatched
+-- concurrently so N changes cost ~1 server tick (same reasoning as fcs/actuate/level.lua).
+-- Same interface as Level.
 local KeepWarm = {}
 KeepWarm.__index = KeepWarm
 
@@ -19,7 +20,7 @@ end
 
 function KeepWarm.new(cfg)
   return setmetatable({ backend = cfg.backend, last = {},
-    tol = cfg.tol or 0.01, fuelScale = cfg.fuelScale or 1.0,
+    tol = cfg.tol or 0.04, fuelScale = cfg.fuelScale or 1.0,
     dispatch = cfg.dispatch or defaultDispatch }, KeepWarm)
 end
 

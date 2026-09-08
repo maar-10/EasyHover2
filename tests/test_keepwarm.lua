@@ -49,3 +49,9 @@ t.test("state returns the last written throttle, 0 if unseen", function()
   a:apply({ YFL = 0.7 }, 0.05)
   t.near(a:state("YFL"), 0.7, 1e-9); t.eq(a:state("XX"), 0)
 end)
+t.test("default write tolerance is 0.04 (coarser writes -> fewer mainThread calls)", function()
+  local b = fakeBackend(); local a = KeepWarm.new({ backend = b })   -- no tol -> default
+  a:apply({ YFL = 0.20 }, 0.05); t.eq(b.writes, 1)     -- first write
+  a:apply({ YFL = 0.23 }, 0.05); t.eq(b.writes, 1)     -- +0.03 < 0.04 default -> no write
+  a:apply({ YFL = 0.25 }, 0.05); t.eq(b.writes, 2)     -- +0.05 from last-written 0.20 -> write
+end)
