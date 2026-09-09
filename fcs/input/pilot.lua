@@ -197,7 +197,11 @@ function Pilot:update(dt, held, meas)
   -- `tilting` (computed above) already forces _brakeSetpoint to 0,0 in tilt modes while the pilot
   -- steers, and is always false when policy.tilt is false, so one call serves both branches.
   local slew = (self.cfg.tiltBrake and self.cfg.tiltBrake.slewRate) or math.huge
-  local step = slew * (dt or 0)
+  -- Guard against math.huge * 0 = NaN on a dt==0 overrun tick with no slewRate configured: keep
+  -- the legacy instant-jump behavior explicit instead of relying on NaN falling through approach's
+  -- comparisons (d > step / d < -step are both false for NaN, which happens to also jump-to-target,
+  -- but that's fragile and undocumented).
+  local step = (slew == math.huge) and math.huge or slew * (dt or 0)
   local bpRaw, brRaw = self:_brakeSetpoint(held, meas, tilting)
   self.brakeTilt.pitch = approach(self.brakeTilt.pitch, bpRaw, step)
   self.brakeTilt.roll  = approach(self.brakeTilt.roll,  brRaw, step)

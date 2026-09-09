@@ -275,12 +275,16 @@ t.test("CRU brake tilt converges to brake.angle target over time", function()
   t.near(last.pitch, 0.5236, 1e-3, "reaches maxAngle target (pure forward drift)")
 end)
 
-t.test("CRU brake tilt ramps back down when brake disengages", function()
+t.test("CRU brake tilt ramps back down by at most slewRate*dt per tick after disengage", function()
   local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
-  for _=1,60 do p:update(0.1, {}, fast()) end            -- ramped up to ~maxAngle
-  p:update(0.2, { surgeFwd = true }, fast())             -- throttle>0 => autoArrest false => brake off
-  local a = p:update(0.1, {}, fast())                    -- target now 0; slews down
-  t.truthy(a.pitch < 0.5236 - 1e-6, "brake tilt decreasing after disengage")
+  for _=1,60 do p:update(0.1, {}, fast()) end                 -- ramped up to ~maxAngle
+  -- throttle is still 0 going into this tick (brake calc reads old throttle before the CRUISE
+  -- throttle update below it), so the brake is still fully engaged here -- pitch stays ~maxAngle.
+  local before = p:update(0.2, { surgeFwd = true }, fast())   -- throttle now >0 => brake off next tick
+  local after = p:update(0.1, {}, fast())                     -- target now 0; slews down
+  local delta = before.pitch - after.pitch
+  t.truthy(delta > 0, "brake tilt decreasing after disengage")
+  t.truthy(delta <= 0.3 * 0.1 + 1e-9, "decrease bounded by slewRate*dt (0.03), not an instant drop")
 end)
 
 t.test("CRU brake tilt holds through a dt==0 overrun tick", function()
@@ -304,4 +308,34 @@ t.test("MAN hands-off brake tilt is slewed (bounded first tick)", function()
   local p = Pilot.new(FEEL_TB); p:setMode({ tilt=true, surge="position" }, FEEL_TB); p:reset(meas())
   local a = p:update(0.1, {}, fast())   -- no tilt keys => autoArrest true => brake engages, slewed
   t.truthy(a.pitch > 0 and a.pitch <= 0.3 * 0.1 + 1e-9, "MAN brake tilt slewed onto setpoint")
+end)
+
+-- Fix round 1 (2026-09-09 review): NaN guard on step==math.huge*0, and reset/setMode zeroing.
+t.test("nil slewRate + dt==0 => brake tilt still instant, no NaN", function()
+  local FEEL_NO = { headingRate=2.2, climbRate=4.5, surgeSpeed=10, surgeLead=20, swaySpeed=5,
+    tiltRate=0.8, tiltCap=0.4, cruiseThrottleRate=1.0, cruiseThrottleMax=1.0,
+    tiltBrake = { enabled=true, engageSpeed=30, satSpeed=100, minAngle=0.2618,
+                  maxAngle=0.5236, buttonMax=0.7854 } }   -- no slewRate => slew = math.huge
+  local p = Pilot.new(FEEL_NO); p:setMode({ tilt=false, surge="throttle" }, FEEL_NO); p:reset(meas())
+  local a = p:update(0, {}, fast())   -- dt==0 overrun tick; math.huge * 0 would be NaN unguarded
+  t.truthy(a.pitch == a.pitch, "brake pitch is not NaN")
+  t.near(a.pitch, 0.5236, 1e-4, "no slewRate => instant jump to maxAngle even on a dt==0 tick")
+end)
+
+t.test("Pilot:reset zeros brakeTilt so the next tick ramps from 0, not stale", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  for _=1,10 do p:update(0.1, {}, fast()) end   -- ramped partway up (~0.3, well above one step)
+  p:reset(meas())
+  local a = p:update(0.1, {}, fast())           -- brake re-engages fresh (throttle also reset to 0)
+  t.truthy(a.pitch > 0, "brake re-engages after reset")
+  t.truthy(a.pitch <= 0.3 * 0.1 + 1e-9, "brake tilt restarts from 0 after reset, not from stale ramped value")
+end)
+
+t.test("Pilot:setMode zeros brakeTilt so the next tick ramps from 0, not stale", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  for _=1,10 do p:update(0.1, {}, fast()) end     -- ramped partway up (~0.3, well above one step)
+  p:setMode({ tilt=false, surge="throttle" }, FEEL_TB)   -- mode transition (re-arm same policy)
+  local a = p:update(0.1, {}, fast())             -- brake re-engages fresh (throttle also reset to 0)
+  t.truthy(a.pitch > 0, "brake re-engages after setMode")
+  t.truthy(a.pitch <= 0.3 * 0.1 + 1e-9, "brake tilt restarts from 0 after setMode, not from stale ramped value")
 end)
