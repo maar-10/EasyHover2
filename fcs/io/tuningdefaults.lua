@@ -174,7 +174,7 @@ DEFAULTS.modes.LDG.gains.yaw.kw     = 0.5
 DEFAULTS.modes.LDG.gains.sway.ks    = 0.3
 DEFAULTS.modes.LDG.gains.surge.ks   = 0.3
 -- LDG pilots/lands gently: no accel-trim residual to fight, and no forward-trim feedforward wanted
--- on the ground -- pin trimGain to 0 (base is now 0.30) and pitch kp back to 0.10 (base is 0.15).
+-- on the ground -- pin trimGain to 0 (base is now 0.18) and pitch kp back to 0.10 (base is 0.15).
 DEFAULTS.modes.LDG.feel.trimGain    = 0
 DEFAULTS.modes.LDG.gains.pitch.kp   = 0.16
 DEFAULTS.modes.LDG.gains.pitch.kd   = 0.28
