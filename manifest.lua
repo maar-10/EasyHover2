@@ -407,9 +407,9 @@
         },
         {
           ["dst"] = "fcs/input/pilot.lua",
-          ["size"] = 4349,
+          ["size"] = 4797,
           ["src"] = "dist/fcs/input/pilot.lua",
-          ["sum"] = "1202930d",
+          ["sum"] = "dfb6e003",
         },
         {
           ["dst"] = "fcs/io/backend.lua",
@@ -479,9 +479,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 3132,
+          ["size"] = 3146,
           ["src"] = "dist/fcs/io/tuningdefaults.lua",
-          ["sum"] = "e00683fe",
+          ["sum"] = "1b2a5e5c",
         },
         {
           ["dst"] = "fcs/leash.lua",
@@ -736,9 +736,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 3132,
+          ["size"] = 3146,
           ["src"] = "dist/fcs/io/tuningdefaults.lua",
-          ["sum"] = "e00683fe",
+          ["sum"] = "1b2a5e5c",
         },
         {
           ["dst"] = "nav/app.lua",
@@ -983,9 +983,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 3132,
+          ["size"] = 3146,
           ["src"] = "dist/fcs/io/tuningdefaults.lua",
-          ["sum"] = "e00683fe",
+          ["sum"] = "1b2a5e5c",
         },
         {
           ["dst"] = "fcs/mixer/level_flight.lua",
@@ -1412,9 +1412,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 3132,
+          ["size"] = 3146,
           ["src"] = "dist/fcs/io/tuningdefaults.lua",
-          ["sum"] = "e00683fe",
+          ["sum"] = "1b2a5e5c",
         },
         {
           ["dst"] = "fcs2disk",
@@ -1464,9 +1464,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 3132,
+          ["size"] = 3146,
           ["src"] = "dist/fcs/io/tuningdefaults.lua",
-          ["sum"] = "e00683fe",
+          ["sum"] = "1b2a5e5c",
         },
         {
           ["dst"] = "splitconfig",
@@ -1488,5 +1488,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "e2ed7145",
+  ["version"] = "a8608ec5",
 }
