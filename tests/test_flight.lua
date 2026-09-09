@@ -591,3 +591,16 @@ t.test("flight threads brakeTrim into loop:setTrim (6th arg), boolean-safe", fun
   f2:handleCommand({ k = "flightMode", id = "PRE" })
   t.eq(L2.brakeTrimArg, false, "brakeTrim=false threaded")
 end)
+
+-- ===== Fuel poll removal (Task 2): interlock stays inert with no fuel getter =====
+-- Guard documenting the end state after dropping the per-thruster fuel poll from tools/flight.lua:
+-- the real assembly no longer passes a `fuel` getter, so the §11.8 no-fuel interlock self-disables
+-- (fcs/runtime/flight.lua:252 `if not self.fuel then return end`) and noFuel can never latch true.
+t.test("no-fuel interlock is inert when no fuel getter is provided (fuel reading removed)", function()
+  local f = Flight.new({ loop = fakeLoop(), pilot = Pilot.new(CFG) })
+  t.eq(f.fuel, nil, "no fuel getter wired")
+  t.eq(f.noFuel, false, "noFuel starts false")
+  -- Drive a step (airborne); with no fuel getter the interlock must never latch noFuel.
+  f:step(0.05, {}, meas())
+  t.eq(f.noFuel, false, "interlock inert -> noFuel stays false")
+end)

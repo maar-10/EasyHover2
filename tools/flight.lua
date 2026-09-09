@@ -107,11 +107,6 @@ local fuelcal = cfgspec.loadLive("fuelcal", readFile)   -- session overlay wins;
 local fuelScale0 = fueltable.scaleFor(fuelcal.fuel) or 1.0
 loop:setFuelScale(fuelScale0)
 
--- Fuel state lives here so the §11.8 no-fuel interlock (Flight) can read the same decoupled
--- 1 Hz snapshot pollFuel fills. No extra peripheral reads on the control path; UI/NAV still
--- consume the telemetry snapshot only (comms-hygiene).
-local fuelState = { thrusterFuel = {}, fuelMain = nil }
-
 local pilot  = Pilot.new(inputCfg.default)
 pilot:setMode(registry.byId[registry.default].policy, registry.byId[registry.default].feel)
 local Master = require("fcs.modes.master")
@@ -120,7 +115,6 @@ local flight = Flight.new({ loop = loop, pilot = pilot, registry = registry, con
   park = tuning.park,
   emrcvr = tuning.emrcvr,
   setGroundSense = function(b) backend:setGroundSense(b) end,
-  fuel = function() return fuelState.fuelMain end,
   setFuelScale = function(x) loop:setFuelScale(x) end,
   saveFuel = function(id) cfgspec.save("fuelcal", { fuel = id }, writeFile) end,
   fuelName = fuelcal.fuel,
@@ -479,48 +473,6 @@ local function logFinish()
   end
 end
 
--- ---- Fuel readback: DECOUPLED from the control loop ----
--- getFuelAmountMb/getFuelCapacityMb are ~50ms mainThread calls. Polling all 4 lift thrusters
--- INLINE every control cycle cost ~390ms/cycle and collapsed the flight loop to ~2Hz (measured:
--- 122 cycles / 55s, ~452ms/cycle even with ZERO thruster writes), while the identical control
--- stack holds ~16.7Hz in tools/hover_test.lua -- which never polls fuel. So fuel now polls in its
--- own 1Hz task, capacity is constant and cached (read once), the reads run concurrently, and the
--- control loop only copies the latest snapshot (fuelState) -- no peripheral calls on the hot path.
-local fuelPeriph, fuelCap = {}, {}
-local function pollFuel()
-  local tf, reads = {}, {}
-  for i, id in ipairs(frame.LIFT) do
-    if fuelPeriph[i] == nil then
-      local name = config.thrusters and config.thrusters[id]
-      fuelPeriph[i] = (name and shim.wrap(name)) or false
-    end
-    local p = fuelPeriph[i]
-    if p and p.getFuelAmountMb and p.getFuelCapacityMb then
-      reads[#reads + 1] = function()
-        if fuelCap[i] == nil then
-          local okc, cap = pcall(p.getFuelCapacityMb)
-          fuelCap[i] = (okc and cap) or false   -- capacity is constant: read once
-        end
-        local oka, amt = pcall(p.getFuelAmountMb)
-        local cap = fuelCap[i]
-        if oka and amt and cap and cap > 0 then tf[i] = amt / cap end
-      end
-    end
-  end
-  if #reads > 0 then
-    if parallel and parallel.waitForAll then parallel.waitForAll(table.unpack(reads))
-    else for _, fn in ipairs(reads) do fn() end end
-  end
-  -- Aggregate: no separate main-tank peripheral exists (fuel is per-thruster),
-  -- so the main FUEL gauge shows the mean of the available fractions.
-  local sum, count = 0, 0
-  for _, f in pairs(tf) do sum = sum + f; count = count + 1 end
-  fuelState.thrusterFuel = tf
-  fuelState.fuelMain = (count > 0) and (sum / count) or nil
-end
-local function fuelTask()
-  while true do pollFuel(); sleep(1.0) end
-end
 
 -- ---- Tasks ----
 local lastT = os.epoch("utc")
@@ -554,8 +506,6 @@ local function controlTask()
         local now = os.epoch("utc"); local dt = (now - lastT) / 1000; lastT = now
         local meas = backend:sensors()
         local snap = flight:step(dt, heldRef.held, meas)
-        snap.thrusterFuel = fuelState.thrusterFuel   -- cheap copy; fuelTask does the peripheral reads
-        snap.fuelMain = fuelState.fuelMain
         shared.snap = snap
         logCycle(dt, meas)
       end)
@@ -723,13 +673,13 @@ loadT0 = os.epoch("utc")
 if LOGGING then
   logStart()
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask, logKeyTask, configTask, streamTask)
+                        healthTask, statusTask, logKeyTask, configTask, streamTask)
   safeShutdown()
   logFinish()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 else
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
-                        healthTask, fuelTask, statusTask, configTask)
+                        healthTask, statusTask, configTask)
   safeShutdown()
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 end
