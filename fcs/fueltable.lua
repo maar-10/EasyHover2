@@ -33,4 +33,13 @@ function M.options()
   for i, f in ipairs(M.list) do o[i] = { text = f.name .. " " .. f.pct .. "%", value = f.name } end
   return o
 end
+M.abbr = {
+  ["Plant Oil"] = "POIL", ["Ethanol"] = "ETH", ["Biodiesel"] = "BDSL",
+  ["Sulfurized Diesel"] = "SDSL", ["Diesel"] = "DSL", ["Gasoline"] = "GAS",
+  ["Kerosene"] = "KERO", ["Turpentine"] = "TURP",
+}
+function M.abbrevOf(name)
+  if name == nil then name = M.default end
+  return M.abbr[name] or (name and name:sub(1, 4):upper()) or "?"
+end
 return M

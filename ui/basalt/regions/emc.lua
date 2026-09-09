@@ -57,6 +57,7 @@ local ConfigPanel = require("ui.panels.config")
 local btnfit = require("ui.basalt.btnfit")
 local EnginePanel = require("ui.panels.engine")
 local Gfxpicker = require("ui.basalt.instruments.gfxpicker")
+local fueltable = require("fcs.fueltable")
 
 local M = {}
 
@@ -299,6 +300,7 @@ function M.main(basalt, frame, region, runtime, opts)
     setVal(pmpValLabel, tostring(state.pumpAmount or 0) .. "x")
     mainBar:setProgress(round(Fuel.manualFrac(state.tankMb, cfg.fuel.tank.full) * 100))
     setVal(mainValLabel, tostring(math.floor((state.tankMb or 0) / 1000)) .. "B")
+    mainLabel:setText(fit("Liquid Main " .. fueltable.abbrevOf(state.fuel), iw))
 
     flowLabel:setText(fit(EnginePanel.flowLabel(state and state.fuelEst), flowW))
     leftLabel:setText(fit(EnginePanel.leftLabel(state and state.fuelEst), leftW))

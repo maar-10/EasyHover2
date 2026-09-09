@@ -383,9 +383,9 @@
         },
         {
           ["dst"] = "fcs/fueltable.lua",
-          ["size"] = 1381,
+          ["size"] = 1730,
           ["src"] = "fcs/fueltable.lua",
-          ["sum"] = "0512c63c",
+          ["sum"] = "ebd9744b",
         },
         {
           ["dst"] = "fcs/input/config.lua",
@@ -700,9 +700,9 @@
         },
         {
           ["dst"] = "fcs/fueltable.lua",
-          ["size"] = 1381,
+          ["size"] = 1730,
           ["src"] = "fcs/fueltable.lua",
-          ["sum"] = "0512c63c",
+          ["sum"] = "ebd9744b",
         },
         {
           ["dst"] = "fcs/io/cfgdefault.lua",
@@ -929,9 +929,9 @@
         },
         {
           ["dst"] = "fcs/fueltable.lua",
-          ["size"] = 1381,
+          ["size"] = 1730,
           ["src"] = "fcs/fueltable.lua",
-          ["sum"] = "0512c63c",
+          ["sum"] = "ebd9744b",
         },
         {
           ["dst"] = "fcs/io/calibration.lua",
@@ -1235,9 +1235,9 @@
         },
         {
           ["dst"] = "ui/basalt/regions/emc.lua",
-          ["size"] = 31273,
+          ["size"] = 31397,
           ["src"] = "ui/basalt/regions/emc.lua",
-          ["sum"] = "b85db57f",
+          ["sum"] = "a9ba7c74",
         },
         {
           ["dst"] = "ui/basalt/regions/fcs.lua",
@@ -1388,9 +1388,9 @@
       ["files"] = {
         {
           ["dst"] = "fcs/fueltable.lua",
-          ["size"] = 1381,
+          ["size"] = 1730,
           ["src"] = "fcs/fueltable.lua",
-          ["sum"] = "0512c63c",
+          ["sum"] = "ebd9744b",
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
@@ -1440,9 +1440,9 @@
       ["files"] = {
         {
           ["dst"] = "fcs/fueltable.lua",
-          ["size"] = 1381,
+          ["size"] = 1730,
           ["src"] = "fcs/fueltable.lua",
-          ["sum"] = "0512c63c",
+          ["sum"] = "ebd9744b",
         },
         {
           ["dst"] = "fcs/io/cfgspec.lua",
@@ -1488,5 +1488,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "64d42598",
+  ["version"] = "5fd073f6",
 }

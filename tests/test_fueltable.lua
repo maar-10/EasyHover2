@@ -24,3 +24,13 @@ t.test("fueltable: options list all 8 with percents", function()
   t.eq(o[3].value, "Biodiesel", "order: biodiesel 3rd")
   t.eq(o[3].text, "Biodiesel 60%", "label has percent")
 end)
+
+t.test("abbrevOf maps known fuels and falls back for unknown", function()
+  local ft = require("fcs.fueltable")
+  t.eq(ft.abbrevOf("Biodiesel"), "BDSL")
+  t.eq(ft.abbrevOf("Diesel"), "DSL")
+  t.eq(ft.abbrevOf("Sulfurized Diesel"), "SDSL")
+  t.eq(ft.abbrevOf("Gasoline"), "GAS")
+  t.eq(ft.abbrevOf("Mystery Fuel"), "MYST")     -- unknown -> first 4 upper
+  t.eq(ft.abbrevOf(nil), ft.abbrevOf(ft.default)) -- nil -> default fuel's abbrev
+end)

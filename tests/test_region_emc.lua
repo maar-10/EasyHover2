@@ -879,6 +879,35 @@ t.test("engine panel: flow/left labels per state", function()
   t.eq(E.leftLabel(nil), "LEFT --", "nil left")
 end)
 
+t.test("emc_main: Liquid Main label reflects state.fuel (was hardcoded BDSL)", function()
+  local basalt = BasaltApp.ensureBasalt()
+  local frame = basalt.createFrame()
+
+  local engine = newEngineStub(true)
+  local runtime = {
+    engine = engine,
+    config = {
+      relay = { name = "relay_1", side = "back" },
+      fuel = {
+        pump = { name = "chest_1", kind = "inventory", empty = 0, full = 1000 },
+        tank = { name = "tank_1",  kind = "fluid",     empty = 0, full = 200000 },
+      },
+    },
+  }
+
+  local region = { push = function() end, pop = function() end }
+  local handle = M.main(basalt, frame, region, runtime)
+
+  handle.apply({ fuel = "Diesel", tankMb = 200000, pumpAmount = 5 })
+  t.truthy(handle.elements.mainLabel:getText():find("DSL"), "Liquid Main label shows selected fuel abbrev")
+
+  handle.apply({ fuel = "Biodiesel", tankMb = 200000 })
+  t.truthy(handle.elements.mainLabel:getText():find("BDSL"), "label updates to BDSL on Biodiesel")
+
+  local ok, err = pcall(function() basalt.update("timer", -1) end)
+  t.truthy(ok, "basalt.update should not error: " .. tostring(err))
+end)
+
 -- ===== Task 1: border edges resolver (standalone-panel hosting) =====
 
 t.test("_resolveEdges: nil opts -> DEFAULT_EDGES (top+left+right, no bottom)", function()
