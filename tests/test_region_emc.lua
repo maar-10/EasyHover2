@@ -899,7 +899,12 @@ t.test("emc_main: Liquid Main label reflects state.fuel (was hardcoded BDSL)", f
   local handle = M.main(basalt, frame, region, runtime)
 
   handle.apply({ fuel = "Diesel", tankMb = 200000, pumpAmount = 5 })
-  t.truthy(handle.elements.mainLabel:getText():find("DSL"), "Liquid Main label shows selected fuel abbrev")
+  local dieselText = handle.elements.mainLabel:getText()
+  t.truthy(dieselText:find("DSL"), "Liquid Main label shows selected fuel abbrev")
+  -- Guard the "BDSL" contains "DSL" collision: a still-hardcoded label would also
+  -- satisfy find("DSL"), so require Diesel's label to NOT read as BDSL. This is the
+  -- assertion that actually fails if the label reverts to the hardcoded constant.
+  t.truthy(not dieselText:find("BDSL"), "Diesel label must not be the hardcoded BDSL")
 
   handle.apply({ fuel = "Biodiesel", tankMb = 200000 })
   t.truthy(handle.elements.mainLabel:getText():find("BDSL"), "label updates to BDSL on Biodiesel")
