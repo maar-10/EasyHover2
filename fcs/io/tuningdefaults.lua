@@ -78,12 +78,14 @@ local DEFAULTS = {
     surgeLead      = 20.0,   -- surge stays lead-based (not rate-commanded, see fcs/control/translate.lua)
     swaySpeed      = 6.0,    -- blk/s achieved strafe rate
 
-    trimGain       = 0.30,  -- forward-trim feedforward gain: demands.pitch += trimDir*trimGain*demands.surge
+    trimGain       = 0.18,  -- forward-trim ff gain (was 0.30): reduced magnitude, same reaction --
+                            -- the nose-down accel lean was too harsh. First estimate -- TUNE in-world.
     -- Flip-guard bounds (spec 2026-09-04): fade the trim out as the craft departs level, and cap the
     -- feedforward at a fraction of caps.pitch so it can never starve the pitch stabilizer.
     trimFadeStart  = 0.25,  -- rad: full trim below this |pitch| (normal accel tilt stays fully assisted)
     trimFade       = 0.6,   -- rad: trim fully faded to 0 by this |pitch| (== attLimit)
-    trimAuthority  = 0.4,   -- max fraction of caps.pitch the feedforward may consume
+    trimAuthority  = 0.30,  -- max fraction of caps.pitch the ff may consume (was 0.40): lower hard
+                            -- cap on the accel lean. First estimate -- TUNE in-world.
     brakeTrim      = false, -- symmetric trim (lean to accel AND brake)? true only for CRU/DRN; every
                             -- other mode is forward-only (brake stays level, frontal thrusters brake)
     -- Tilt-brake (fix #3): speed-scaled pitch/roll brake into the drift direction. Base OFF so
@@ -95,6 +97,10 @@ local DEFAULTS = {
       minAngle    = 0.2618, -- 15deg: tilt at the engage speed
       maxAngle    = 0.5236, -- 30deg: auto max at/above satSpeed
       buttonMax   = 0.7854, -- 45deg: CTRL-brake max at/above satSpeed
+      slewRate    = 0.3,    -- rad/s: max onset rate of the brake tilt setpoint. Fixed slew so the
+                            -- leveling loop tracks the brake angle without overshoot at low loop
+                            -- rate (high-speed brake departed by overshooting to the EMRCVR trip).
+                            -- First estimate -- TUNE in-world.
     },
   },
 }

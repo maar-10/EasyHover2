@@ -75,7 +75,7 @@ end)
 
 t.test("tuning: trim feel is shared on the base feel (all flight modes inherit)", function()
   local D = require("fcs.io.tuningdefaults").get()
-  t.eq(D.feel.trimGain, 0.30, "base trimGain")
+  t.near(D.feel.trimGain, 0.18, 1e-9, "base trimGain (reduced 2026-09-09)")
   -- CPL/DCPL are no longer flight-mode tuning records
   t.eq(D.modes.CPL, nil, "no CPL mode record")
   t.eq(D.modes.DCPL, nil, "no DCPL mode record")
@@ -86,16 +86,16 @@ end)
 
 t.test("trim flip-guard: fade/floor feel defaults present and inherited by every mode", function()
   local base = tuning.forMode("PRECISION").feel
-  t.near(base.trimAuthority, 0.4,  1e-9, "PRECISION trimAuthority default")
+  t.near(base.trimAuthority, 0.30,  1e-9, "PRECISION trimAuthority default")
   t.near(base.trimFadeStart, 0.25, 1e-9, "PRECISION trimFadeStart default")
   t.near(base.trimFade, 0.6,       1e-9, "PRECISION trimFade default")
   for _, mode in ipairs({ "MAN", "CRUISE" }) do
     local f = tuning.forMode(mode).feel
-    t.near(f.trimAuthority, 0.4, 1e-9, mode.." inherits trimAuthority")
+    t.near(f.trimAuthority, 0.30, 1e-9, mode.." inherits trimAuthority")
     t.near(f.trimFade, 0.6,      1e-9, mode.." inherits trimFade")
   end
   local d = tuningdefaults.get()
-  t.near(d.modes.LDG.feel.trimAuthority, 0.4, 1e-9, "LDG inherits")
+  t.near(d.modes.LDG.feel.trimAuthority, 0.30, 1e-9, "LDG inherits")
   t.near(d.modes.DRN.feel.trimFade, 0.6,      1e-9, "DRN inherits")
 end)
 

@@ -479,9 +479,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 11934,
+          ["size"] = 12490,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "1a0d4708",
+          ["sum"] = "61e92e56",
         },
         {
           ["dst"] = "fcs/leash.lua",
@@ -736,9 +736,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 11934,
+          ["size"] = 12490,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "1a0d4708",
+          ["sum"] = "61e92e56",
         },
         {
           ["dst"] = "nav/app.lua",
@@ -983,9 +983,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 11934,
+          ["size"] = 12490,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "1a0d4708",
+          ["sum"] = "61e92e56",
         },
         {
           ["dst"] = "fcs/mixer/level_flight.lua",
@@ -1412,9 +1412,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 11934,
+          ["size"] = 12490,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "1a0d4708",
+          ["sum"] = "61e92e56",
         },
         {
           ["dst"] = "fcs2disk",
@@ -1464,9 +1464,9 @@
         },
         {
           ["dst"] = "fcs/io/tuningdefaults.lua",
-          ["size"] = 11934,
+          ["size"] = 12490,
           ["src"] = "fcs/io/tuningdefaults.lua",
-          ["sum"] = "1a0d4708",
+          ["sum"] = "61e92e56",
         },
         {
           ["dst"] = "splitconfig",
@@ -1488,5 +1488,5 @@
     ["size"] = 76903,
     ["sum"] = "740aae36",
   },
-  ["version"] = "3ab81c9d",
+  ["version"] = "de493ab1",
 }

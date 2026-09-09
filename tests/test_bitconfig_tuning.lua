@@ -441,7 +441,7 @@ t.test("rows: trim flip-guard feel rows present with ranges (shared across modes
     t.truthy(byId[id], id.." row present")
     t.eq(byId[id].group, "FEEL", id.." is a FEEL row")
   end
-  t.near(byId["feel.trimAuthority"].value, 0.4, 1e-9, "value from defaults")
+  t.near(byId["feel.trimAuthority"].value, 0.30, 1e-9, "value from defaults")
   -- M.rows() rows carry {id,label,group,value,step}, not min/max -- range checks go through
   -- M.specFor, the same pure accessor the CPL/DCPL specFor test above already uses.
   t.eq(M.specFor("PRECISION", "feel.trimAuthority").max, 1.0, "authority max 1.0")
