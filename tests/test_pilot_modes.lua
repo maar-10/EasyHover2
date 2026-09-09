@@ -251,3 +251,57 @@ t.test("CRU brake button cuts MAIN throttle for the tick", function()
   local sp = p:update(0.05, { brake=true }, measv{ surgeVel=80 }) -- brake overrides
   t.near(sp.surgeThrottle, 0, 1e-9, "MAIN commanded off while braking")
 end)
+
+-- Brake tilt slew (2026-09-09): the tilt-brake setpoint must ramp in at a bounded rate
+-- (feel.tiltBrake.slewRate, rad/s) so the leveling loop can track it without overshooting the
+-- commanded angle. Applies to the brake contribution only; manual self.tilt keeps its tiltRate.
+local FEEL_TB = { headingRate=2.2, climbRate=4.5, surgeSpeed=10, surgeLead=20, swaySpeed=5,
+  tiltRate=0.8, tiltCap=0.4, cruiseThrottleRate=1.0, cruiseThrottleMax=1.0,
+  tiltBrake = { enabled=true, engageSpeed=30, satSpeed=100, minAngle=0.2618,
+                maxAngle=0.5236, buttonMax=0.7854, slewRate=0.3 } }
+local function fast() return { altitude=0, heading=0, swayPos=0, surgePos=0, surgeVel=100, swayVel=0 } end
+
+t.test("CRU brake tilt slews in, never steps to maxAngle", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  local a = p:update(0.1, {}, fast())   -- throttle 0 => autoArrest => brake engaged; target = maxAngle
+  t.truthy(a.pitch > 0, "brake pitch begins ramping nose-up")
+  t.truthy(a.pitch <= 0.3 * 0.1 + 1e-9, "first tick bounded by slewRate*dt (0.03), not stepped to 0.5236")
+end)
+
+t.test("CRU brake tilt converges to brake.angle target over time", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  local last
+  for _=1,60 do last = p:update(0.1, {}, fast()) end
+  t.near(last.pitch, 0.5236, 1e-3, "reaches maxAngle target (pure forward drift)")
+end)
+
+t.test("CRU brake tilt ramps back down when brake disengages", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  for _=1,60 do p:update(0.1, {}, fast()) end            -- ramped up to ~maxAngle
+  p:update(0.2, { surgeFwd = true }, fast())             -- throttle>0 => autoArrest false => brake off
+  local a = p:update(0.1, {}, fast())                    -- target now 0; slews down
+  t.truthy(a.pitch < 0.5236 - 1e-6, "brake tilt decreasing after disengage")
+end)
+
+t.test("CRU brake tilt holds through a dt==0 overrun tick", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=false, surge="throttle" }, FEEL_TB); p:reset(meas())
+  local a = p:update(0.1, {}, fast())
+  local b = p:update(0, {}, fast())
+  t.near(b.pitch, a.pitch, 1e-9, "dt==0 => brake tilt unchanged")
+end)
+
+t.test("nil slewRate => brake tilt applied instantly (legacy)", function()
+  local FEEL_NO = { headingRate=2.2, climbRate=4.5, surgeSpeed=10, surgeLead=20, swaySpeed=5,
+    tiltRate=0.8, tiltCap=0.4, cruiseThrottleRate=1.0, cruiseThrottleMax=1.0,
+    tiltBrake = { enabled=true, engageSpeed=30, satSpeed=100, minAngle=0.2618,
+                  maxAngle=0.5236, buttonMax=0.7854 } }   -- no slewRate
+  local p = Pilot.new(FEEL_NO); p:setMode({ tilt=false, surge="throttle" }, FEEL_NO); p:reset(meas())
+  local a = p:update(0.1, {}, fast())
+  t.near(a.pitch, 0.5236, 1e-4, "no slewRate => steps straight to maxAngle")
+end)
+
+t.test("MAN hands-off brake tilt is slewed (bounded first tick)", function()
+  local p = Pilot.new(FEEL_TB); p:setMode({ tilt=true, surge="position" }, FEEL_TB); p:reset(meas())
+  local a = p:update(0.1, {}, fast())   -- no tilt keys => autoArrest true => brake engages, slewed
+  t.truthy(a.pitch > 0 and a.pitch <= 0.3 * 0.1 + 1e-9, "MAN brake tilt slewed onto setpoint")
+end)

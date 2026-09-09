@@ -12,6 +12,7 @@ function Pilot.new(cfg)
     hold = false,
     policy = { tilt = false, surge = "position" },
     tilt = { pitch = 0, roll = 0 },
+    brakeTilt = { pitch = 0, roll = 0 },
     throttle = 0,
     yawWasHeld = false,
     climbWasHeld = false,
@@ -28,6 +29,7 @@ function Pilot:reset(meas)
   -- A CRUISE throttle detent (self.throttle) surviving a disengage would otherwise slam MAIN back on
   -- at re-engage with no W held (F2). tilt cleared for the same reason on any reseed.
   self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0
+  self.brakeTilt.pitch, self.brakeTilt.roll = 0, 0
   self.yawWasHeld = false
   self.climbWasHeld = false
   self.swayWasHeld = false
@@ -40,6 +42,7 @@ function Pilot:setMode(policy, feel)
   self.policy = policy or { tilt = false, surge = "position" }
   if feel then self.cfg = feel end
   self.tilt.pitch, self.tilt.roll, self.throttle = 0, 0, 0   -- transition: center tilt, drop throttle
+  self.brakeTilt.pitch, self.brakeTilt.roll = 0, 0
   self.yawWasHeld = false
   self.climbWasHeld = false
   self.swayWasHeld = false
@@ -51,6 +54,15 @@ function Pilot:setMaster(driftArrest) self.driftArrest = driftArrest ~= false en
 
 local function dirOf(held, neg, pos)
   return (held[pos] and 1 or 0) - (held[neg] and 1 or 0)
+end
+
+-- Move `cur` toward `target` by at most `step` (>=0). step==math.huge => jump to target (legacy);
+-- step==0 (dt==0 overrun) => hold. Used to slew the tilt-brake setpoint so the leveling loop can
+-- track it without overshooting the commanded brake angle.
+local function approach(cur, target, step)
+  local d = target - cur
+  if d > step then d = step elseif d < -step then d = -step end
+  return cur + d
 end
 
 -- Tilt-brake setpoint (fix #3): a speed-scaled pitch/roll tilt opposing the horizontal drift, held
@@ -177,6 +189,19 @@ function Pilot:update(dt, held, meas)
   -- Mode policy: tilt (MAN pitch/roll setpoint, auto-levels on release) and throttle
   -- (CRUISE held forward-throttle). Applied here so the existing altitude/heading/sway/surge
   -- ramp logic above stays untouched; positionHold (self.hold) never reaches this point.
+  -- Tilt-brake setpoint, slew-limited (2026-09-09): ramp the brake tilt in/out at a bounded rate
+  -- (cfg.tiltBrake.slewRate, rad/s) so the leveling loop tracks it without overshooting the
+  -- commanded angle -- the high-speed CRU brake was stepping to maxAngle and overshooting ~2.4x
+  -- at the starved loop rate, departing past the EMRCVR trip. nil slewRate => math.huge => instant
+  -- (legacy). Slews the brake contribution only; the pilot's manual self.tilt keeps its tiltRate.
+  -- `tilting` (computed above) already forces _brakeSetpoint to 0,0 in tilt modes while the pilot
+  -- steers, and is always false when policy.tilt is false, so one call serves both branches.
+  local slew = (self.cfg.tiltBrake and self.cfg.tiltBrake.slewRate) or math.huge
+  local step = slew * (dt or 0)
+  local bpRaw, brRaw = self:_brakeSetpoint(held, meas, tilting)
+  self.brakeTilt.pitch = approach(self.brakeTilt.pitch, bpRaw, step)
+  self.brakeTilt.roll  = approach(self.brakeTilt.roll,  brRaw, step)
+  local bp, br = self.brakeTilt.pitch, self.brakeTilt.roll
   if self.policy.tilt then
     local function toward(cur, dir, rate, cap)
       if dir ~= 0 then cur = cur + rate * dt * dir
@@ -187,12 +212,11 @@ function Pilot:update(dt, held, meas)
     end
     self.tilt.pitch = toward(self.tilt.pitch, dirOf(held, "pitchDown", "pitchUp"), c.tiltRate or 0.8, c.tiltCap or 0.4)
     self.tilt.roll  = toward(self.tilt.roll,  dirOf(held, "rollLeft",  "rollRight"), c.tiltRate or 0.8, c.tiltCap or 0.4)
-    local bp, br = self:_brakeSetpoint(held, meas, tilting)   -- 0,0 while tilting
-    -- Brake button (btn) intentionally SUMS onto the pilot's active tilt (btn overrides the
-    -- hands-off gate); the total is bounded by the envelope's demand clamp, not the tilt setpoint.
+    -- Brake tilt (slewed) SUMS onto the pilot's active tilt; the total is bounded by the envelope's
+    -- demand clamp, not the tilt setpoint.
     sp.pitch, sp.roll = self.tilt.pitch + bp, self.tilt.roll + br
   else
-    sp.pitch, sp.roll = self:_brakeSetpoint(held, meas, false)   -- 0,0 unless braking
+    sp.pitch, sp.roll = bp, br
   end
   if self.policy.surge == "throttle" then
     local d = dirOf(held, "surgeBack", "surgeFwd")
