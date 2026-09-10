@@ -113,8 +113,8 @@ t.test("vertical authority: per-mode alt kp/kd (position-hold path, unchanged by
   t.near(ldg.gains.alt.kd, 0.15, 1e-9, "LDG alt kd pinned")
 end)
 
-t.test("brakeTrim: symmetric (tilt-to-brake) only in CRU/DRN, forward-only elsewhere", function()
-  t.eq(tuning.forMode("CRUISE").feel.brakeTrim, true,  "CRU keeps symmetric brake lean")
+t.test("brakeTrim: symmetric only in DRN, forward-only elsewhere (CRU stripped 2026-09-10)", function()
+  t.eq(tuning.forMode("CRUISE").feel.brakeTrim, false, "CRU forward-only (brake-side lean stripped)")
   t.eq(tuning.forMode("DRN").feel.brakeTrim,    true,  "DRN keeps symmetric (pitch is its accel/decel)")
   t.eq(tuning.forMode("PRECISION").feel.brakeTrim, false, "PRE forward-only")
   t.eq(tuning.forMode("MAN").feel.brakeTrim,    false, "MAN forward-only")
