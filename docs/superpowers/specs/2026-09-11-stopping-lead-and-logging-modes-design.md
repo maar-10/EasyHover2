@@ -115,30 +115,34 @@ local LOOPLOG  = (LOG_MODE == "loop")
 ```
 Every full-logging branch stays gated on `LOGGING` (NO-OP otherwise, exactly as today).
 
-**B3. Minimal-impact loop-rate capture.** When `LOOPLOG`, the per-cycle cost is a **single
-number stored** — no 73-column sample table, no delta-encode, no format:
-```
--- per control cycle (loop-rate mode only):
-looprec:put(dt)     -- append dt (seconds) to a pre-sized numeric ring buffer
-```
-- New tiny module `fcs/bringup/looprec.lua`: a fixed-capacity numeric ring of `dt` values
-  (cap ~20000 ≈ 11 min at 30 Hz — RAM-safe), O(1) put, keeps the most-recent window.
-- **NO periodic I/O in loop mode** — the whole point. No 10 s timer append. The loop-rate
-  buffer is written ONLY on **P / exit** (off the flight path): format `t,dt_ms,hz` per sample
-  to `/eh2_looprate.csv` (+ optional carbide put), reconstructing `t` by cumulative dt from a
-  stored start epoch. Formatting numbers at dump time is cheap and off-loop (same principle as
-  full mode's deferred format).
-- Loop mode ignores the full-log P-stream machinery entirely; P in loop mode = "dump the
-  loop-rate ring now" (keep flying).
+**B3. Minimal-impact loop-rate capture + streaming.** Two independent knobs: capture resolution
+(kept maximal) and stream cadence (kept minimal).
+- **Capture -- every cycle, essentially free.** Per control cycle `looprec:put(dt)` appends one
+  number -- no 73-col sample, no delta-encode, no format, no allocation after warmup (no GC
+  hitch). Per-cycle is the resolution needed to catch single-tick dips (a 3.7 Hz dip IS one
+  cycle); coarser blurs them, finer is impossible. Keep FULL per-cycle resolution.
+- **Stream -- keep streaming, but rare + compact.** Capture being free + full-resolution in RAM
+  means the flush cadence does not affect resolution at all -- only durability and how often a
+  self-induced stall occurs. So flush INFREQUENTLY + CHEAPLY: every `LOOP_PERIOD` (default
+  **30 s**, tunable) `drain()` the newly-captured samples and append them as **integer-ms** to
+  `/eh2_looprate.csv` + carbide stream. One compact write per 30 s vs full-mode's 10 s x
+  73-col x 160-row write => ~3x fewer flushes, each ~70x cheaper. Reconstruct `t` by cumulative
+  dt from a stored start epoch. Full mode's 10 s path is UNTOUCHED (`LogStream.PERIOD` stays 10);
+  loop mode has its own `LOOP_PERIOD` + compact writer.
+- `fcs/bringup/looprec.lua`: `put(dt)` appends (safety cap -> drop-oldest so a stalled stream
+  can't OOM), `drain()` returns buffered samples and clears (per flush). P forces an immediate
+  drain+append (keep flying).
 
 **B4. NO-OP when not booted.** With `LOG_MODE` nil, both `LOGGING` and `LOOPLOG` are false and
-every branch is one boolean check per cycle — identical to today's no-op guarantee.
+every branch is one boolean check per cycle -- identical to today's no-op guarantee.
 
-### Why this measures the TRUE loop rate
+### Why this is the right resolution/impact balance
 
-Loop mode adds one numeric store per cycle and does zero periodic I/O, so it does not induce
-the 10 s stalls (nor any other periodic cost). The recorded dt series is the FCS's real
-cadence under a normal (non-log-perturbed) flight.
+Per-cycle capture is free, so we lose NO resolution. The only loop impact is the ~30 s compact
+flush -- rare, tiny, and at KNOWN times, so those few samples are trivially excluded in analysis.
+Fewer/cheaper writes is strictly better (less impact AND fewer self-artifacts); ~30 s balances
+that against durability + live-view. The recorded dt series is the FCS's real cadence except a
+handful of identifiable flush ticks.
 
 ### Verification
 
@@ -162,8 +166,9 @@ proves thrust-limited in-world); the residual ~20° base off-CoM cascade
 ## Acceptance
 
 - Rig: yaw/alt/strafe release overshoot with lead << without, rate-independent (5-20 Hz).
-- Loop-rate mode: per-cycle cost is a single numeric store, no periodic I/O; dumps a usable
-  per-cycle `t,dt_ms,hz` CSV. Both log modes no-op when not booted.
+- Loop-rate mode: per-cycle cost is a single numeric store (full resolution); streams compactly
+  (integer-ms) only every ~30 s (LOOP_PERIOD), far rarer/cheaper than full mode's 10 s flush;
+  produces a usable per-cycle `dt_ms` (t/hz reconstructable) CSV. Both log modes no-op when not booted.
 - Full suite green (`bash tests/run_headless.sh`), manifest IN SYNC.
 - OWED in-world: tune the six *StopLead/*StopMax + two caps values; fly a loop-rate-only test
   to capture the true (unperturbed) FCS loop rate; then deploy (build dist + manifests).

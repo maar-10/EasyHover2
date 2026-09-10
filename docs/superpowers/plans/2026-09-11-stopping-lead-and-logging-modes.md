@@ -4,7 +4,7 @@
 
 **Goal:** (A) Fix the yaw/altitude/strafe release overshoot with a velocity-anticipating capture (+modest CRU yaw/sway authority). (B) Add a boot-time Full / Loop-rate-only / None logging choice, with a minimal-impact loop-rate mode that measures the true FCS loop rate.
 
-**Architecture:** Two independent feature groups. A = `pilot.lua` capture change + `tuningdefaults` knobs, verified with the sim rig. B = a tiny numeric-ring module + boot-prompt change + `tools/flight.lua` mode gating. No control-law math changes beyond the setpoint capture.
+**Architecture:** Two independent feature groups. A = `pilot.lua` capture change + `tuningdefaults` knobs, verified with the sim rig. B = a tiny accumulate/drain buffer + boot-prompt change + `tools/flight.lua` mode gating (loop mode streams compactly on its own 30s cadence). No control-law math changes beyond the setpoint capture.
 
 **Tech Stack:** CC:Tweaked Lua (MC 1.21.1); headless suite `bash tests/run_headless.sh`; framework `tests/framework.lua` (`t.test`, `t.eq`, `t.near`, `t.truthy`); sim rig `tools/simrig*`.
 
@@ -276,31 +276,38 @@ EOF
 
 ---
 
-### Task 3: Loop-rate ring buffer (`fcs/bringup/looprec.lua` + test)
+### Task 3: Loop-rate accumulator (`fcs/bringup/looprec.lua` + test)
 
 **Files:**
 - Create: `fcs/bringup/looprec.lua`
 - Test: `tests/test_looprec.lua`
 
 **Interfaces:**
-- Produces: `Looprec.new(cap)` -> object with `:put(dt)` (O(1), stores a dt sample, wraps at cap keeping the most-recent window) and `:samples()` -> ordered list of dt values (oldest-first) for dump. `:count()` -> stored count.
+- Produces: `Looprec.new(cap)` -> object with `:put(dt)` (O(1) append; safety cap => drop-oldest
+  so a stalled stream can't OOM), `:drain()` -> ordered list of buffered dt (oldest-first) AND
+  clears the buffer (called each stream flush), `:count()` -> current buffered count. Design is
+  ACCUMULATE + DRAIN (loop mode STREAMS every LOOP_PERIOD): capture is per-cycle (full
+  resolution), the drain-and-append is the only I/O.
 
 - [ ] **Step 1: Write the failing test (`tests/test_looprec.lua`)**
 
 ```lua
 local t = require("tests.framework")
 local Looprec = require("fcs.bringup.looprec")
-t.test("looprec stores dt samples in order", function()
-  local r = Looprec.new(4)
+t.test("looprec accumulates dt in order; drain returns + clears", function()
+  local r = Looprec.new(100)
   r:put(0.05); r:put(0.06); r:put(0.05)
   t.eq(r:count(), 3)
-  local s = r:samples(); t.near(s[1], 0.05, 1e-9); t.near(s[3], 0.05, 1e-9)
+  local s = r:drain()
+  t.near(s[1], 0.05, 1e-9); t.near(s[2], 0.06, 1e-9); t.near(s[3], 0.05, 1e-9)
+  t.eq(r:count(), 0, "drain clears the buffer")
+  t.eq(#r:drain(), 0, "second drain is empty")
 end)
-t.test("looprec wraps at cap keeping the most-recent window", function()
+t.test("looprec safety cap drops oldest (no unbounded growth if stream stalls)", function()
   local r = Looprec.new(3)
-  for i=1,5 do r:put(i/100) end   -- 0.01..0.05, cap 3 keeps 0.03,0.04,0.05
+  for i=1,5 do r:put(i/100) end   -- 0.01..0.05, cap 3 keeps most-recent 0.03,0.04,0.05
   t.eq(r:count(), 3)
-  local s = r:samples(); t.near(s[1], 0.03, 1e-9); t.near(s[3], 0.05, 1e-9)
+  local s = r:drain(); t.near(s[1], 0.03, 1e-9); t.near(s[3], 0.05, 1e-9)
 end)
 ```
 
@@ -309,26 +316,26 @@ end)
 - [ ] **Step 3: Implement `fcs/bringup/looprec.lua`**
 
 ```lua
--- fcs/bringup/looprec.lua -- minimal-impact loop-rate recorder: a fixed-capacity numeric ring of
--- per-cycle dt (seconds). O(1) put, no allocation per put after warmup, no I/O. Dumped off the
--- flight path (P/exit) into t,dt_ms,hz. Used only in LOOP logging mode.
+-- fcs/bringup/looprec.lua -- minimal-impact loop-rate recorder for LOOP logging mode. Per control
+-- cycle put(dt) appends one number (full per-cycle resolution, ~free). The stream flush calls
+-- drain() every LOOP_PERIOD to get + clear the accumulated samples and append them compactly.
+-- Safety cap: if the stream stalls and the buffer exceeds cap, drop the OLDEST so it can't OOM
+-- (the recent window is what matters). No per-put I/O; drain formatting happens off the flight path.
 local Looprec = {}
 Looprec.__index = Looprec
 function Looprec.new(cap)
-  return setmetatable({ cap = cap or 20000, buf = {}, n = 0, head = 1, full = false }, Looprec)
+  return setmetatable({ cap = cap or 20000, buf = {} }, Looprec)
 end
 function Looprec:put(dt)
-  self.buf[self.head] = dt
-  self.head = self.head + 1
-  if self.head > self.cap then self.head = 1; self.full = true end
-  if not self.full then self.n = self.head - 1 end
+  local b = self.buf
+  b[#b + 1] = dt
+  if #b > self.cap then table.remove(b, 1) end   -- drop oldest past cap (stalled-stream guard)
 end
-function Looprec:count() return self.full and self.cap or self.n end
-function Looprec:samples()
-  local out, c = {}, self:count()
-  local start = self.full and self.head or 1        -- oldest-first
-  for i = 0, c - 1 do out[i + 1] = self.buf[((start - 1 + i) % self.cap) + 1] end
-  return out
+function Looprec:count() return #self.buf end
+function Looprec:drain()
+  local b = self.buf
+  self.buf = {}
+  return b
 end
 return Looprec
 ```
@@ -340,11 +347,11 @@ return Looprec
 ```bash
 git add fcs/bringup/looprec.lua tests/test_looprec.lua
 git commit -m "$(cat <<'EOF'
-feat(fcs): looprec -- minimal-impact loop-rate ring buffer
+feat(fcs): looprec -- accumulate/drain loop-rate buffer for LOOP streaming
 
-Fixed-capacity numeric ring of per-cycle dt for the LOOP logging mode: O(1) put,
-no per-cycle allocation, no I/O; dumped off the flight path. Keeps the recent
-window so a long test is RAM-safe.
+Per-cycle put(dt) appends one number (full resolution, ~free); drain() returns +
+clears for each stream flush. Safety cap drops oldest if a flush stalls. No
+per-put I/O -- the only cost is the periodic compact drain-and-append.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01AuZk7e2Urqp5S6uuXWcVpJ
@@ -449,7 +456,8 @@ EOF
 **Interfaces:**
 - Consumes: `_G.EH2_FLIGHTLOG` as `"full"|"loop"|true|nil`; `fcs.bringup.looprec`.
 - Produces: `LOGGING = (mode=="full" or mode==true)`, `LOOPLOG = (mode=="loop")`. In LOOP mode the
-  per-cycle path does `looprec:put(dt)` only; P/exit dumps `/eh2_looprate.csv`. No periodic timer append in loop mode.
+  per-cycle path does `looprec:put(dt)` only; a `LOOP_PERIOD` (30 s) timer drains+compact-appends
+  to `/eh2_looprate.csv` + carbide (streaming, but rare + cheap). Full mode's 10 s path untouched.
 
 - [ ] **Step 1: Write failing test (`tests/test_flight.lua`)**
 
@@ -499,18 +507,26 @@ local function logCycle(dt, m)
   ...
 end
 ```
-Add a loop-rate dump (off the flight path — called from the same P-key and exit handlers that call
-`dumpOnce`/`logFinish`, guarded by `LOOPLOG`): format `looprec:samples()` into `/eh2_looprate.csv`
-as `t,dt_ms,hz` (reconstruct `t` by cumulative dt from a stored start; `hz = dt>0 and 1/dt or 0`),
-then optionally `carbide put`. Do NOT arm the 10 s `LogStream` timer in loop mode (guard the timer
-task's dump with `LOGGING`, so loop mode does zero periodic I/O). Ensure the P-key handler in loop
-mode calls the loop dump, not `dumpOnce`.
+Add a loop-rate STREAM flush (off the flight path) on its OWN cadence `LOOP_PERIOD` (default 30 s,
+a `local LOOP_PERIOD = 30`), separate from full mode's `LogStream.PERIOD=10` which stays untouched:
+- A timer task (or the existing timer, branched on `LOOPLOG`) fires every `LOOP_PERIOD`, calls
+  `looprec:drain()`, and appends the samples COMPACTLY as **integer milliseconds** to
+  `/eh2_looprate.csv` (one `dt_ms` per sample; a header line with the start epoch written once so
+  `t` and `hz=1000/dt_ms` reconstruct at analysis time), then `carbide put` (pcall-guarded, same
+  as full mode). Draining keeps the append incremental (no re-write, no loss).
+- `P` in loop mode forces an immediate `drain`+append (keep flying); exit flushes the remainder.
+- The full-log 10 s `LogStream` timer/dump path stays guarded by `LOGGING`, so it is NOT armed in
+  loop mode. Loop mode's only periodic cost is the ~30 s compact drain-append.
+- Keep each flush cheap: format ints only (no `%.3f` per column), single `fs.open(...,"a")`
+  append. This is the deliberate resolution(full per-cycle) / impact(rare+compact write) balance.
 
 - [ ] **Step 5: Run to verify pass + smoke**
 
 Run: `bash tests/run_headless.sh` (green + manifest IN SYNC). Confirm by inspection that:
-(a) `LOOPLOG` path stores only dt and returns before any full-log work; (b) the 10 s stream timer
-dump is guarded by `LOGGING` (not armed in loop mode); (c) `nil` mode no-ops both.
+(a) `LOOPLOG` per-cycle path does only `looprec:put(dt)` and returns before any full-log work;
+(b) loop mode flushes on `LOOP_PERIOD` (30 s) via `drain`+compact-append, NOT the full 10 s
+73-col path; (c) the full `LogStream` 10 s dump stays guarded by `LOGGING` (untouched); (d) `nil`
+mode no-ops both.
 
 - [ ] **Step 6: Commit**
 
@@ -519,10 +535,11 @@ git add tools/flight.lua fcs/bringup/logmode.lua tests/test_flight.lua tests/tes
 git commit -m "$(cat <<'EOF'
 feat(fcs): loop-rate logging mode in the flight runtime
 
-_G.EH2_FLIGHTLOG now full/loop/nil (true==full legacy). LOOP mode records only
-per-cycle dt into looprec (one numeric store/cycle) and dumps t,dt_ms,hz on
-P/exit -- no periodic I/O, so it does not perturb the loop rate it measures.
-Full mode unchanged; both no-op when not booted.
+_G.EH2_FLIGHTLOG now full/loop/nil (true==full legacy). LOOP mode captures
+per-cycle dt into looprec (one store/cycle, full resolution) and STREAMS it
+compactly (integer-ms) every LOOP_PERIOD=30s via drain+append -- rare + cheap,
+so it barely perturbs the loop rate it measures. Full mode's 10s path unchanged;
+both no-op when not booted.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01AuZk7e2Urqp5S6uuXWcVpJ
