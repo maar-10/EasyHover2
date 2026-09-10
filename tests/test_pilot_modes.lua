@@ -339,3 +339,45 @@ t.test("Pilot:setMode zeros brakeTilt so the next tick ramps from 0, not stale",
   t.truthy(a.pitch > 0, "brake re-engages after setMode")
   t.truthy(a.pitch <= 0.3 * 0.1 + 1e-9, "brake tilt restarts from 0 after setMode, not from stale ramped value")
 end)
+
+-- Stopping-lead (2026-09-11): rate-command release captures ahead of the craft by its stopping
+-- distance (meas + lead*velocity, clamped to *StopMax) so residual velocity doesn't overshoot.
+local FEEL_LEAD = { headingRate=1.5, climbRate=6, surgeSpeed=10, surgeLead=20, swaySpeed=6,
+  tiltRate=0.8, tiltCap=0.4, cruiseThrottleRate=1.0, cruiseThrottleMax=1.0,
+  yawStopLead=0.6, altStopLead=0.4, swayStopLead=0.4, yawStopMax=0.5, altStopMax=6, swayStopMax=6 }
+
+t.test("yaw release captures heading + yawStopLead*yawRate", function()
+  local p = Pilot.new(FEEL_LEAD); p:setMode({ tilt=false, surge="throttle" }, FEEL_LEAD); p:reset(meas())
+  p:update(0.1, { yawRight = true }, { altitude=0, heading=1.0, swayPos=0, surgePos=0, yawRate=0.5 })
+  local sp = p:update(0.1, {}, { altitude=0, heading=1.0, swayPos=0, surgePos=0, yawRate=0.5 })  -- release
+  t.near(sp.heading, 1.0 + 0.6*0.5, 1e-6, "heading lead = yawStopLead*yawRate")
+end)
+
+t.test("climb release captures altitude + altStopLead*vSpeed", function()
+  local p = Pilot.new(FEEL_LEAD); p:setMode({ tilt=false, surge="throttle" }, FEEL_LEAD); p:reset(meas())
+  p:update(0.1, { up = true }, { altitude=50, heading=0, swayPos=0, surgePos=0, vSpeed=8 })
+  local sp = p:update(0.1, {}, { altitude=50, heading=0, swayPos=0, surgePos=0, vSpeed=8 })
+  t.near(sp.altitude, 50 + 0.4*8, 1e-6, "alt lead = altStopLead*vSpeed")
+end)
+
+t.test("sway release captures swayPos + swayStopLead*swayVel", function()
+  local p = Pilot.new(FEEL_LEAD); p:setMode({ tilt=false, surge="throttle" }, FEEL_LEAD); p:reset(meas())
+  p:update(0.1, { swayRight = true }, { altitude=0, heading=0, swayPos=2, surgePos=0, swayVel=5 })
+  local sp = p:update(0.1, {}, { altitude=0, heading=0, swayPos=2, surgePos=0, swayVel=5 })
+  t.near(sp.swayPos, 2 + 0.4*5, 1e-6, "sway lead = swayStopLead*swayVel")
+end)
+
+t.test("lead is clamped to *StopMax", function()
+  local p = Pilot.new(FEEL_LEAD); p:setMode({ tilt=false, surge="throttle" }, FEEL_LEAD); p:reset(meas())
+  p:update(0.1, { up = true }, { altitude=0, heading=0, swayPos=0, surgePos=0, vSpeed=100 })
+  local sp = p:update(0.1, {}, { altitude=0, heading=0, swayPos=0, surgePos=0, vSpeed=100 })  -- 0.4*100=40 -> clamp 6
+  t.near(sp.altitude, 6, 1e-6, "alt lead clamped to altStopMax")
+end)
+
+t.test("nil lead => bare capture (legacy)", function()
+  local NO = { headingRate=1.5, climbRate=6, surgeSpeed=10, surgeLead=20, swaySpeed=6, cruiseThrottleRate=1.0, cruiseThrottleMax=1.0 }
+  local p = Pilot.new(NO); p:setMode({ tilt=false, surge="throttle" }, NO); p:reset(meas())
+  p:update(0.1, { up = true }, { altitude=50, heading=0, swayPos=0, surgePos=0, vSpeed=8 })
+  local sp = p:update(0.1, {}, { altitude=50, heading=0, swayPos=0, surgePos=0, vSpeed=8 })
+  t.near(sp.altitude, 50, 1e-9, "no lead field => bare capture")
+end)

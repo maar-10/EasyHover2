@@ -65,6 +65,14 @@ local function approach(cur, target, step)
   return cur + d
 end
 
+-- Stopping-lead: capture ahead of the craft by its predicted stopping distance (lead*vel),
+-- clamped to +-maxd, so a rate-command release does not overshoot the captured hold. lead nil => 0.
+local function leadCap(base, vel, lead, maxd)
+  local d = (lead or 0) * (vel or 0)
+  if maxd then if d > maxd then d = maxd elseif d < -maxd then d = -maxd end end
+  return base + d
+end
+
 -- Tilt-brake setpoint (fix #3): a speed-scaled pitch/roll tilt opposing the horizontal drift, held
 -- as an attitude setpoint the leveling loop maintains. Engages when this craft is arresting (CRU at
 -- throttle 0 / MAN|DRN hands-off) under CPL, above the engage speed, in a tiltBrake-enabled mode.
@@ -115,7 +123,7 @@ function Pilot:update(dt, held, meas)
     sp.yawCmd = (c.headingRate or 0) * yd
     self.yawWasHeld = true
   else
-    if self.yawWasHeld then sp.heading = meas.heading or sp.heading; self.yawWasHeld = false end
+    if self.yawWasHeld then sp.heading = leadCap(meas.heading or sp.heading, meas.yawRate, c.yawStopLead, c.yawStopMax); self.yawWasHeld = false end
     sp.yawCmd = nil
   end
 
@@ -127,7 +135,7 @@ function Pilot:update(dt, held, meas)
     sp.climbCmd = (c.climbRate or 0) * ld
     self.climbWasHeld = true
   else
-    if self.climbWasHeld then sp.altitude = meas.altitude or sp.altitude; self.climbWasHeld = false end
+    if self.climbWasHeld then sp.altitude = leadCap(meas.altitude or sp.altitude, meas.vSpeed, c.altStopLead, c.altStopMax); self.climbWasHeld = false end
     sp.climbCmd = nil
   end
 
@@ -146,7 +154,7 @@ function Pilot:update(dt, held, meas)
       sp.strafeCmd = (c.swaySpeed or 0) * swd
       self.swayWasHeld = true
     else
-      if self.swayWasHeld then sp.swayPos = meas.swayPos or sp.swayPos; self.swayWasHeld = false end
+      if self.swayWasHeld then sp.swayPos = leadCap(meas.swayPos or sp.swayPos, meas.swayVel, c.swayStopLead, c.swayStopMax); self.swayWasHeld = false end
       sp.strafeCmd = nil
     end
 

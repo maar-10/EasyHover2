@@ -165,11 +165,20 @@ t.test("CRU/PRE pitch authority bumped for accel residual", function()
 end)
 
 t.test("retired leash keys are gone", function()
+  -- altStopLead/yawStopLead were retired here (2026-09-06, old setpoint-lead leash) and are
+  -- reintroduced (2026-09-11) with new stopping-lead semantics -- see the stopping-lead knobs
+  -- test in test_tuningdefaults.lua. Only the still-dead keys are checked here now.
   local d = require("fcs.io.tuningdefaults").get()
-  for _, k in ipairs({ "leadCapVert", "altStopLead", "leadCapHeading", "yawStopLead", "swayLead",
+  for _, k in ipairs({ "leadCapVert", "leadCapHeading", "swayLead",
                        "climbBoost", "climbRampTime" }) do
     t.eq(d.feel[k], nil, "base feel."..k.." retired")
   end
+end)
+
+t.test("CRU authority bump: yaw 0.8, sway 1.0", function()
+  local c = tuning.forMode("CRUISE").caps
+  t.near(c.yaw, 0.8, 1e-9); t.near(c.sway, 1.0, 1e-9)
+  t.near(tuning.forMode("MAN").caps.yaw, 0.6, 1e-9)   -- other modes unchanged
 end)
 
 t.test("attitude leveling: level-hold roll gains integrate a standing bank; MAN does not", function()

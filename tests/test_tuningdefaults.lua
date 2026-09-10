@@ -90,3 +90,9 @@ t.test("LDG attitude gains stiffened for disturbance rejection", function()
   t.near(d.modes.LDG.gains.pitch.kp, 0.16, 1e-9)
   t.near(d.modes.LDG.gains.roll.kp, 0.16, 1e-9)
 end)
+
+t.test("defaults expose stopping-lead knobs", function()
+  local d = require("fcs.io.tuningdefaults").get().feel
+  t.near(d.yawStopLead, 0.6, 1e-9); t.near(d.altStopLead, 0.4, 1e-9); t.near(d.swayStopLead, 0.4, 1e-9)
+  t.near(d.yawStopMax, 0.5, 1e-9); t.near(d.altStopMax, 6, 1e-9); t.near(d.swayStopMax, 6, 1e-9)
+end)
