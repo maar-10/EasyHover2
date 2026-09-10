@@ -31,6 +31,7 @@ local LogBuffer = require("fcs.bringup.logbuffer")
 local cfgsync   = require("fcs.comms.cfgsync")
 local cfgaccess = require("fcs.io.cfgaccess")
 local LogStream = require("fcs.bringup.logstream")
+local logmode   = require("fcs.bringup.logmode")
 
 local CH = { telemetry = 101, command = 102, ack = 103, health = 104 }
 -- Config responder pair (105/106): separate from telemetry/command/ack/health so live config
@@ -157,10 +158,16 @@ local heldRef = { held = {} }
 
 -- ---- Optional flight instrumentation (NO-OP unless launched via `fcslog`) ----
 -- `fcslog` sets _G.EH2_FLIGHTLOG before requiring this module; production `fcs`/`flight` do not,
--- so LOGGING stays false and every logging branch below is a single boolean check per cycle.
+-- so LOGGING/LOOPLOG stay false and every logging branch below is a single boolean check per
+-- cycle. Three-way mode (fcs.bringup.logmode): "full"|true -> LOGGING (legacy full 73-col CSV +
+-- 10s carbide stream, unchanged below); "loop" -> LOOPLOG (per-cycle dt only, streamed compactly
+-- every LOOP_PERIOD -- see logCycle/loopAppend); nil -> both false, all logging branches no-op.
 -- SCHEMA v2: slim CSV + logcodec delta encoding, same schema as tools/hover_test.lua so flight
 -- logs compare 1:1. tools/decode_flightlog.lua restores plain slim CSV.
-local LOGGING   = _G.EH2_FLIGHTLOG == true
+local LOG_MODE  = _G.EH2_FLIGHTLOG
+local LOGGING   = logmode.full(LOG_MODE)
+local LOOPLOG   = logmode.loop(LOG_MODE)
+local looprec   = LOOPLOG and require("fcs.bringup.looprec").new(20000) or nil
 local LOG_PATH  = "/eh2_flight_log.csv"
 local MAX_ROWS  = 3000   -- bound RAM/disk; the in-memory summary still covers the whole run
 local logSummary, logT0, logRows
@@ -211,6 +218,13 @@ local function logCycleBody(dt, m)
 end
 
 local function logCycle(dt, m)
+  -- LOOP mode: full per-cycle resolution at near-zero cost -- one table insert, no formatting,
+  -- no IO. Checked FIRST so full-log work (logCycleBody: os.epoch, loop:diag, sample table,
+  -- Inst.capture) stays gated behind LOGGING and never runs in loop mode.
+  if LOOPLOG then
+    if looprec and dt and dt > 0 then looprec:put(dt) end
+    return
+  end
   if not LOGGING then return end
   -- Logging must NEVER take the flight down: this runs inside controlTask, and an uncaught
   -- error here would unwind the whole parallel task group (safeShutdown = thrust off mid-air).
@@ -473,6 +487,37 @@ local function logFinish()
   end
 end
 
+-- ---- LOOP-rate streaming (LOOPLOG only) ----
+-- Deliberately separate from the full-log machinery above: LOOP mode's whole point is to measure
+-- the UNPERTURBED loop rate, so its off-path cost must be rare + tiny. logCycle already put the
+-- per-cycle work at "one table insert"; this section is the other half -- draining that buffer and
+-- appending it to disk/carbide on its own, much slower, LOOP_PERIOD cadence (vs. full mode's 10s
+-- LogStream.PERIOD, which stays untouched and unarmed in this mode -- see the task-group split below).
+local LOOP_PATH   = "/eh2_looprate.csv"
+local LOOP_PERIOD = 30   -- seconds; deliberately >> LogStream.PERIOD (10s) -- rare + cheap
+-- Drain looprec and append the samples as compact integer-ms lines to LOOP_PATH, one fs.open("a")
+-- append per call (creates the file on first use). A header line carrying the start epoch is
+-- written ONCE (only when the file doesn't exist yet) so analysis can reconstruct t = t0 + cumsum
+-- (dt_ms) and hz = 1000/dt_ms per sample without per-sample timestamps. Then carbide-put the
+-- whole (small, append-only) file, pcall-guarded exactly like the full-mode dumps -- a dead
+-- carbide server or a full disk must never take the flight down.
+local function loopAppend()
+  if not looprec then return end
+  local samples = looprec:drain()
+  if #samples == 0 then return end
+  local ok = pcall(function()
+    local isNew = not fs.exists(LOOP_PATH)
+    local f = fs.open(LOOP_PATH, "a")
+    if not f then return end
+    if isNew then f.write(("t0=%d\n"):format(os.epoch("utc"))) end
+    for i = 1, #samples do
+      f.write(tostring(math.floor(samples[i] * 1000 + 0.5)) .. "\n")
+    end
+    f.close()
+  end)
+  if not ok then print("(loop-rate append failed -- samples dropped this period)") end
+  pcall(function() shell.run("carbide", "put", LOOP_PATH) end)
+end
 
 -- ---- Tasks ----
 local lastT = os.epoch("utc")
@@ -623,7 +668,7 @@ local function statusTask()
     local spin = Status.spinner(tick, phase == "RUNNING" and "running" or "idle")
     pcall(function()
       term.setCursorPos(1, 1); term.clearLine(); term.write(Status.statusLine(phase, spin))
-      term.setCursorPos(1, 2); term.clearLine(); term.write(Status.logLine(LOGGING))
+      term.setCursorPos(1, 2); term.clearLine(); term.write(Status.logLine(LOGGING or LOOPLOG))
     end)
     tick = tick + 1
     sleep(0.25)
@@ -657,6 +702,31 @@ local function streamTask()
   end
 end
 
+-- LOOP mode: P forces an immediate drain+append (keep flying) -- lets an operator grab a
+-- checkpoint mid-flight without waiting for the next LOOP_PERIOD tick. Only meaningful when
+-- LOOPLOG; this task is only started in the LOOPLOG task group below, but the pcall keeps a
+-- stray/late key press from ever taking the flight down.
+local function loopKeyTask()
+  while true do
+    local _, key = os.pullEvent("char")
+    if key == "p" or key == "P" then
+      local ok, err = pcall(loopAppend)
+      if not ok then print("(loop-rate flush failed: " .. tostring(err) .. ")") end
+    end
+  end
+end
+
+-- Auto-append every LOOP_PERIOD seconds -- the ONLY periodic cost of loop mode. Deliberately its
+-- own task/cadence, not a LOOPLOG branch bolted onto streamTask, so the full-log 10s LogStream
+-- timer stays untouched and this task is simply never started outside the LOOPLOG task group.
+local function loopStreamTask()
+  while true do
+    sleep(LOOP_PERIOD)
+    local ok, err = pcall(loopAppend)
+    if not ok then print("(loop-rate flush failed: " .. tostring(err) .. ")") end
+  end
+end
+
 -- However the task group ends -- a returned task, or an unhandled error in any of them -- always
 -- drop thrust so a crash can't leave the craft with thrusters latched on.
 local function safeShutdown()
@@ -676,6 +746,13 @@ if LOGGING then
                         healthTask, statusTask, logKeyTask, configTask, streamTask)
   safeShutdown()
   logFinish()
+  if not ok then print("FCS EXIT: " .. tostring(err)) end
+elseif LOOPLOG then
+  local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
+                        healthTask, statusTask, loopKeyTask, configTask, loopStreamTask)
+  safeShutdown()
+  -- Exit flush: append whatever looprec still holds, same as logFinish's role for full mode.
+  pcall(loopAppend)
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 else
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
