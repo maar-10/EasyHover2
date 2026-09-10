@@ -57,10 +57,12 @@ local DEFAULTS = {
   -- mainRatio = 2*wFront/wMain balances the surge idle net-zero; source-derived for a 3x3x3 MAIN
   -- (thrust ~40.5) vs two 1x1 frontals (~1 each): 2/40.5 ~ 0.049. Tune in-world if the craft differs.
   keepWarm = { floor = 0.08, surgeFront = 0.07, mainRatio = 0.049 },
-  -- Translation->attitude decoupling feedforward gains (flight bf9a45213f). GLOBAL (a physical
-  -- thruster-vs-CoM property). Signs CANCEL the measured coupling (roll=-0.10*sway, pitch=+0.05*surge).
-  -- Conservative starting values, hard-bounded by authority*caps in the loop; tune from the next log.
-  decouple = { swayRoll = 0.10, surgePitch = -0.05, authority = 0.3 },
+  -- Translation->attitude decoupling FF: STRIPPED 2026-09-10 (defaulted off). It amplified the
+  -- coupling it was meant to cancel (rig: doubled the roll ring 22->43deg) and drove the CRU
+  -- limit cycle; the craft was stable before it. setDecouple + the loop FF (fcs/runtime/loop.lua)
+  -- are KEPT -- 0 gains are a no-op there -- so a correctly-signed, rig-validated version can be
+  -- rebuilt later. Prior values: swayRoll = 0.10, surgePitch = -0.05.
+  decouple = { swayRoll = 0, surgePitch = 0, authority = 0.3 },
   park = { groundClear = 1.0, parkDriftEps = 0.15, parkTiltBand = 0.12 },
   profile = { climbHeight = 6, climbRate = 0.6, holdTime = 20, descendRate = 0.7,
               landEps = 0.4, watchdog = 60, overshootMargin = 2, leadCap = 1.0 },
@@ -140,8 +142,10 @@ DEFAULTS.modes.CRUISE.feel.cruiseThrottleMax  = 1.0
 DEFAULTS.modes.CRUISE.gains.alt.kp     = 0.045
 DEFAULTS.modes.CRUISE.gains.alt.kd     = 0.08
 DEFAULTS.modes.CRUISE.feel.climbRate   = 12.0
--- CRU keeps the symmetric trim: the cruiser leans back to brake hard (wanted).
-DEFAULTS.modes.CRUISE.feel.brakeTrim   = true
+-- CRU trim STRIPPED to forward-only 2026-09-10 (was true / symmetric "lean back to brake hard").
+-- The brake-side lean fed the post-brake pitch ring (rig: brakeTrim=false drops it 44->9deg).
+-- Accel lean kept (forward-only, like every other mode). Revisit if a damped brake-lean is wanted.
+DEFAULTS.modes.CRUISE.feel.brakeTrim   = false
 -- Tilt-brake (fix #3): CRU's active braking, speed-scaled.
 DEFAULTS.modes.CRUISE.feel.tiltBrake.enabled = true
 -- CRUISE gets the fastest yaw turn-rate and lateral strafe of any mode -- it's the mode built for
