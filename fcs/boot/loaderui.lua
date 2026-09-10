@@ -247,17 +247,27 @@ local function pickUntilValid(concern)
   end
 end
 
+-- Pure mapper: pilot's logging-mode answer -> "full"/"loop"/nil/"?" ("?" = unrecognized,
+-- caller re-asks). Case-insensitive. Blank (bare enter) defaults to None (nil). No fs/peripheral/
+-- read() -- safe to unit test headless.
+function M.logModeOf(input)
+  input = (input or ""):lower()
+  if input == "f" or input == "full" then return "full" end
+  if input == "l" or input == "loop" then return "loop" end
+  if input == "n" or input == "none" or input == "" then return nil end   -- default = none
+  return "?"
+end
+
 -- After the config is written (and before the boot question), ask whether to run FCS
--- instrumentation/logging for THIS instance. y/yes -> true (logging on until reboot + N), n/no ->
--- false. Loops until a clear answer. Mirrors confirmBoot's read/lower/y-n idiom.
-local function confirmLogging()
+-- instrumentation/logging for THIS instance, and at what level: Full, Loop-rate only, or None.
+-- Loops until a clear answer. Mirrors confirmBoot's read/lower idiom.
+local function confirmLogMode()
   while true do
     print("")
-    write("Enable FCS logging? (Y/N): ")
-    local input = (read() or ""):lower()
-    if input == "y" or input == "yes" then return true end
-    if input == "n" or input == "no" then return false end
-    print("  please answer Y or N")
+    write("FCS logging?  [F]ull / [L]oop-rate only / [N]one: ")
+    local m = M.logModeOf(read())
+    if m ~= "?" then return m end
+    print("  please answer F, L, or N")
   end
 end
 
@@ -276,9 +286,9 @@ local function confirmBoot()
 end
 
 -- Full interactive boot loop. Only place read()/term is touched. On a successful resolve the config
--- is written, then the pilot is asked whether to enable logging and whether to boot: returns
--- `assembled {hw=,tuning=}, logging(bool)` if they choose to boot, or nil if they decline (config
--- saved, nothing started) or abort. The launcher turns `logging` into _G.EH2_FLIGHTLOG.
+-- is written, then the pilot is asked which logging mode to use and whether to boot: returns
+-- `assembled {hw=,tuning=}, mode("full"|"loop"|nil)` if they choose to boot, or nil if they decline
+-- (config saved, nothing started) or abort. The launcher turns `mode` into _G.EH2_FLIGHTLOG.
 function M.run()
   local sources = M.buildSources()
   print("EH2 BOOT LOADER")
@@ -298,10 +308,10 @@ function M.run()
       local tuningOut = (choices.tuning == "default") and TUNING_SESSION_PATH or TUNING_PATH
       print("OK -- wrote " .. HW_CONFIG_PATH .. " + " .. tuningOut)
       -- Logging choice comes first (per the boot-flow spec), then the boot question. The launcher
-      -- turns `logging` into _G.EH2_FLIGHTLOG for tools/flight.lua.
-      local logging = confirmLogging()
+      -- turns `mode` into _G.EH2_FLIGHTLOG for tools/flight.lua.
+      local mode = confirmLogMode()
       if confirmBoot() then
-        return assembled, logging
+        return assembled, mode
       end
       print("returning to console (config saved, FCS not started)")
       return nil

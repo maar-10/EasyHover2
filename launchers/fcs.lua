@@ -1,10 +1,11 @@
 package.path = "/?.lua;/?/init.lua;" .. package.path
 pcall(function() require("fcs.io.cut").all() end)
 local loaderui = require("fcs.boot.loaderui")
-local assembled, logging = loaderui.run()
+local assembled, mode = loaderui.run()
 if assembled then
-  -- Boot-chosen logging: tools/flight.lua reads _G.EH2_FLIGHTLOG (same hook the `fcslog` launcher
-  -- sets). Y at the "Enable FCS logging?" prompt -> instrumentation + P-to-upload for this instance.
-  _G.EH2_FLIGHTLOG = logging == true
+  -- Boot-chosen logging mode: tools/flight.lua reads _G.EH2_FLIGHTLOG (same hook the `fcslog` /
+  -- `fcslooprate` launchers set). "full"/"loop" at the logging prompt -> instrumentation for this
+  -- instance; nil (None, the default) -> no logging.
+  _G.EH2_FLIGHTLOG = mode
   require("tools.flight")
 end
