@@ -70,9 +70,11 @@ local DEFAULTS = {
     -- Rate-command batch (2026-09-06): these are now ACHIEVED-rate targets the pilot/scheme command
     -- and hold directly (via the gains.*.k{v,w,s} velocity-gain terms above), not setpoint-lead slew
     -- rates -- so the numbers are real physical rates again (rad/s, blk/s), not the inflated
-    -- lead-implied speeds the old leash scheme needed. leadCapVert/altStopLead/leadCapHeading/
-    -- yawStopLead/swayLead (the old setpoint-lead leash + release-edge capture) are RETIRED -- the
-    -- direct rate command replaces them; see fcs/input/pilot.lua.
+    -- lead-implied speeds the old leash scheme needed. leadCapVert/leadCapHeading/swayLead (the old
+    -- setpoint-lead leash) are RETIRED -- the direct rate command replaces them; see
+    -- fcs/input/pilot.lua. altStopLead/yawStopLead are REVIVED 2026-09-11 with new meaning: not the
+    -- old lead-while-held leash, but a one-shot stopping-lead capture on release (see feel block
+    -- below and the leadCap() helper in pilot.lua).
     headingRate    = 1.2,    -- rad/s achieved turn rate
 
     climbRate      = 8.0,    -- blk/s achieved climb rate

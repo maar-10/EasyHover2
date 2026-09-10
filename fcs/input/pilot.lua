@@ -127,9 +127,10 @@ function Pilot:update(dt, held, meas)
     sp.yawCmd = nil
   end
 
-  -- Lift: rate command while held (the scheme's velocity controller flies to it directly);
-  -- capture altitude on release for a bumpless position hold. See #9 -- this replaces the
-  -- old leadCapVert leash + altStopLead release-edge capture with a direct rate command.
+  -- Lift: rate command while held (the scheme's velocity controller flies to it directly). See #9 --
+  -- this replaces the old leadCapVert while-held leash with a direct rate command. Release still
+  -- captures altitude, now with a stopping-lead (altStopLead*vSpeed, revived 2026-09-11 with new
+  -- meaning -- see leadCap() below and DEFAULTS.feel in tuningdefaults.lua).
   local ld = dirOf(held, "down", "up")
   if ld ~= 0 then
     sp.climbCmd = (c.climbRate or 0) * ld
