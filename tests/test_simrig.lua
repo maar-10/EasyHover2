@@ -25,3 +25,19 @@ t.test("simrig: stripping FFs reduces the post-strafe roll ring", function()
   t.truthy(s.srecover.peakR < 25,
     string.format("stripped roll ring under 25deg (true ~20; got %.1f)", s.srecover.peakR))
 end)
+
+local LEAD = { yaw=0.6, alt=0.4, sway=0.4 }
+t.test("simrig: stopping-lead cuts yaw release overshoot", function()
+  local base = { spoolTime=0.5, tiltTrans=1.0, latRoll=0.6, surgePitch=0.1 }
+  local off = rig.run(base, { lead=false }, 0.1, rig.YAWREL)
+  local on  = rig.run(base, { lead=LEAD }, 0.1, rig.YAWREL)
+  t.truthy(on.yawrec.ovrH < off.yawrec.ovrH,
+    string.format("yaw overshoot lead=%.0f < nolead=%.0f", on.yawrec.ovrH, off.yawrec.ovrH))
+end)
+t.test("simrig: stopping-lead cuts altitude release overshoot", function()
+  local base = { spoolTime=0.5, tiltTrans=1.0, latRoll=0.6, surgePitch=0.1 }
+  local off = rig.run(base, { lead=false }, 0.1, rig.CLIMBREL)
+  local on  = rig.run(base, { lead=LEAD }, 0.1, rig.CLIMBREL)
+  t.truthy(on.altrec.ovrA < off.altrec.ovrA,
+    string.format("alt overshoot lead=%.1f < nolead=%.1f", on.altrec.ovrA, off.altrec.ovrA))
+end)

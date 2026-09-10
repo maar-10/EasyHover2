@@ -119,6 +119,13 @@ local function buildStack(simParams, toggles)
     if not on("trim") then cf.trimGain = 0 end
     if toggles.brakeTrim ~= nil then cf.brakeTrim = toggles.brakeTrim end   -- force fwd-only (false) or symmetric (true)
     if not on("tiltBrake") and cf.tiltBrake then cf.tiltBrake.enabled = false end
+    if toggles.lead ~= nil then
+      local L = toggles.lead or {}
+      cf.yawStopLead  = L.yaw;  cf.altStopLead  = L.alt;  cf.swayStopLead  = L.sway
+      cf.yawStopMax   = L.yawMax  or cf.yawStopMax
+      cf.altStopMax   = L.altMax  or cf.altStopMax
+      cf.swayStopMax  = L.swayMax or cf.swayStopMax
+    end
   end
   -- B-prototype hook: override attitude/hold gains on the live scheme PIDs (loop.scheme.inner for
   -- CRUISE). Lets the rig sweep "tilt-velocity damping" (pitch/roll kd) and gentler arrest
