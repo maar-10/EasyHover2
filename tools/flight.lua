@@ -173,8 +173,17 @@ local LOOP_PATH = "/eh2_looprate.csv"
 -- still be sitting there with its own t0 header. Without a truncate, a second flight's samples
 -- would append onto that old file and the t = t0 + cumsum(dt_ms) reconstruction would silently
 -- merge two unrelated flights into one timeline. Truncate ONCE, at boot, before the flight loop
--- starts, so every LOOPLOG session gets its own clean file (and its own fresh t0 on first append).
-if LOOPLOG then pcall(fs.delete, LOOP_PATH) end
+-- starts, so every LOOPLOG session gets its own clean file. The t0 header is also stamped HERE,
+-- at boot, not on the first periodic append -- otherwise the absolute timeline reconstruction
+-- would be offset by up to one LOOP_PERIOD (30s), since the first append can land anywhere in
+-- that window relative to session start.
+if LOOPLOG then
+  pcall(fs.delete, LOOP_PATH)
+  pcall(function()
+    local f = fs.open(LOOP_PATH, "w")
+    if f then f.write(("t0=%d\n"):format(os.epoch("utc"))); f.close() end
+  end)
+end
 local LOG_PATH  = "/eh2_flight_log.csv"
 local MAX_ROWS  = 3000   -- bound RAM/disk; the in-memory summary still covers the whole run
 local logSummary, logT0, logRows
@@ -507,16 +516,18 @@ end
 -- LogStream.PERIOD, which is untouched and unarmed in this mode -- see the task-group split below.
 local LOOP_PERIOD = 30   -- seconds; deliberately >> LogStream.PERIOD (10s) -- rare + cheap
 -- Drain looprec and append the samples as compact integer-ms lines to LOOP_PATH, one fs.open("a")
--- append per call (file was truncated once at boot above, so this always starts a fresh session).
--- A header line carrying the start epoch is written ONCE (only when the file doesn't exist yet, so
--- only on the very first append of the session) so analysis can reconstruct t = t0 + cumsum(dt_ms)
--- and hz = 1000/dt_ms per sample without per-sample timestamps. DISK ONLY -- no carbide here, so
--- this stays a small bounded write no matter how long the flight runs.
+-- append per call (file was truncated AND its t0 header stamped once at boot above, so this always
+-- starts a fresh session). Analysis reconstructs t = t0 + cumsum(dt_ms) and hz = 1000/dt_ms per
+-- sample without per-sample timestamps. DISK ONLY -- no carbide here, so this stays a small
+-- bounded write no matter how long the flight runs.
 local function loopDrainAppend()
   if not looprec then return end
   local samples = looprec:drain()
   if #samples == 0 then return end
   local ok = pcall(function()
+    -- t0 is normally already on disk from the boot-time stamp above; this lazy write is only a
+    -- fallback for the unlikely case that write failed, so the file never ends up missing its
+    -- header entirely.
     local isNew = not fs.exists(LOOP_PATH)
     local f = fs.open(LOOP_PATH, "a")
     if not f then return end

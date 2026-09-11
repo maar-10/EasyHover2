@@ -41,3 +41,10 @@ t.test("simrig: stopping-lead cuts altitude release overshoot", function()
   t.truthy(on.altrec.ovrA < off.altrec.ovrA,
     string.format("alt overshoot lead=%.1f < nolead=%.1f", on.altrec.ovrA, off.altrec.ovrA))
 end)
+t.test("simrig: stopping-lead cuts strafe release overshoot", function()
+  local base = { spoolTime=0.5, tiltTrans=1.0, latRoll=0.6, surgePitch=0.1 }
+  local off = rig.run(base, { lead=false }, 0.1, rig.STRAFEREL)
+  local on  = rig.run(base, { lead=LEAD }, 0.1, rig.STRAFEREL)
+  t.truthy(on.swayrec.ovrS < off.swayrec.ovrS,
+    string.format("strafe overshoot lead=%.1f < nolead=%.1f", on.swayrec.ovrS, off.swayrec.ovrS))
+end)

@@ -13,6 +13,7 @@ t.test("logModeOf maps F/L/N (any case) to full/loop/nil, else '?'", function()
   t.eq(M.logModeOf("f"), "full");  t.eq(M.logModeOf("Full"), "full")
   t.eq(M.logModeOf("l"), "loop");  t.eq(M.logModeOf("LOOP"), "loop")
   t.eq(M.logModeOf("n"), nil);     t.eq(M.logModeOf("none"), nil)
+  t.eq(M.logModeOf(""), nil)
   t.eq(M.logModeOf("x"), "?")
 end)
 
