@@ -24,12 +24,25 @@ local function newSim(p)
   local self = setmetatable({}, Sim)
   self.cfg = { mass = 4, g = 10, fPer = 38.5, inertia = 2, armX = 1, armZ = 1,
                fPerLat = 8, yawInertia = 8, fMain = 20, fFrontal = 10 }
+  local pp = p or {}
+  for _, k in ipairs({ "mass","inertia","fPer","fPerLat","fMain","fFrontal","armX","armZ","yawInertia" }) do
+    if pp[k] then self.cfg[k] = pp[k] end                 -- allow plant-param overrides for calibration
+  end
   self.steps = 15
   self.p = p or {}                     -- coupling/spool params
   self.spoolTime = self.p.spoolTime or 0.5
   self.tiltTrans = self.p.tiltTrans or 1.0    -- gain on g*sin(tilt) horizontal accel
   self.latRoll   = self.p.latRoll   or 0.0    -- off-CoM: lateral thruster -> roll moment arm
   self.surgePitch= self.p.surgePitch or 0.0   -- off-CoM: main/frontal -> pitch moment arm
+  -- Real-world realism knobs (default off => identical to before, existing tests unaffected):
+  self.noiseVel  = self.p.noiseVel  or 0.0    -- +-half-range uniform noise on the sensed velocity (blk/s)
+  self.biasVel   = self.p.biasVel   or 0.0    -- constant sway-velocity SENSOR bias (blk/s)
+  self.comRoll   = self.p.comRoll   or 0.0    -- constant CoM roll torque (N*m) -- lateral CoM offset
+  self.comPitch  = self.p.comPitch  or 0.0    -- constant CoM pitch torque -- fore/aft CoM offset
+  self.deadReckon= self.p.deadReckon          -- report dead-reckoned pos from the (noisy) sensed vel (like backend.lua)
+  self.drSway, self.drSurge = 0, 0            -- dead-reckoned positions
+  self.senseSway, self.senseSurge = 0, 0      -- last sensed (noisy) velocity reported to the FCS
+  if self.p.seed then math.randomseed(self.p.seed) end
   self.altitude, self.vSpeed = 0, 0
   self.pitch, self.pitchRate, self.roll, self.rollRate = 0, 0, 0, 0
   self.heading, self.yawRate = 0, 0
@@ -66,6 +79,8 @@ function Sim:step(dt)
     ym = ym + YAWD[id]*f; swayF = swayF + SWAYD[id]*f
     rm = rm + self.latRoll * SWAYD[id] * f        -- 3. off-CoM: sway thruster torques roll
   end
+  rm = rm + self.comRoll                          -- 4. constant CoM roll torque (lateral CoM offset)
+  local pmCom = self.comPitch                     -- constant CoM pitch torque (fore/aft CoM offset)
   -- main/frontal -> surge thrust (+ off-CoM pitch)
   local surgeF = 0
   local fm = (self.frac.MAIN or 0) * c.fMain
@@ -85,17 +100,27 @@ function Sim:step(dt)
   aSway  = aSway  + swayF/c.mass
   self.vSpeed = self.vSpeed + aV*dt; self.altitude = self.altitude + self.vSpeed*dt
   if self.altitude < 0 then self.altitude = 0; if self.vSpeed < 0 then self.vSpeed = 0 end end
-  self.pitchRate = self.pitchRate + (pm/c.inertia)*dt; self.pitch = self.pitch + self.pitchRate*dt
+  self.pitchRate = self.pitchRate + ((pm + pmCom)/c.inertia)*dt; self.pitch = self.pitch + self.pitchRate*dt
   self.rollRate  = self.rollRate  + (rm/c.inertia)*dt; self.roll  = self.roll  + self.rollRate*dt
   self.yawRate = self.yawRate + (ym/c.yawInertia)*dt; self.heading = self.heading + self.yawRate*dt
   self.swayVel  = self.swayVel  + aSway*dt;  self.swayPos  = self.swayPos  + self.swayVel*dt
   self.surgeVel = self.surgeVel + aSurge*dt; self.surgePos = self.surgePos + self.surgeVel*dt
+  -- Sensor model: the FCS reads a NOISY/biased velocity and (like fcs/io/backend.lua) dead-reckons
+  -- position by integrating THAT. This is what the perfect-sensor rig lacked -- the drift source.
+  local function noise() return (self.noiseVel > 0) and (self.noiseVel * (2*math.random() - 1)) or 0 end
+  self.senseSway  = self.swayVel  + self.biasVel + noise()
+  self.senseSurge = self.surgeVel + noise()
+  self.drSway  = self.drSway  + self.senseSway  * dt
+  self.drSurge = self.drSurge + self.senseSurge * dt
 end
 function Sim:sensors()
   return { altitude=self.altitude, baroMsl=self.altitude, vSpeed=self.vSpeed,
     pitch=self.pitch, pitchRate=self.pitchRate, roll=self.roll, rollRate=self.rollRate,
     heading=self.heading, rawHeading=math.deg(self.heading), yawRate=self.yawRate,
-    swayVel=self.swayVel, surgeVel=self.surgeVel, swayPos=self.swayPos, surgePos=self.surgePos,
+    swayVel = (self.noiseVel>0 or self.biasVel~=0) and self.senseSway or self.swayVel,
+    surgeVel = (self.noiseVel>0) and self.senseSurge or self.surgeVel,
+    swayPos = self.deadReckon and self.drSway or self.swayPos,
+    surgePos = self.deadReckon and self.drSurge or self.surgePos,
     groundDist=math.max(0,self.altitude), onGround=(self.altitude<=0.001 and math.abs(self.vSpeed)<0.05) }
 end
 
