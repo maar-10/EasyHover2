@@ -1,0 +1,1 @@
+package.path="/?.lua;/?/init.lua;"..package.path;_G.EH2_FLIGHTLOG="loop"require("tools.flight")

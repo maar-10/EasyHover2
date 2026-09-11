@@ -1,0 +1,1 @@
+local a={}a.__index=a;function a.new(b)return setmetatable({cap=b or 20000,buf={}},a)end;function a:put(c)local d=self.buf;d[#d+1]=c;if#d>self.cap then table.remove(d,1)end end;function a:count()return#self.buf end;function a:drain()local d=self.buf;self.buf={}return d end;return a

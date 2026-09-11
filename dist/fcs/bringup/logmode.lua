@@ -1,0 +1,1 @@
+local a={}function a.full(b)return b=="full"or b==true end;function a.loop(b)return b=="loop"end;return a
