@@ -8,6 +8,15 @@ t.test("loaderui module loads clean (no peripheral/modem/disk access at load tim
   t.eq(ok, true)
 end)
 
+t.test("logModeOf maps F/L/N (any case) to full/loop/nil, else '?'", function()
+  local M = require("fcs.boot.loaderui")
+  t.eq(M.logModeOf("f"), "full");  t.eq(M.logModeOf("Full"), "full")
+  t.eq(M.logModeOf("l"), "loop");  t.eq(M.logModeOf("LOOP"), "loop")
+  t.eq(M.logModeOf("n"), nil);     t.eq(M.logModeOf("none"), nil)
+  t.eq(M.logModeOf(""), nil)
+  t.eq(M.logModeOf("x"), "?")
+end)
+
 local M = require("fcs.boot.loaderui")
 local hwconfig = require("fcs.io.hwconfig")
 local cfgspec = require("fcs.io.cfgspec")

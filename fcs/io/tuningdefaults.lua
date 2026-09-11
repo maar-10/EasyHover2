@@ -70,15 +70,26 @@ local DEFAULTS = {
     -- Rate-command batch (2026-09-06): these are now ACHIEVED-rate targets the pilot/scheme command
     -- and hold directly (via the gains.*.k{v,w,s} velocity-gain terms above), not setpoint-lead slew
     -- rates -- so the numbers are real physical rates again (rad/s, blk/s), not the inflated
-    -- lead-implied speeds the old leash scheme needed. leadCapVert/altStopLead/leadCapHeading/
-    -- yawStopLead/swayLead (the old setpoint-lead leash + release-edge capture) are RETIRED -- the
-    -- direct rate command replaces them; see fcs/input/pilot.lua.
+    -- lead-implied speeds the old leash scheme needed. leadCapVert/leadCapHeading/swayLead (the old
+    -- setpoint-lead leash) are RETIRED -- the direct rate command replaces them; see
+    -- fcs/input/pilot.lua. altStopLead/yawStopLead are REVIVED 2026-09-11 with new meaning: not the
+    -- old lead-while-held leash, but a one-shot stopping-lead capture on release (see feel block
+    -- below and the leadCap() helper in pilot.lua).
     headingRate    = 1.2,    -- rad/s achieved turn rate
 
     climbRate      = 8.0,    -- blk/s achieved climb rate
     surgeSpeed     = 10.0,
     surgeLead      = 20.0,   -- surge stays lead-based (not rate-commanded, see fcs/control/translate.lua)
     swaySpeed      = 6.0,    -- blk/s achieved strafe rate
+
+    -- Stopping-lead (2026-09-11): rate-command release captures ahead by lead*velocity (clamped
+    -- to *StopMax), so releasing a fast yaw/climb/strafe does not overshoot the hold. TUNE in-world.
+    yawStopLead    = 0.6,   -- s (heading lead = yawStopLead*yawRate)
+    altStopLead    = 0.4,   -- s (altitude lead = altStopLead*vSpeed)
+    swayStopLead   = 0.4,   -- s (swayPos lead = swayStopLead*swayVel)
+    yawStopMax     = 0.5,   -- rad (~29deg) clamp
+    altStopMax     = 6,     -- blk clamp
+    swayStopMax    = 6,     -- blk clamp
 
     trimGain       = 0.18,  -- forward-trim ff gain (was 0.30): reduced magnitude, same reaction --
                             -- the nose-down accel lean was too harsh. First estimate -- TUNE in-world.
@@ -154,6 +165,10 @@ DEFAULTS.modes.CRUISE.feel.headingRate = 1.5
 DEFAULTS.modes.CRUISE.feel.swaySpeed   = 10.0
 DEFAULTS.modes.CRUISE.gains.yaw.kw     = 0.9
 DEFAULTS.modes.CRUISE.gains.sway.ks    = 0.5
+-- Authority (2026-09-11): yaw/strafe railed at caps (sat=1 in flight) -> slow. Modest CRU bump so
+-- the controller can command more yaw/lateral thrust; the envelope still clamps. TUNE in-world.
+DEFAULTS.modes.CRUISE.caps.yaw  = 0.8   -- was 0.6
+DEFAULTS.modes.CRUISE.caps.sway = 1.0   -- was 0.9
 -- gains.pitch.kp/caps.pitch inherit the raised PRE base (0.15/0.3) via the deep-copies above --
 -- CRU gets the same pitch-authority bump for the same reason (accel trim residual).
 

@@ -5,10 +5,17 @@ local rig = require("tools.simrig")
 local function fmt(x) return string.format("%5.1f", x) end
 local function deg(x) return x * 180 / math.pi end
 
--- Fly a scenario script; return {phaseTag = {peakP, peakR, endP, endR}}.
+-- Fly a scenario script; return {phaseTag = {peakP, peakR, endP, endR, ovrH, ovrA, ovrS}}.
+-- ovrH/ovrA/ovrS: max |measured - captured setpoint| of heading(deg)/altitude(blocks)/
+-- swayPos(blocks), where "captured setpoint" is pilot.sp.heading/altitude/swayPos -- the value
+-- the release-edge leadCap() (fcs/input/pilot.lua) writes on the FIRST tick of that phase (with
+-- lead OFF this is a bare zero-order capture of the measurement; with lead ON it is captured
+-- ahead by the stopping distance). This is the actual "ring past the held setpoint" the
+-- stopping-lead is meant to shrink -- NOT the raw release-tick measurement, which the leaded
+-- setpoint is deliberately ahead of.
 local function run(simParams, toggles, dt, script)
   local ctx = rig.buildStack(simParams, toggles)
-  local F, S = ctx.flight, ctx.sim
+  local F, S, P = ctx.flight, ctx.sim, ctx.pilot
   F:handleCommand({ k = "gndSafety", on = false })
   F:handleCommand({ k = "flightMode", id = "CRUISE" })
   F:handleCommand({ k = "masterMode", id = "CPL" })
@@ -16,13 +23,22 @@ local function run(simParams, toggles, dt, script)
   local ph = {}
   for _, seg in ipairs(script) do
     local peakP, peakR, lastP, lastR = 0, 0, 0, 0
-    for _ = 1, math.floor(seg.secs / dt) do
-      F:step(dt, seg.held, S:sensors()); S:step(dt)
+    local ovrH, ovrA, ovrS = 0, 0, 0
+    local capH, capA, capS
+    local n = math.floor(seg.secs / dt)
+    for i = 1, n do
+      F:step(dt, seg.held, S:sensors())
+      if i == 1 then capH, capA, capS = deg(P.sp.heading), P.sp.altitude, P.sp.swayPos end
+      S:step(dt)
       local m = S:sensors()
       peakP = math.max(peakP, math.abs(deg(m.pitch))); peakR = math.max(peakR, math.abs(deg(m.roll)))
       lastP, lastR = deg(m.pitch), deg(m.roll)
+      ovrH = math.max(ovrH, math.abs(deg(m.heading) - capH))
+      ovrA = math.max(ovrA, math.abs(m.altitude - capA))
+      ovrS = math.max(ovrS, math.abs(m.swayPos - capS))
     end
-    ph[seg.tag] = { peakP = peakP, peakR = peakR, endP = lastP, endR = lastR }
+    ph[seg.tag] = { peakP = peakP, peakR = peakR, endP = lastP, endR = lastR,
+      ovrH = ovrH, ovrA = ovrA, ovrS = ovrS }
   end
   return ph
 end
@@ -32,6 +48,15 @@ local SURGE = { { secs = 6, held = { up = true }, tag = "climb" }, { secs = 3, h
   { secs = 8, held = {}, tag = "recover" } }
 local STRAFE = { { secs = 6, held = { up = true }, tag = "climb" }, { secs = 3, held = {}, tag = "s0" },
   { secs = 5, held = { swayRight = true }, tag = "strafe" }, { secs = 8, held = {}, tag = "srecover" } }
+
+-- Release scenarios: hold a rate command then let go, isolating the stopping-lead's effect on
+-- the post-release ring past the capture point (see ovrH/ovrA/ovrS above).
+local YAWREL   = { { secs = 6, held = { up = true }, tag = "climb" }, { secs = 3, held = {}, tag = "s0" },
+  { secs = 4, held = { yawRight = true }, tag = "turn" }, { secs = 8, held = {}, tag = "yawrec" } }
+local CLIMBREL = { { secs = 3, held = {}, tag = "s0" }, { secs = 5, held = { up = true }, tag = "climb" },
+  { secs = 8, held = {}, tag = "altrec" } }
+local STRAFEREL= { { secs = 6, held = { up = true }, tag = "climb" }, { secs = 3, held = {}, tag = "s0" },
+  { secs = 4, held = { swayRight = true }, tag = "strafe" }, { secs = 8, held = {}, tag = "swayrec" } }
 
 local function report()
   local out = {}; local function w(s) out[#out + 1] = s end
@@ -80,7 +105,25 @@ local function report()
       w(string.format("%-26s | pitch %s | roll %s", c[1], fmt(a.recover.peakP), fmt(b.srecover.peakR)))
     end
   end
+  -- Stopping-lead release-overshoot table: lead ON vs OFF on identical physics, across dt, proving
+  -- the capture-ahead-of-stopping-distance (Task 1) actually cuts the post-release ring.
+  local LEAD = { yaw = 0.6, alt = 0.4, sway = 0.4 }
+  w("")
+  w("=== stopping-lead release overshoot: lead ON vs OFF (same physics) ===")
+  for _, dt in ipairs({ 0.1, 0.2 }) do
+    w("")
+    w(string.format("--- dt=%.2f (%.0f Hz) ---", dt, 1 / dt))
+    local yOff = run(P, { lead = false }, dt, YAWREL);    local yOn = run(P, { lead = LEAD }, dt, YAWREL)
+    local aOff = run(P, { lead = false }, dt, CLIMBREL);  local aOn = run(P, { lead = LEAD }, dt, CLIMBREL)
+    local sOff = run(P, { lead = false }, dt, STRAFEREL); local sOn = run(P, { lead = LEAD }, dt, STRAFEREL)
+    w(string.format("%-8s | %-18s | %-18s | %-18s", "", "yaw ovrH (deg)", "alt ovrA (blk)", "strafe ovrS (blk)"))
+    w(string.format("%-8s |    OFF %s          |    OFF %s          |    OFF %s",
+      "", fmt(yOff.yawrec.ovrH), fmt(aOff.altrec.ovrA), fmt(sOff.swayrec.ovrS)))
+    w(string.format("%-8s |    ON  %s          |    ON  %s          |    ON  %s",
+      "", fmt(yOn.yawrec.ovrH), fmt(aOn.altrec.ovrA), fmt(sOn.swayrec.ovrS)))
+  end
   return table.concat(out, "\n")
 end
 
-return { run = run, report = report, SURGE = SURGE, STRAFE = STRAFE }
+return { run = run, report = report, SURGE = SURGE, STRAFE = STRAFE,
+  YAWREL = YAWREL, CLIMBREL = CLIMBREL, STRAFEREL = STRAFEREL }

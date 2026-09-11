@@ -1,0 +1,6 @@
+local t = require("tests.framework")
+local L = require("fcs.bringup.logmode")
+t.test("logmode flags", function()
+  t.eq(L.full("full"), true);  t.eq(L.full(true), true); t.eq(L.full("loop"), false); t.eq(L.full(nil), false)
+  t.eq(L.loop("loop"), true);  t.eq(L.loop("full"), false); t.eq(L.loop(nil), false)
+end)
