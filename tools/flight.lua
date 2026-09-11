@@ -161,13 +161,20 @@ local heldRef = { held = {} }
 -- so LOGGING/LOOPLOG stay false and every logging branch below is a single boolean check per
 -- cycle. Three-way mode (fcs.bringup.logmode): "full"|true -> LOGGING (legacy full 73-col CSV +
 -- 10s carbide stream, unchanged below); "loop" -> LOOPLOG (per-cycle dt only, streamed compactly
--- every LOOP_PERIOD -- see logCycle/loopAppend); nil -> both false, all logging branches no-op.
+-- every LOOP_PERIOD -- see logCycle/loopDrainAppend); nil -> both false, all logging branches no-op.
 -- SCHEMA v2: slim CSV + logcodec delta encoding, same schema as tools/hover_test.lua so flight
 -- logs compare 1:1. tools/decode_flightlog.lua restores plain slim CSV.
 local LOG_MODE  = _G.EH2_FLIGHTLOG
 local LOGGING   = logmode.full(LOG_MODE)
 local LOOPLOG   = logmode.loop(LOG_MODE)
 local looprec   = LOOPLOG and require("fcs.bringup.looprec").new(20000) or nil
+local LOOP_PATH = "/eh2_looprate.csv"
+-- CC's filesystem persists across reboots, so a stale file from a PRIOR fcslooprate session would
+-- still be sitting there with its own t0 header. Without a truncate, a second flight's samples
+-- would append onto that old file and the t = t0 + cumsum(dt_ms) reconstruction would silently
+-- merge two unrelated flights into one timeline. Truncate ONCE, at boot, before the flight loop
+-- starts, so every LOOPLOG session gets its own clean file (and its own fresh t0 on first append).
+if LOOPLOG then pcall(fs.delete, LOOP_PATH) end
 local LOG_PATH  = "/eh2_flight_log.csv"
 local MAX_ROWS  = 3000   -- bound RAM/disk; the in-memory summary still covers the whole run
 local logSummary, logT0, logRows
@@ -489,19 +496,23 @@ end
 
 -- ---- LOOP-rate streaming (LOOPLOG only) ----
 -- Deliberately separate from the full-log machinery above: LOOP mode's whole point is to measure
--- the UNPERTURBED loop rate, so its off-path cost must be rare + tiny. logCycle already put the
--- per-cycle work at "one table insert"; this section is the other half -- draining that buffer and
--- appending it to disk/carbide on its own, much slower, LOOP_PERIOD cadence (vs. full mode's 10s
--- LogStream.PERIOD, which stays untouched and unarmed in this mode -- see the task-group split below).
-local LOOP_PATH   = "/eh2_looprate.csv"
+-- the UNPERTURBED loop rate, so its off-path cost must be rare + tiny AND CONSTANT over the whole
+-- flight. logCycle already put the per-cycle work at "one table insert"; this section is the other
+-- half. The periodic LOOP_PERIOD tick below does ONLY the bounded disk append (drain -> a handful
+-- of integer-ms lines) -- it deliberately does NOT carbide-put, because that would re-upload the
+-- WHOLE (ever-growing) file every period, making the periodic flush stall grow over the flight and
+-- degrading the very measurement it exists to protect. carbide upload instead happens only on the
+-- P key (manual, operator-requested) and once on exit (final upload of the complete file) -- see
+-- loopKeyTask / the LOOPLOG exit branch below. LOOP_PERIOD (30s) stays >> full mode's 10s
+-- LogStream.PERIOD, which is untouched and unarmed in this mode -- see the task-group split below.
 local LOOP_PERIOD = 30   -- seconds; deliberately >> LogStream.PERIOD (10s) -- rare + cheap
 -- Drain looprec and append the samples as compact integer-ms lines to LOOP_PATH, one fs.open("a")
--- append per call (creates the file on first use). A header line carrying the start epoch is
--- written ONCE (only when the file doesn't exist yet) so analysis can reconstruct t = t0 + cumsum
--- (dt_ms) and hz = 1000/dt_ms per sample without per-sample timestamps. Then carbide-put the
--- whole (small, append-only) file, pcall-guarded exactly like the full-mode dumps -- a dead
--- carbide server or a full disk must never take the flight down.
-local function loopAppend()
+-- append per call (file was truncated once at boot above, so this always starts a fresh session).
+-- A header line carrying the start epoch is written ONCE (only when the file doesn't exist yet, so
+-- only on the very first append of the session) so analysis can reconstruct t = t0 + cumsum(dt_ms)
+-- and hz = 1000/dt_ms per sample without per-sample timestamps. DISK ONLY -- no carbide here, so
+-- this stays a small bounded write no matter how long the flight runs.
+local function loopDrainAppend()
   if not looprec then return end
   local samples = looprec:drain()
   if #samples == 0 then return end
@@ -516,6 +527,11 @@ local function loopAppend()
     f.close()
   end)
   if not ok then print("(loop-rate append failed -- samples dropped this period)") end
+end
+-- Upload the whole (small, append-only) LOOP_PATH file, pcall-guarded exactly like the full-mode
+-- dumps -- a dead carbide server or a full disk must never take the flight down. Called only from
+-- the P key (manual) and the exit flush, NEVER from the periodic tick (see loopDrainAppend above).
+local function loopUpload()
   pcall(function() shell.run("carbide", "put", LOOP_PATH) end)
 end
 
@@ -702,27 +718,30 @@ local function streamTask()
   end
 end
 
--- LOOP mode: P forces an immediate drain+append (keep flying) -- lets an operator grab a
--- checkpoint mid-flight without waiting for the next LOOP_PERIOD tick. Only meaningful when
--- LOOPLOG; this task is only started in the LOOPLOG task group below, but the pcall keeps a
--- stray/late key press from ever taking the flight down.
+-- LOOP mode: P forces an immediate drain+append AND uploads the current file (keep flying) --
+-- lets an operator grab a checkpoint mid-flight without waiting for exit. This is the ONLY
+-- periodic-ish path allowed to carbide-put (operator-requested, not a timer), same policy as
+-- full mode's P key. Only meaningful when LOOPLOG; this task is only started in the LOOPLOG task
+-- group below, but the pcall keeps a stray/late key press from ever taking the flight down.
 local function loopKeyTask()
   while true do
     local _, key = os.pullEvent("char")
     if key == "p" or key == "P" then
-      local ok, err = pcall(loopAppend)
+      local ok, err = pcall(function() loopDrainAppend(); loopUpload() end)
       if not ok then print("(loop-rate flush failed: " .. tostring(err) .. ")") end
     end
   end
 end
 
--- Auto-append every LOOP_PERIOD seconds -- the ONLY periodic cost of loop mode. Deliberately its
--- own task/cadence, not a LOOPLOG branch bolted onto streamTask, so the full-log 10s LogStream
--- timer stays untouched and this task is simply never started outside the LOOPLOG task group.
+-- Disk-append every LOOP_PERIOD seconds -- the ONLY periodic cost of loop mode, and a CONSTANT
+-- one: no carbide call here, so this stays a small bounded write no matter how long the flight
+-- runs (see loopDrainAppend). Deliberately its own task/cadence, not a LOOPLOG branch bolted onto
+-- streamTask, so the full-log 10s LogStream timer stays untouched and this task is simply never
+-- started outside the LOOPLOG task group.
 local function loopStreamTask()
   while true do
     sleep(LOOP_PERIOD)
-    local ok, err = pcall(loopAppend)
+    local ok, err = pcall(loopDrainAppend)
     if not ok then print("(loop-rate flush failed: " .. tostring(err) .. ")") end
   end
 end
@@ -751,8 +770,10 @@ elseif LOOPLOG then
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
                         healthTask, statusTask, loopKeyTask, configTask, loopStreamTask)
   safeShutdown()
-  -- Exit flush: append whatever looprec still holds, same as logFinish's role for full mode.
-  pcall(loopAppend)
+  -- Exit flush: append whatever looprec still holds, then ONE final full-file upload -- same
+  -- role logFinish() plays for full mode. This, and the P key above, are the only two places
+  -- carbide is called from loop mode; the periodic tick (loopStreamTask) never uploads.
+  pcall(function() loopDrainAppend(); loopUpload() end)
   if not ok then print("FCS EXIT: " .. tostring(err)) end
 else
   local ok, err = pcall(parallel.waitForAny, controlTask, inputTask, telemetryTask, commandTask,
