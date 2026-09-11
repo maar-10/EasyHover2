@@ -175,9 +175,9 @@ t.test("retired leash keys are gone", function()
   end
 end)
 
-t.test("CRU authority bump: yaw 0.8, sway 1.0", function()
+t.test("CRU caps: authority bump reverted, back to base yaw 0.6 / sway 0.9", function()
   local c = tuning.forMode("CRUISE").caps
-  t.near(c.yaw, 0.8, 1e-9); t.near(c.sway, 1.0, 1e-9)
+  t.near(c.yaw, 0.6, 1e-9); t.near(c.sway, 0.9, 1e-9)
   t.near(tuning.forMode("MAN").caps.yaw, 0.6, 1e-9)   -- other modes unchanged
 end)
 

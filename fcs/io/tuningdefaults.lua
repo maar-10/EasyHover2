@@ -165,10 +165,11 @@ DEFAULTS.modes.CRUISE.feel.headingRate = 1.5
 DEFAULTS.modes.CRUISE.feel.swaySpeed   = 10.0
 DEFAULTS.modes.CRUISE.gains.yaw.kw     = 0.9
 DEFAULTS.modes.CRUISE.gains.sway.ks    = 0.5
--- Authority (2026-09-11): yaw/strafe railed at caps (sat=1 in flight) -> slow. Modest CRU bump so
--- the controller can command more yaw/lateral thrust; the envelope still clamps. TUNE in-world.
-DEFAULTS.modes.CRUISE.caps.yaw  = 0.8   -- was 0.6
-DEFAULTS.modes.CRUISE.caps.sway = 1.0   -- was 0.9
+-- Authority: CRU caps bump (yaw .6->.8, sway .9->1.0) REVERTED 2026-09-11. It reintroduced the
+-- hover roll<->sway drift: with the decouple stripped (off-CoM roll torque now uncompensated),
+-- the extra lateral authority pushed the hover hold's loop gain past its stability margin ->
+-- slow limit cycle. CRU inherits base caps (yaw 0.6, sway 0.9) again. The "yaw/strafe slow"
+-- authority gain must wait for the base-cascade fix (compensate off-CoM) so more authority is safe.
 -- gains.pitch.kp/caps.pitch inherit the raised PRE base (0.15/0.3) via the deep-copies above --
 -- CRU gets the same pitch-authority bump for the same reason (accel trim residual).
 
